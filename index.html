@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>오늘 수업</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg: #f5f4f0;
+  --surface: #ffffff;
+  --border: #e8e6e0;
+  --text: #1a1a1a;
+  --text2: #666;
+  --text3: #aaa;
+  --accent: #2d6a4f;
+  --accent2: #52b788;
+  --warn: #e07c24;
+  --danger: #c1121f;
+  --info: #1d6fa4;
+  --current-bg: #f0faf4;
+  --current-border: #2d6a4f;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 24px 16px 64px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* 헤더 */
+.header { margin-bottom: 20px; }
+.date-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.date-main { font-size: 22px; font-weight: 900; }
+.date-sub  { font-size: 14px; color: var(--text2); }
+.update-time {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+  margin-top: 4px;
+}
+
+/* 탭 */
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.tab {
+  padding: 8px 14px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text3);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all .2s;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tab:hover:not(.active) { color: var(--text2); }
+
+/* 다음 수업 배너 */
+.next-banner {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  animation: fadeUp .3s ease both;
+}
+.next-banner .label {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  opacity: .7;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.next-banner .info { flex: 1; font-weight: 500; }
+.next-banner .time { font-family: 'Space Mono', monospace; font-size: 11px; opacity: .8; }
+
+/* 교시 카드 */
+.period-list { display: flex; flex-direction: column; gap: 8px; }
+
+.period-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: all .2s;
+  animation: fadeUp .3s ease both;
+  position: relative;
+}
+.period-card.has-class  { border-left: 3px solid var(--accent2); }
+.period-card.empty      { opacity: .5; }
+.period-card.current    {
+  background: var(--current-bg);
+  border-color: var(--current-border);
+  border-left-width: 4px;
+  box-shadow: 0 2px 12px rgba(45,106,79,.12);
+}
+.period-card.current .period-num { color: var(--accent) !important; }
+
+/* 현재 교시 펄스 */
+.current-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent2);
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .5; transform: scale(.7); }
+}
+
+/* 교시 번호 */
+.period-num {
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text3);
+  width: 36px;
+  flex-shrink: 0;
+  text-align: center;
+  line-height: 1.3;
+}
+.period-time {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: var(--text3);
+  display: block;
+  font-weight: 400;
+}
+
+/* 구분선 */
+.period-divider {
+  width: 1px; height: 36px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* 수업 내용 */
+.period-body { flex: 1; min-width: 0; }
+.class-info  { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.class-badge {
+  font-size: 12px; font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: #e8f5ee;
+  color: var(--accent);
+  flex-shrink: 0;
+  font-family: 'Space Mono', monospace;
+}
+.class-topic { font-size: 14px; font-weight: 500; color: var(--text); flex: 1; min-width: 0; }
+.class-step  {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px; color: var(--text3);
+  flex-shrink: 0;
+}
+.empty-label { font-size: 13px; color: var(--text3); font-style: italic; }
+
+/* 수정 버튼 */
+.edit-btn {
+  background: none; border: none;
+  font-size: 16px; cursor: pointer;
+  opacity: 0; transition: opacity .2s;
+  padding: 4px;
+  flex-shrink: 0;
+}
+.period-card:hover .edit-btn { opacity: .5; }
+.edit-btn:hover { opacity: 1 !important; }
+
+/* 차시 조정 UI (인라인) */
+.step-editor {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.step-editor.open { display: flex; }
+.step-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 16px; font-weight: 700;
+  cursor: pointer; color: var(--text2);
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.step-btn:hover { border-color: var(--accent2); color: var(--accent); }
+.step-display {
+  font-family: 'Space Mono', monospace;
+  font-size: 13px; font-weight: 700;
+  color: var(--accent); min-width: 48px; text-align: center;
+}
+.topic-input {
+  flex: 1; min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-family: 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+.topic-input:focus { border-color: var(--accent2); }
+.save-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Noto Sans KR', sans-serif;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.save-btn:hover { background: #235c42; }
+.save-btn:disabled { background: var(--text3); cursor: not-allowed; }
+
+/* 주차 탭 (주차별 시간표) */
+.week-tabs {
+  display: flex; gap: 6px; margin-bottom: 16px;
+}
+.week-tab {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; color: var(--text2);
+  transition: all .15s;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+.week-tab.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+
+/* 주간 그리드 */
+.week-grid {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.week-grid table { width: 100%; border-collapse: collapse; }
+.week-grid th {
+  padding: 8px 4px;
+  font-size: 11px; font-weight: 700;
+  color: var(--text2);
+  background: var(--bg);
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  font-family: 'Space Mono', monospace;
+}
+.week-grid th.today-col { color: var(--accent); background: #f0faf4; }
+.week-grid td {
+  padding: 8px 4px;
+  font-size: 11px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  line-height: 1.4;
+  color: var(--text);
+}
+.week-grid td.period-col {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  color: var(--text3);
+  font-weight: 700;
+  background: var(--bg);
+  width: 32px;
+}
+.week-grid td.today-col { background: #f8fdf9; }
+.week-grid td.has-class { font-weight: 500; }
+.week-grid td.empty-cell { color: var(--text3); }
+.week-grid tr:last-child td { border-bottom: none; }
+
+.cell-class  { font-size: 10px; font-weight: 700; color: var(--accent); display: block; }
+.cell-topic  { font-size: 10px; color: var(--text2); }
+
+/* 진도표 탭 */
+.progress-grid { display: flex; flex-direction: column; gap: 8px; }
+.progress-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  animation: fadeUp .3s ease both;
+}
+.progress-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.prog-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 5px;
+  background: #e8f5ee; color: var(--accent);
+  font-family: 'Space Mono', monospace;
+}
+.prog-step {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px; color: var(--text3);
+}
+.prog-dates { display: flex; flex-direction: column; gap: 4px; }
+.prog-row {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12px;
+}
+.prog-row .r-label {
+  font-size: 10px; color: var(--text3);
+  width: 52px; flex-shrink: 0;
+}
+.prog-row .r-topic { font-weight: 500; color: var(--text); flex: 1; }
+.prog-row .r-date  { font-size: 10px; color: var(--text3); font-family: 'Space Mono', monospace; }
+
+/* 로딩 */
+.loading {
+  text-align: center; padding: 60px 24px;
+  color: var(--text3); font-size: 13px;
+}
+.loading-dot {
+  display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--accent2);
+  margin: 0 3px; animation: bounce 1.2s infinite;
+}
+.loading-dot:nth-child(2) { animation-delay: .2s; }
+.loading-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: .4; }
+  40%            { transform: translateY(-6px); opacity: 1; }
+}
+
+/* 에러 */
+.error-box {
+  background: #fff3f3; border: 1px solid #ffc9c9;
+  border-radius: 12px; padding: 20px;
+  text-align: center; font-size: 13px; color: var(--danger);
+}
+
+/* 새로고침 */
+.refresh-btn {
+  display: block; margin: 20px auto 0;
+  background: none; border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 20px;
+  font-size: 12px; color: var(--text2);
+  cursor: pointer; font-family: 'Noto Sans KR', sans-serif;
+  transition: all .2s;
+}
+.refresh-btn:hover { border-color: var(--accent2); color: var(--accent); }
+
+/* 저장 토스트 */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--accent); color: #fff;
+  padding: 10px 20px; border-radius: 20px;
+  font-size: 13px; font-weight: 500;
+  opacity: 0; transition: opacity .3s;
+  pointer-events: none; z-index: 999;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="date-label">TODAY</div>
+  <div class="header-row">
+    <div class="date-main" id="dateMain">--</div>
+    <div class="date-sub"  id="dateSub">--</div>
+  </div>
+  <div class="update-time" id="updateTime"></div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('today')">오늘 수업</button>
+  <button class="tab"        onclick="switchTab('weekly')">주차별</button>
+  <button class="tab"        onclick="switchTab('progress')">진도표</button>
+</div>
+
+<div id="tab-today">
+  <div id="next-banner"></div>
+  <div id="content-today">
+    <div class="loading">
+      <div style="margin-bottom:12px">
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
+      </div>
+      데이터 불러오는 중
+    </div>
+  </div>
+</div>
+
+<div id="tab-weekly"   style="display:none"></div>
+<div id="tab-progress" style="display:none"></div>
+
+<button class="refresh-btn" onclick="loadData()">↻ 새로고침</button>
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// 설정
+// ============================================================
+const GAS = 'https://script.google.com/macros/s/AKfycbxs1Gb5f01CZTChrRlcYjXf4yrGmNdEYRruisLK_95_BrTZBd415h-a-Saqg4ld6U4b/exec';
+const DOW = ['일','월','화','수','목','금','토'];
+
+// 교시별 시작/종료 시간 (분 단위)
+const PERIODS = {
+  1: { start: toMin(9,0),  end: toMin(9,45)  },
+  2: { start: toMin(9,55), end: toMin(10,40) },
+  3: { start: toMin(10,50),end: toMin(11,35) },
+  4: { start: toMin(11,45),end: toMin(12,30) },
+  5: { start: toMin(13,20),end: toMin(14,5)  },
+  6: { start: toMin(14,15),end: toMin(15,0)  },
+  7: { start: toMin(15,10),end: toMin(15,55) },
+};
+
+function toMin(h, m) { return h * 60 + m; }
+
+// 현재 교시 계산 (수업 중이면 해당 교시, 사이면 null)
+function getCurrentPeriod() {
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  for (let p = 1; p <= 7; p++) {
+    if (cur >= PERIODS[p].start && cur <= PERIODS[p].end) return p;
+  }
+  return null;
+}
+
+// 다음 교시 계산 (오늘 남은 교시 중 가장 빠른 것)
+function getNextPeriod(maxPeriod) {
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  for (let p = 1; p <= maxPeriod; p++) {
+    if (PERIODS[p].start > cur) return p;
+  }
+  return null;
+}
+
+function formatPeriodTime(p) {
+  const s = PERIODS[p];
+  const fmtMin = m => { const hh = Math.floor(m/60), mm = m%60; return `${hh}:${String(mm).padStart(2,'0')}`; };
+  return `${fmtMin(s.start)}~${fmtMin(s.end)}`;
+}
+
+// ============================================================
+// 날짜 유틸
+// ============================================================
+function todayStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+}
+
+function toDateStr(d) {
+  if (!d) return '';
+  const dt  = new Date(d);
+  const kst = new Date(dt.getTime() + 9 * 3600 * 1000);
+  return kst.toISOString().split('T')[0];
+}
+
+function setDateHeader() {
+  const now = new Date();
+  document.getElementById('dateMain').textContent = `${now.getMonth()+1}월 ${now.getDate()}일`;
+  document.getElementById('dateSub').textContent  = `(${DOW[now.getDay()]})`;
+  document.getElementById('updateTime').textContent =
+    `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준`;
+}
+
+// ============================================================
+// 탭 전환
+// ============================================================
+let currentTab = 'today';
+function switchTab(tab) {
+  currentTab = tab;
+  ['today','weekly','progress'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === tab ? '' : 'none';
+    document.querySelectorAll('.tab').forEach((el, i) => {
+      const tabs = ['today','weekly','progress'];
+      el.classList.toggle('active', tabs[i] === tab);
+    });
+  });
+}
+
+// ============================================================
+// 전역 데이터 캐시
+// ============================================================
+let _cache = null;
+
+// ============================================================
+// 진도표 파싱 → { classId: { step, topic, nextTopic, nextDate, afterTopic, afterDate } }
+// ============================================================
+function buildProgressMap(progress) {
+  const map = {};
+  // 반 목록은 B열(index 1), 이번차시 주제 C(2), 날짜 D(3)
+  // 다음차시 E(4), 날짜 F(5), 다다음 G(6), 날짜 H(7), 현재차시번호 K(10)
+  for (let i = 1; i < progress.length; i++) {
+    const row = progress[i];
+    const classId = String(row[1] || '').trim();
+    if (!classId || classId === '반' || classId === '이번 주' || classId === '날짜') continue;
+    if (!String(row[2] || '').trim()) continue; // 주제 없으면 스킵
+
+    map[classId] = {
+      topic:      String(row[2]  || '').trim(),
+      date:       String(row[3]  || '').trim(),
+      nextTopic:  String(row[4]  || '').trim(),
+      nextDate:   String(row[5]  || '').trim(),
+      afterTopic: String(row[6]  || '').trim(),
+      afterDate:  String(row[7]  || '').trim(),
+      step:       row[10],
+    };
+  }
+  return map;
+}
+
+// ============================================================
+// 오늘 시간표 파싱
+// ============================================================
+function getTodaySchedule(timetable) {
+  const today = todayStr();
+  const dateRow = timetable[1];
+  let col = -1;
+  for (let c = 1; c < dateRow.length; c++) {
+    if (toDateStr(dateRow[c]) === today) { col = c; break; }
+  }
+  if (col === -1) return null;
+
+  const schedule = {};
+  for (let r = 2; r < timetable.length; r++) {
+    const row = timetable[r];
+    const p   = row[0];
+    if (typeof p === 'number' && p >= 1 && p <= 7) {
+      schedule[p] = String(row[col] || '').trim();
+    }
+  }
+  return schedule;
+}
+
+// ============================================================
+// 오늘 탭 렌더
+// ============================================================
+function renderToday(timetable, progressMap) {
+  const schedule = getTodaySchedule(timetable);
+  const now      = new Date();
+  const dow      = now.getDay();
+
+  if (!schedule) {
+    document.getElementById('content-today').innerHTML =
+      `<div class="error-box">오늘은 수업이 없는 날이에요 🎉</div>`;
+    document.getElementById('next-banner').innerHTML = '';
+    return;
+  }
+
+  const maxPeriod = (dow === 2 || dow === 4) ? 7 : 6;
+  const curP      = getCurrentPeriod();
+  const nextP     = getNextPeriod(maxPeriod);
+
+  // 다음 수업 배너
+  const bannerEl = document.getElementById('next-banner');
+  if (curP && schedule[curP]) {
+    const info = progressMap[schedule[curP]] || {};
+    bannerEl.innerHTML = `
+      <div class="next-banner">
+        <div class="label">NOW</div>
+        <div class="info">${curP}교시 · <b>${schedule[curP]}</b> ${info.topic ? '— ' + info.topic : ''}</div>
+        <div class="time">${formatPeriodTime(curP)}</div>
+      </div>`;
+  } else if (nextP && schedule[nextP]) {
+    const info = progressMap[schedule[nextP]] || {};
+    bannerEl.innerHTML = `
+      <div class="next-banner">
+        <div class="label">NEXT</div>
+        <div class="info">${nextP}교시 · <b>${schedule[nextP]}</b> ${info.topic ? '— ' + info.topic : ''}</div>
+        <div class="time">${formatPeriodTime(nextP)}</div>
+      </div>`;
+  } else {
+    bannerEl.innerHTML = '';
+  }
+
+  // 교시 카드
+  let html = '<div class="period-list">';
+  for (let p = 1; p <= maxPeriod; p++) {
+    const classId  = schedule[p] || '';
+    const hasClass = classId !== '';
+    const isCur    = p === curP;
+
+    let cardClass = 'period-card';
+    if (isCur)    cardClass += ' current';
+    else if (hasClass) cardClass += ' has-class';
+    else          cardClass += ' empty';
+
+    const timeStr = formatPeriodTime(p);
+
+    if (hasClass) {
+      const info  = progressMap[classId] || {};
+      const topic = info.topic || '수업 내용 확인 필요';
+      const step  = info.step  ? `${info.step}차시` : '';
+
+      html += `
+        <div class="${cardClass}" id="card-${p}" data-class="${classId}" data-step="${info.step || ''}" data-topic="${topic}">
+          ${isCur ? '<div class="current-dot"></div>' : ''}
+          <div class="period-num">${p}<span class="period-time">${timeStr.replace('~','\n')}</span></div>
+          <div class="period-divider"></div>
+          <div class="period-body">
+            <div class="class-info">
+              <span class="class-badge">${classId}</span>
+              <span class="class-topic" id="topic-${p}">${topic}</span>
+              ${step ? `<span class="class-step" id="step-label-${p}">${step}</span>` : `<span class="class-step" id="step-label-${p}"></span>`}
+            </div>
+            <div class="step-editor" id="editor-${p}">
+              <button class="step-btn" onclick="adjustStep(${p},-1)">−</button>
+              <div class="step-display" id="step-disp-${p}">${info.step || '?'}차시</div>
+              <button class="step-btn" onclick="adjustStep(${p},+1)">+</button>
+              <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제" />
+              <button class="save-btn" id="save-btn-${p}" onclick="saveChanges(${p})">저장</button>
+            </div>
+          </div>
+          <button class="edit-btn" onclick="toggleEditor(${p})" title="수정">✏️</button>
+        </div>`;
+    } else {
+      html += `
+        <div class="${cardClass}">
+          ${isCur ? '<div class="current-dot"></div>' : ''}
+          <div class="period-num">${p}<span class="period-time">${timeStr.replace('~','\n')}</span></div>
+          <div class="period-divider"></div>
+          <div class="period-body"><span class="empty-label">공강</span></div>
+        </div>`;
+    }
+  }
+  html += '</div>';
+  document.getElementById('content-today').innerHTML = html;
+}
+
+// ============================================================
+// 수정 UI
+// ============================================================
+function toggleEditor(p) {
+  const ed = document.getElementById(`editor-${p}`);
+  ed.classList.toggle('open');
+}
+
+function adjustStep(p, delta) {
+  const disp  = document.getElementById(`step-disp-${p}`);
+  const card  = document.getElementById(`card-${p}`);
+  const cur   = parseInt(disp.textContent) || 0;
+  const next  = Math.max(1, cur + delta);
+  disp.textContent = `${next}차시`;
+
+  // 커리큘럼에서 해당 차시 주제 찾아서 input에 자동 채우기
+  const classId = card.dataset.class;
+  const topic   = findTopicByStep(classId, next);
+  if (topic) {
+    document.getElementById(`topic-inp-${p}`).value = topic;
+  }
+}
+
+// 커리큘럼 테이블에서 classId + step으로 주제 찾기
+function findTopicByStep(classId, step) {
+  if (!_cache) return '';
+  const prog = _cache.progress;
+
+  // 커리큘럼 블록 컬럼 인덱스 (0-based)
+  // 3학년(305~308): 차시=11, 주제=12
+  // 2학년A(201A~203A): 차시=15, 주제=16
+  // 2학년B(201B~204B): 차시=19, 주제=20
+  const threeYear = ['305','306','307','308'];
+  const twoA      = ['201 A','202 A','203 A'];
+  const twoB      = ['201 B','202 B','203 B','204 B'];
+
+  let stepCol, topicCol;
+  if (threeYear.includes(classId))       { stepCol = 11; topicCol = 12; }
+  else if (twoA.includes(classId))       { stepCol = 15; topicCol = 16; }
+  else if (twoB.includes(classId))       { stepCol = 19; topicCol = 20; }
+  else return '';
+
+  for (let r = 1; r < prog.length; r++) {
+    if (Number(prog[r][stepCol]) === step) {
+      return String(prog[r][topicCol] || '').trim();
+    }
+  }
+  return '';
+}
+
+async function saveChanges(p) {
+  const card    = document.getElementById(`card-${p}`);
+  const classId = card.dataset.class;
+  const stepStr = document.getElementById(`step-disp-${p}`).textContent;
+  const newStep = parseInt(stepStr);
+  const newTopic= document.getElementById(`topic-inp-${p}`).value.trim();
+  const btn     = document.getElementById(`save-btn-${p}`);
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    // 1) 현재차시 업데이트
+    await fetch(GAS, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'updateStep', classId, step: newStep }),
+    });
+
+    // 2) 수업 주제 업데이트
+    await fetch(GAS, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'updateTopic', classId, step: newStep, topic: newTopic }),
+    });
+
+    // UI 반영
+    document.getElementById(`topic-${p}`).textContent      = newTopic;
+    document.getElementById(`step-label-${p}`).textContent = `${newStep}차시`;
+    document.getElementById(`editor-${p}`).classList.remove('open');
+
+    showToast(`${classId} 저장 완료`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+}
+
+// ============================================================
+// 주차별 탭 렌더
+// ============================================================
+function renderWeekly(weekly, progressMap) {
+  const today   = todayStr();
+  const dow     = new Date().getDay();
+
+  // 주차 블록 분리 (빈 행 기준)
+  const blocks = [];
+  let cur = [];
+  for (const row of weekly) {
+    if (row.every(c => c === '' || c === null)) {
+      if (cur.length) { blocks.push(cur); cur = []; }
+    } else {
+      cur.push(row);
+    }
+  }
+  if (cur.length) blocks.push(cur);
+
+  const labels = ['이번 주','다음 주','다다음 주'];
+
+  // 오늘이 어느 블록인지 찾아서 기본 선택
+  let defaultBlock = 0;
+  for (let b = 0; b < blocks.length; b++) {
+    const dateRow = blocks[b][1] || [];
+    for (let c = 1; c < dateRow.length; c++) {
+      if (toDateStr(dateRow[c]) === today) { defaultBlock = b; break; }
+    }
+  }
+
+  let activeBlock = defaultBlock;
+
+  function renderBlock(idx) {
+    const block   = blocks[idx];
+    if (!block) return '<div class="error-box">데이터 없음</div>';
+    const dateRow = block[1] || [];
+    const days    = ['월','화','수','목','금'];
+
+    // 오늘 열 인덱스
+    let todayCol = -1;
+    for (let c = 1; c < dateRow.length; c++) {
+      if (toDateStr(dateRow[c]) === today) { todayCol = c; break; }
+    }
+
+    let table = `<div class="week-grid"><table>
+      <tr>
+        <th></th>`;
+    for (let c = 1; c <= 5; c++) {
+      const dateVal = dateRow[c] ? String(dateRow[c]).replace('2026. ','').replace('.','월').replace(' ','') : days[c-1];
+      const isToday = c === todayCol;
+      table += `<th class="${isToday ? 'today-col' : ''}">${days[c-1]}<br><span style="font-weight:400;font-size:9px">${dateVal}</span></th>`;
+    }
+    table += '</tr>';
+
+    for (let r = 2; r < block.length; r++) {
+      const row    = block[r];
+      const period = row[0];
+      if (!period && period !== 0) continue;
+      table += `<tr><td class="period-col">${period}</td>`;
+      for (let c = 1; c <= 5; c++) {
+        const cell    = String(row[c] || '').trim();
+        const isToday = c === todayCol;
+        if (cell) {
+          // 반이름과 수업내용 분리 (셀 내 줄바꿈)
+          const parts   = cell.split('\n').map(s => s.trim()).filter(Boolean);
+          const cls     = parts[0] || '';
+          const topicRaw= parts[1] || '';
+          table += `<td class="has-class ${isToday ? 'today-col' : ''}">
+            <span class="cell-class">${cls}</span>
+            ${topicRaw ? `<span class="cell-topic">${topicRaw}</span>` : ''}
+          </td>`;
+        } else {
+          table += `<td class="empty-cell ${isToday ? 'today-col' : ''}">·</td>`;
+        }
+      }
+      table += '</tr>';
+    }
+    table += '</table></div>';
+    return table;
+  }
+
+  function fullHTML() {
+    let tabs = '<div class="week-tabs">';
+    labels.forEach((l, i) => {
+      if (i < blocks.length)
+        tabs += `<button class="week-tab ${i === activeBlock ? 'active' : ''}" onclick="weekSwitch(${i})">${l}</button>`;
+    });
+    tabs += '</div>';
+    return tabs + `<div id="week-content">${renderBlock(activeBlock)}</div>`;
+  }
+
+  document.getElementById('tab-weekly').innerHTML = fullHTML();
+
+  window.weekSwitch = function(idx) {
+    activeBlock = idx;
+    document.querySelectorAll('.week-tab').forEach((el, i) => el.classList.toggle('active', i === idx));
+    document.getElementById('week-content').innerHTML = renderBlock(idx);
+  };
+}
+
+// ============================================================
+// 진도표 탭 렌더
+// ============================================================
+function renderProgress(progressMap) {
+  const order = ['305','306','307','308','201 A','202 A','203 A','201 B','202 B','203 B','204 B'];
+  let html = '<div class="progress-grid">';
+  for (const id of order) {
+    const d = progressMap[id];
+    if (!d) continue;
+    html += `
+      <div class="progress-card">
+        <div class="progress-header">
+          <span class="prog-badge">${id}</span>
+          <span class="prog-step">${d.step ? d.step + '차시' : ''}</span>
+        </div>
+        <div class="prog-dates">
+          <div class="prog-row">
+            <span class="r-label">이번 차시</span>
+            <span class="r-topic">${d.topic}</span>
+            <span class="r-date">${d.date}</span>
+          </div>
+          ${d.nextTopic ? `<div class="prog-row">
+            <span class="r-label">다음 차시</span>
+            <span class="r-topic">${d.nextTopic}</span>
+            <span class="r-date">${d.nextDate}</span>
+          </div>` : ''}
+          ${d.afterTopic ? `<div class="prog-row">
+            <span class="r-label">다다음</span>
+            <span class="r-topic">${d.afterTopic}</span>
+            <span class="r-date">${d.afterDate}</span>
+          </div>` : ''}
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+  document.getElementById('tab-progress').innerHTML = html;
+}
+
+// ============================================================
+// 토스트
+// ============================================================
+function showToast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = isErr ? 'var(--danger)' : 'var(--accent)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ============================================================
+// 메인 로드
+// ============================================================
+async function loadData() {
+  setDateHeader();
+  document.getElementById('content-today').innerHTML = `
+    <div class="loading">
+      <div style="margin-bottom:12px">
+        <span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span>
+      </div>데이터 불러오는 중
+    </div>`;
+
+  try {
+    const res  = await fetch(GAS);
+    const json = await res.json();
+    _cache = json;
+
+    const progressMap = buildProgressMap(json.progress);
+    renderToday(json.timetable, progressMap);
+    renderWeekly(json.weekly, progressMap);
+    renderProgress(progressMap);
+  } catch (e) {
+    document.getElementById('content-today').innerHTML = `
+      <div class="error-box">데이터를 불러오지 못했어요<br>
+        <span style="font-size:11px;margin-top:4px;display:block">${e.message}</span>
+      </div>`;
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>
