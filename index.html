@@ -608,13 +608,12 @@ let _cache = null;
 // ============================================================
 function buildProgressMap(progress) {
   const map = {};
-  // 반 목록은 B열(index 1), 이번차시 주제 C(2), 날짜 D(3)
-  // 다음차시 E(4), 날짜 F(5), 다다음 G(6), 날짜 H(7), 현재차시번호 K(10)
+  const validIds = ['305','306','307','308','201 A','202 A','203 A','201 B','202 B','203 B','204 B'];
+
   for (let i = 1; i < progress.length; i++) {
     const row = progress[i];
     const classId = String(row[1] || '').trim();
-    if (!classId || classId === '반' || classId === '이번 주' || classId === '날짜') continue;
-    if (!String(row[2] || '').trim()) continue; // 주제 없으면 스킵
+    if (!validIds.includes(classId)) continue;
 
     map[classId] = {
       topic:      String(row[2]  || '').trim(),
