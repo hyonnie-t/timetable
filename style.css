@@ -598,7 +598,7 @@ body {
     margin: 0 auto;
   }
   .modal-lg { max-width: 800px; }
-  .modal-sm { max-width: 420px; }
+  .modal-sm { max-width: 480px; }
 }
 
 .modal-header {
@@ -710,7 +710,7 @@ body {
   font-size: 12px;
   font-family: 'Space Mono', monospace;
   background: var(--bg); color: var(--text);
-  outline: none; width: 90px;
+  outline: none; width: 110px;
 }
 .time-input:focus { border-color: var(--accent2); }
 
