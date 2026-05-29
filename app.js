@@ -725,15 +725,16 @@ window.openPeriodsEditor = function() {
         </div>
         <div class="modal-body">
           <table class="periods-table">
-            <thead><tr><th>교시</th><th>시작</th><th>종료</th></tr></thead>
+         <thead><tr><th>교시</th><th>시작</th><th>종료</th><th></th></tr></thead>
             <tbody>`;
   for (const p of periodList) {
     const t = periods[p];
-    html += `<tr>
-      <td>${p}교시</td>
-      <td><input type="time" class="time-input" data-period="${p}" data-field="start" value="${t.start}" /></td>
-      <td><input type="time" class="time-input" data-period="${p}" data-field="end"   value="${t.end}"   /></td>
-    </tr>`;
+html += `<tr data-period="${p}">
+  <td>${p}교시</td>
+  <td><input type="time" class="time-input" data-period="${p}" data-field="start" value="${t.start}" /></td>
+  <td><input type="time" class="time-input" data-period="${p}" data-field="end"   value="${t.end}"   /></td>
+  <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>
+</tr>`;
   }
   html += `</tbody></table>
           <button class="btn-add-period" onclick="window.addPeriodRow()">+ 교시 추가</button>
@@ -772,12 +773,38 @@ window.addPeriodRow = function() {
   const tbody = document.querySelector('.periods-table tbody');
   const rows  = tbody.querySelectorAll('tr');
   const newP  = rows.length + 1;
-  const tr    = document.createElement('tr');
+
+  let newStart = '00:00';
+  let newEnd   = '00:45';
+  if (rows.length > 0) {
+    const lastEnd  = rows[rows.length - 1].querySelector('[data-field="end"]')?.value || '00:00';
+    const [h, m]   = lastEnd.split(':').map(Number);
+    const startMin = h * 60 + m + 10;
+    const endMin   = startMin + 45;
+    newStart = `${String(Math.floor(startMin/60)).padStart(2,'0')}:${String(startMin%60).padStart(2,'0')}`;
+    newEnd   = `${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`;
+  }
+
+  const tr = document.createElement('tr');
+  tr.dataset.period = newP;
   tr.innerHTML = `
     <td>${newP}교시</td>
-    <td><input type="time" class="time-input" data-period="${newP}" data-field="start" value="00:00" /></td>
-    <td><input type="time" class="time-input" data-period="${newP}" data-field="end"   value="00:00" /></td>`;
+    <td><input type="time" class="time-input" data-period="${newP}" data-field="start" value="${newStart}" /></td>
+    <td><input type="time" class="time-input" data-period="${newP}" data-field="end"   value="${newEnd}" /></td>
+    <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>`;
   tbody.appendChild(tr);
+};
+
+window.reindexPeriods = function() {
+  const rows = document.querySelectorAll('.periods-table tbody tr');
+  rows.forEach((row, i) => {
+    const p = i + 1;
+    row.dataset.period = p;
+    row.cells[0].textContent = `${p}교시`;
+    row.querySelectorAll('.time-input').forEach(input => {
+      input.dataset.period = p;
+    });
+  });
 };
 
 // ============================================================
