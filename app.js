@@ -9,7 +9,7 @@ import {
 // ============================================================
 const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
-const ADMIN_EMAIL = 'hyonnie0502@gmail.com'; // 효니 이메일로 교체
+const ADMIN_EMAIL = '0000yhshin@gmail.com'; // 효니 이메일로 교체
 
 // ============================================================
 // 상태
