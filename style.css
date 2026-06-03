@@ -228,7 +228,6 @@ body {
   box-shadow: 0 2px 12px rgba(45,106,79,.12);
 }
 
-/* 학사일정 카드 */
 .period-card.event-card {
   border-left: 3px solid var(--warn);
   opacity: .85;
@@ -319,7 +318,6 @@ body {
   font-size: 14px;
 }
 
-/* 수정 버튼 */
 .edit-btn {
   background: none; border: none;
   font-size: 16px; cursor: pointer;
@@ -329,7 +327,6 @@ body {
 .period-card:hover .edit-btn { opacity: .6; }
 .edit-btn:hover { opacity: 1 !important; }
 
-/* 인라인 편집기 */
 .step-editor {
   display: none;
   align-items: center;
@@ -523,30 +520,76 @@ body {
 }
 
 /* ============================================================
-   수업 주제 탭
+   수업 주제 탭 — 반응형
+   모바일: 탭 버튼으로 한 열씩
+   PC(768px+): 3열 그리드, 탭 버튼 숨김
    ============================================================ */
-.subject-editor { display: flex; flex-direction: column; }
 
-.subj-group { margin-bottom: 4px; }
-
-.subj-group-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 4px 6px;
-  cursor: pointer; user-select: none;
+/* 탭 버튼 */
+.subj-tab-btns {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
 }
-.subj-group-title {
-  font-size: 11px; font-weight: 700;
-  letter-spacing: 1.5px; text-transform: uppercase;
+
+.subj-tab-btn {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; color: var(--text2);
+  transition: all .15s;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+.subj-tab-btn.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+
+/* 기본(모바일): 세로 스택, active만 표시 */
+.subject-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.subj-column {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  display: none;
+}
+.subj-column.active { display: block; }
+
+/* PC: 768px 이상에서 3열, 탭 버튼 숨김 */
+@media (min-width: 768px) {
+  #app-screen {
+    max-width: 960px;
+  }
+  .subject-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .subj-tab-btns { display: none; }
+  .subj-column   { display: block !important; }
+}
+
+.subj-col-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--text3);
   font-family: 'Space Mono', monospace;
-  white-space: nowrap;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent2);
 }
-.subj-group-line { flex: 1; height: 1px; background: var(--border); }
 
-.subj-body { padding-bottom: 16px; }
-.subj-body.hidden { display: none; }
-
-.subj-table-wrap { overflow-x: auto; }
+.subj-current-row { background: var(--bg); }
+.subj-step-current { color: var(--accent2); }
 
 .subj-table {
   width: 100%;
@@ -604,69 +647,6 @@ body {
 }
 
 .subj-save-btn { padding: 7px 18px; font-size: 12px; }
-
-/* 수업 주제 탭 — 반응형 */
-.subject-columns {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-/* 탭 버튼 (모바일용) */
-.subj-tab-btns {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.subj-tab-btn {
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 12px; font-weight: 500;
-  cursor: pointer; color: var(--text2);
-  transition: all .15s;
-  font-family: 'Noto Sans KR', sans-serif;
-}
-.subj-tab-btn.active {
-  background: var(--accent); color: #fff; border-color: var(--accent);
-}
-
-.subj-column {
-  background: var(--surface);
-  border-radius: 12px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  display: none;
-}
-.subj-column.active { display: block; }
-
-/* PC: 768px 이상이면 3열 그리드로 전환 */
-@media (min-width: 768px) {
-  .subject-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 20px;
-  }
-  .subj-tab-btns { display: none; }
-  .subj-column   { display: block !important; }
-}
-
-.subj-col-header {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--text3);
-  font-family: 'Space Mono', monospace;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--accent2);
-}
-
-.subj-current-row { background: var(--bg); }
-.subj-step-current { color: var(--accent2); }
 
 /* ============================================================
    학사일정 — 하루종일 토글
