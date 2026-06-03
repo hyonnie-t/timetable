@@ -988,7 +988,7 @@ window.openCalendarEditor = function() {
       entries.push({ date, period, ...ev });
     }
   }
-  entries.sort((a,b) => a.date.localeCompare(b.date));
+  entries.sort((a,b) => b.date.localeCompare(a.date)); // 최신 날짜 먼저
 
   let rows = entries.map((e, i) => {
     const isAll = e.period === 'all';
@@ -1027,11 +1027,11 @@ window.openCalendarEditor = function() {
           <button class="modal-close" onclick="window.closeModal('modal-calendar')">✕</button>
         </div>
         <div class="modal-body">
+          <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
           <table class="cal-table">
             <thead><tr><th>날짜</th><th>교시</th><th>종류</th><th>표시</th><th></th></tr></thead>
             <tbody id="cal-tbody">${rows}</tbody>
           </table>
-          <button class="btn-add-period" onclick="window.addCalRow()">+ 항목 추가</button>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" onclick="window.closeModal('modal-calendar')">취소</button>
