@@ -599,70 +599,62 @@ function renderProgress() {
 }
 
 // ============================================================
-// 수업 주제 탭 (신규)
+// 수업 주제 탭 — 3열 분할, 현재 차시 ±2
 // ============================================================
 function renderSubject() {
   const el = document.getElementById('tab-subject');
   if (!el) return;
 
-  // 그룹 정의
   const groups = [
-    { label: '3학년',  subject: '역사',  classes: ['305','306','307','308'] },
+    { label: '3학년',   subject: '역사',  classes: ['305','306','307','308'] },
     { label: '2학년 A', subject: '역사A', classes: ['201 A','202 A','203 A'] },
     { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
   ];
 
-  // 현재 열려있는 그룹 상태 유지
-  const openState = {};
-  el.querySelectorAll('.subj-group').forEach(g => {
-    const key = g.dataset.group;
-    openState[key] = !g.querySelector('.subj-body').classList.contains('hidden');
-  });
-
-  let html = '<div class="subject-editor">';
+  let html = '<div class="subject-columns">';
 
   groups.forEach((group, gi) => {
-    // 대표 반의 커리큘럼 사용 (첫 번째 반 기준)
-    const repClass = group.classes[0];
-    const repKey   = `${repClass}_${group.subject}`;
+    const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
-    const steps    = Object.keys(curriculum).map(Number).sort((a,b) => a-b);
+    const current    = userData.progress[repKey]?.current ?? 1;
+    const steps      = Object.keys(curriculum).map(Number).sort((a,b) => a-b);
 
-    const isOpen = openState[group.label] !== undefined ? openState[group.label] : gi === 0;
+    const WINDOW   = 2;
+    const minStep  = Math.max(1, current - WINDOW);
+    const maxStep  = current + WINDOW;
+
+    // 커리큘럼에 없는 차시도 current ±2 범위면 포함
+    const stepSet  = new Set(steps.filter(s => s >= minStep && s <= maxStep));
+    for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
+    const visible  = [...stepSet].sort((a,b) => a-b);
 
     html += `
-      <div class="subj-group" data-group="${group.label}">
-        <div class="subj-group-header" onclick="window.toggleSubjGroup(this)">
-          <span class="subj-group-title">${group.label}</span>
-          <div class="subj-group-line"></div>
-          <span class="arrow">${isOpen ? '▼' : '▶'}</span>
-        </div>
-        <div class="subj-body${isOpen ? '' : ' hidden'}">
-          <div class="subj-table-wrap">
-            <table class="subj-table">
-              <thead>
-                <tr><th>차시</th><th>주제</th><th></th></tr>
-              </thead>
-              <tbody id="subj-tbody-${gi}">`;
+      <div class="subj-column">
+        <div class="subj-col-header">${group.label}</div>
+        <table class="subj-table">
+          <thead><tr><th>차시</th><th>주제</th><th></th></tr></thead>
+          <tbody id="subj-tbody-${gi}">`;
 
-    steps.forEach(step => {
-      const topic = curriculum[step] || '';
+    visible.forEach(step => {
+      const topic     = curriculum[step] || '';
+      const isCurrent = step === current;
       html += `
-                <tr data-step="${step}">
-                  <td class="subj-step">${step}</td>
-                  <td><input class="subj-topic-input" data-gi="${gi}" data-step="${step}" value="${topic.replace(/"/g,'&quot;')}" placeholder="주제 입력" /></td>
-                  <td><button class="btn-del" onclick="window.deleteSubjRow(${gi}, ${step}, '${group.subject}', ${JSON.stringify(group.classes)})">✕</button></td>
-                </tr>`;
+            <tr data-step="${step}" class="${isCurrent ? 'subj-current-row' : ''}">
+              <td class="subj-step${isCurrent ? ' subj-step-current' : ''}">${isCurrent ? '▶ ' : ''}${step}</td>
+              <td><input class="subj-topic-input" data-gi="${gi}" data-step="${step}"
+                value="${topic.replace(/"/g,'&quot;')}" placeholder="주제 입력" /></td>
+              <td><button class="btn-del"
+                onclick="window.deleteSubjRow(${gi}, ${step}, '${group.subject}', ${JSON.stringify(group.classes)})">✕</button></td>
+            </tr>`;
     });
 
     html += `
-              </tbody>
-            </table>
-          </div>
-          <div class="subj-actions">
-            <button class="btn-add-period" onclick="window.addSubjRow(${gi})">+ 차시 추가</button>
-            <button class="btn-primary subj-save-btn" onclick="window.saveSubject(${gi}, '${group.subject}', ${JSON.stringify(group.classes)})">저장</button>
-          </div>
+          </tbody>
+        </table>
+        <div class="subj-actions">
+          <button class="btn-add-period" onclick="window.addSubjRow(${gi})">+ 차시 추가</button>
+          <button class="btn-primary subj-save-btn" data-gi="${gi}"
+            onclick="window.saveSubject(${gi}, '${group.subject}', ${JSON.stringify(group.classes)})">저장</button>
         </div>
       </div>`;
   });
@@ -671,20 +663,13 @@ function renderSubject() {
   el.innerHTML = html;
 }
 
-window.toggleSubjGroup = function(header) {
-  const body  = header.nextElementSibling;
-  const arrow = header.querySelector('.arrow');
-  body.classList.toggle('hidden');
-  arrow.textContent = body.classList.contains('hidden') ? '▶' : '▼';
-};
-
 window.addSubjRow = function(gi) {
-  const tbody = document.getElementById(`subj-tbody-${gi}`);
-  const rows  = tbody.querySelectorAll('tr');
+  const tbody    = document.getElementById(`subj-tbody-${gi}`);
+  const rows     = tbody.querySelectorAll('tr');
   const lastStep = rows.length > 0
     ? Math.max(...[...rows].map(r => Number(r.dataset.step) || 0))
     : 0;
-  const newStep = lastStep + 1;
+  const newStep  = lastStep + 1;
 
   const tr = document.createElement('tr');
   tr.dataset.step = newStep;
@@ -724,9 +709,9 @@ window.saveSubject = async function(gi, subject, classes) {
     if (step > 0) newCurriculum[step] = topic;
   });
 
-  const btn = tbody.closest('.subj-body').querySelector('.subj-save-btn');
-  btn.disabled    = true;
-  btn.textContent = '저장 중…';
+  // 저장 버튼: .subj-column 안에서 data-gi로 찾기
+  const btn = document.querySelector(`.subj-save-btn[data-gi="${gi}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중…'; }
 
   try {
     const dbUpdates = {};
@@ -741,8 +726,7 @@ window.saveSubject = async function(gi, subject, classes) {
   } catch(e) {
     showToast('저장 실패: ' + e.message, true);
   } finally {
-    btn.disabled    = false;
-    btn.textContent = '저장';
+    if (btn) { btn.disabled = false; btn.textContent = '저장'; }
   }
 };
 
