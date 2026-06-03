@@ -1,7 +1,7 @@
 import {
   auth, db, googleProvider,
   ref, get, set, update, onValue,
-  signInWithPopup, signOut, onAuthStateChanged
+  signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
 } from './firebase.js';
 
 // ============================================================
@@ -1126,7 +1126,7 @@ function checkInviteParam() {
 // ============================================================
 window.handleSignIn = async function() {
   try {
-    await signInWithPopup(auth, googleProvider);
+    await signInWithRedirect(auth, googleProvider);
   } catch(e) {
     console.error(e);
   }
@@ -1138,6 +1138,7 @@ window.handleSignOut = async function() {
 
 window.switchTab = switchTab;
 
+getRedirectResult(auth).catch(e => console.error(e));
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
