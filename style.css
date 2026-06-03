@@ -605,6 +605,42 @@ body {
 
 .subj-save-btn { padding: 7px 18px; font-size: 12px; }
 
+/* 수업 주제 탭 — 3열 분할 */
+.subject-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  padding: 16px;
+  align-items: start;
+}
+
+.subj-column {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.subj-col-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text3);
+  font-family: 'Space Mono', monospace;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent2);
+}
+
+.subj-current-row {
+  background: var(--bg);
+}
+
+.subj-step-current {
+  color: var(--accent2);
+}
+
 /* ============================================================
    학사일정 — 하루종일 토글
    ============================================================ */
