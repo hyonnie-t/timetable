@@ -228,6 +228,17 @@ body {
   box-shadow: 0 2px 12px rgba(45,106,79,.12);
 }
 
+/* 학사일정 카드 */
+.period-card.event-card {
+  border-left: 3px solid var(--warn);
+  opacity: .85;
+}
+.period-card.event-card.current {
+  border-color: var(--warn);
+  background: #fff8f0;
+  box-shadow: 0 2px 12px rgba(224,124,36,.1);
+}
+
 .current-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
@@ -437,9 +448,10 @@ body {
   font-size: 10px; color: var(--text3); font-weight: 700;
   background: var(--bg); width: 32px;
 }
-.week-grid td.today-col { background: #f8fdf9; }
-.week-grid td.has-class { font-weight: 500; }
+.week-grid td.today-col  { background: #f8fdf9; }
+.week-grid td.has-class  { font-weight: 500; }
 .week-grid td.empty-cell { color: var(--text3); }
+.week-grid td.event-cell { background: #fffaf4; }
 .week-grid tr:last-child td { border-bottom: none; }
 
 .cell-class   { font-size: 10px; font-weight: 700; color: var(--accent); display: block; }
@@ -509,6 +521,113 @@ body {
   font-size: 14px;
   line-height: 2;
 }
+
+/* ============================================================
+   수업 주제 탭
+   ============================================================ */
+.subject-editor { display: flex; flex-direction: column; }
+
+.subj-group { margin-bottom: 4px; }
+
+.subj-group-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 4px 6px;
+  cursor: pointer; user-select: none;
+}
+.subj-group-title {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--text3);
+  font-family: 'Space Mono', monospace;
+  white-space: nowrap;
+}
+.subj-group-line { flex: 1; height: 1px; background: var(--border); }
+
+.subj-body { padding-bottom: 16px; }
+.subj-body.hidden { display: none; }
+
+.subj-table-wrap { overflow-x: auto; }
+
+.subj-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.subj-table th {
+  padding: 9px 12px;
+  font-size: 11px; font-weight: 700;
+  text-align: left;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+  font-family: 'Space Mono', monospace;
+}
+.subj-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.subj-table tr:last-child td { border-bottom: none; }
+
+.subj-step {
+  font-family: 'Space Mono', monospace;
+  font-size: 12px; font-weight: 700;
+  color: var(--text3);
+  width: 44px;
+  text-align: center;
+}
+
+.subj-topic-input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: 'Noto Sans KR', sans-serif;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  transition: all .15s;
+}
+.subj-topic-input:hover { background: var(--bg); border-color: var(--border); }
+.subj-topic-input:focus { background: #fff; border-color: var(--accent2); }
+
+.subj-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 0 2px;
+}
+
+.subj-save-btn { padding: 7px 18px; font-size: 12px; }
+
+/* ============================================================
+   학사일정 — 하루종일 토글
+   ============================================================ */
+.cal-allday-cell { min-width: 130px; }
+
+.allday-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 4px;
+}
+.allday-toggle input[type="checkbox"] {
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.allday-toggle span { font-weight: 500; }
+
+.cal-period-input { margin-top: 2px; }
 
 /* ============================================================
    설정 탭
