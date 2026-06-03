@@ -106,8 +106,7 @@ function formatPeriodTime(p) {
 }
 
 // ============================================================
-// 학사일정 헬퍼: 특정 날짜+교시에 일정이 있는지 확인
-// "all" 키 또는 해당 교시 키 둘 다 체크
+// 학사일정 헬퍼
 // ============================================================
 function getCalendarEvent(dateStr, periodStr) {
   const dayEvents = schoolData?.calendar?.[dateStr] || {};
@@ -115,7 +114,7 @@ function getCalendarEvent(dateStr, periodStr) {
 }
 
 // ============================================================
-// 진도 자동 계산 (접속 시점 기준, 어제까지만)
+// 진도 자동 계산 (어제까지만)
 // ============================================================
 async function autoUpdateProgress() {
   if (!currentUser || !userData) return;
@@ -142,7 +141,6 @@ async function autoUpdateProgress() {
   while (cursor <= now) {
     const dateStr = dateToStr(cursor);
 
-    // 오늘은 계산하지 않음 (수동으로만)
     if (dateStr === today) {
       cursor.setDate(cursor.getDate() + 1);
       continue;
@@ -159,7 +157,6 @@ async function autoUpdateProgress() {
       const lastUpdated = progress[progressKey]?.lastUpdated || startDateStr;
       if (dateStr <= lastUpdated) continue;
 
-      // 학사일정 체크 — 일정이 있으면 수업 없음으로 스킵
       const ev = getCalendarEvent(dateStr, periodStr);
       if (ev) continue;
 
@@ -238,7 +235,6 @@ function renderToday() {
   const el = document.getElementById('tab-today');
   if (!el) return;
 
-  // 1분마다 자동 갱신 (현재 교시 강조 업데이트)
   if (todayRefreshTimer) clearInterval(todayRefreshTimer);
   todayRefreshTimer = setInterval(() => {
     if (currentTab === 'today') renderToday();
@@ -276,7 +272,6 @@ function renderToday() {
   const curP  = getCurrentPeriod();
   const nextP = getNextPeriod(schedule);
 
-  // NOW/NEXT 배너 (학사일정 있으면 숨김)
   if (curP && schedule[curP]?.class) {
     const ev = getCalendarEvent(today, String(curP));
     if (!ev) {
@@ -307,7 +302,6 @@ function renderToday() {
     }
   }
 
-  // 교시 카드
   const list = document.createElement('div');
   list.className = 'period-list';
 
@@ -317,7 +311,6 @@ function renderToday() {
     const ev    = getCalendarEvent(today, String(p));
     const card  = document.createElement('div');
 
-    // 학사일정이 있으면 수업 카드 대신 일정 카드
     if (ev) {
       card.className = `period-card event-card${isCur ? ' current' : ''}`;
       card.innerHTML = `
@@ -599,7 +592,7 @@ function renderProgress() {
 }
 
 // ============================================================
-// 수업 주제 탭 — 3열 분할, 현재 차시 ±2
+// 수업 주제 탭 — 반응형 (모바일: 탭, PC: 3열)
 // ============================================================
 function renderSubject() {
   const el = document.getElementById('tab-subject');
@@ -611,13 +604,13 @@ function renderSubject() {
     { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
   ];
 
-const groupLabels = groups.map(g => g.label);
-let html = `
-  <div class="subj-tab-btns">
-    ${groupLabels.map((l, i) => `<button class="subj-tab-btn${i === 0 ? ' active' : ''}" onclick="window.subjTabSwitch(${i})">${l}</button>`).join('')}
-  </div>
-  <div class="subject-columns">`;
-  
+  // 탭 버튼 (모바일에서만 표시, CSS로 제어)
+  let html = `
+    <div class="subj-tab-btns">
+      ${groups.map((g, i) => `<button class="subj-tab-btn${i === 0 ? ' active' : ''}" onclick="window.subjTabSwitch(${i})">${g.label}</button>`).join('')}
+    </div>
+    <div class="subject-columns">`;
+
   groups.forEach((group, gi) => {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
@@ -628,12 +621,12 @@ let html = `
     const minStep  = Math.max(1, current - WINDOW);
     const maxStep  = current + WINDOW;
 
-    // 커리큘럼에 없는 차시도 current ±2 범위면 포함
     const stepSet  = new Set(steps.filter(s => s >= minStep && s <= maxStep));
     for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
     const visible  = [...stepSet].sort((a,b) => a-b);
 
-    html += `<div class="subj-column${gi === 0 ? ' active' : ''}">`;
+    html += `
+      <div class="subj-column${gi === 0 ? ' active' : ''}">
         <div class="subj-col-header">${group.label}</div>
         <table class="subj-table">
           <thead><tr><th>차시</th><th>주제</th><th></th></tr></thead>
@@ -665,12 +658,12 @@ let html = `
 
   html += '</div>';
   el.innerHTML = html;
+}
+
 window.subjTabSwitch = function(idx) {
   document.querySelectorAll('.subj-tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
   document.querySelectorAll('.subj-column').forEach((c, i) => c.classList.toggle('active', i === idx));
 };
-
-}
 
 window.addSubjRow = function(gi) {
   const tbody    = document.getElementById(`subj-tbody-${gi}`);
@@ -718,7 +711,6 @@ window.saveSubject = async function(gi, subject, classes) {
     if (step > 0) newCurriculum[step] = topic;
   });
 
-  // 저장 버튼: .subj-column 안에서 data-gi로 찾기
   const btn = document.querySelector(`.subj-save-btn[data-gi="${gi}"]`);
   if (btn) { btn.disabled = true; btn.textContent = '저장 중…'; }
 
@@ -784,7 +776,7 @@ function renderSettings() {
 }
 
 // ============================================================
-// 시간표 편집기 (그리드)
+// 시간표 편집기
 // ============================================================
 window.openTimetableEditor = function() {
   const periods    = getPeriods();
@@ -970,7 +962,7 @@ window.reindexPeriods = function() {
 };
 
 // ============================================================
-// 학사일정 편집기 (관리자) — 하루종일 토글 추가
+// 학사일정 편집기 (관리자)
 // ============================================================
 window.openCalendarEditor = function() {
   const calendar = schoolData?.calendar || {};
@@ -981,7 +973,7 @@ window.openCalendarEditor = function() {
       entries.push({ date, period, ...ev });
     }
   }
-  entries.sort((a,b) => b.date.localeCompare(a.date)); // 최신 날짜 먼저
+  entries.sort((a,b) => b.date.localeCompare(a.date));
 
   let rows = entries.map((e, i) => {
     const isAll = e.period === 'all';
