@@ -9,16 +9,17 @@ import {
 // ============================================================
 const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
-const ADMIN_EMAIL = '0000yhshin@gmail.com'; // 효니 이메일로 교체
+const ADMIN_EMAIL = '0000yhshin@gmail.com';
 
 // ============================================================
 // 상태
 // ============================================================
 let currentUser  = null;
 let userProfile  = null;
-let userData     = null; // { timetable, progress, curriculum }
-let schoolData   = null; // { calendar }
+let userData     = null;
+let schoolData   = null;
 let currentTab   = 'today';
+let todayRefreshTimer = null;
 
 // ============================================================
 // 유틸: 시간 → 분
@@ -105,26 +106,31 @@ function formatPeriodTime(p) {
 }
 
 // ============================================================
-// 진도 자동 계산 (접속 시점 기준)
+// 학사일정 헬퍼: 특정 날짜+교시에 일정이 있는지 확인
+// "all" 키 또는 해당 교시 키 둘 다 체크
+// ============================================================
+function getCalendarEvent(dateStr, periodStr) {
+  const dayEvents = schoolData?.calendar?.[dateStr] || {};
+  return dayEvents[periodStr] || dayEvents['all'] || null;
+}
+
+// ============================================================
+// 진도 자동 계산 (접속 시점 기준, 어제까지만)
 // ============================================================
 async function autoUpdateProgress() {
   if (!currentUser || !userData) return;
 
   const schedule  = userData.timetable?.schedule || {};
   const progress  = userData.progress || {};
-  const calendar  = schoolData?.calendar || {};
   const periods   = getPeriods();
   const now       = new Date();
   const today     = todayStr();
 
   const updates = {};
 
-  // 날짜별로 지난 수업 계산
-  // lastUpdated 이후 ~ 오늘까지 순회
   const allKeys = Object.keys(progress);
   if (!allKeys.length) return;
 
-  // 가장 오래된 lastUpdated 기준으로 시작일 결정
   let startDateStr = allKeys.reduce((acc, key) => {
     const d = progress[key]?.lastUpdated || today;
     return d < acc ? d : acc;
@@ -135,7 +141,14 @@ async function autoUpdateProgress() {
 
   while (cursor <= now) {
     const dateStr = dateToStr(cursor);
-    const dayKey  = DOW_KEY[cursor.getDay()];
+
+    // 오늘은 계산하지 않음 (수동으로만)
+    if (dateStr === today) {
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
+
+    const dayKey      = DOW_KEY[cursor.getDay()];
     const daySchedule = schedule[dayKey] || {};
 
     for (const [periodStr, cell] of Object.entries(daySchedule)) {
@@ -146,20 +159,10 @@ async function autoUpdateProgress() {
       const lastUpdated = progress[progressKey]?.lastUpdated || startDateStr;
       if (dateStr <= lastUpdated) continue;
 
-      // 오늘이면 종료 시간 지난 교시만
-      if (dateStr === today) {
-        const p = Number(periodStr);
-        const endMin = parseTimeToMin(periods[p]?.end || '00:00');
-        const curMin = now.getHours() * 60 + now.getMinutes();
-        if (curMin < endMin) continue;
-      }
+      // 학사일정 체크 — 일정이 있으면 수업 없음으로 스킵
+      const ev = getCalendarEvent(dateStr, periodStr);
+      if (ev) continue;
 
-      // 학사일정 체크 — 해당 날짜/교시가 휴업/행사면 스킵
-      const dayEvents = calendar[dateStr] || {};
-      const periodEvent = dayEvents[periodStr];
-      if (periodEvent?.type === 'holiday' || periodEvent?.type === 'noclass') continue;
-
-      // 차시 +1
       const cur = updates[progressKey]?.current ?? progress[progressKey]?.current ?? 1;
       updates[progressKey] = {
         current: cur + 1,
@@ -174,7 +177,6 @@ async function autoUpdateProgress() {
     const dbUpdates = {};
     for (const [key, val] of Object.entries(updates)) {
       dbUpdates[`users/${currentUser.uid}/progress/${key}`] = val;
-      // 로컬 반영
       if (!userData.progress[key]) userData.progress[key] = {};
       userData.progress[key].current     = val.current;
       userData.progress[key].lastUpdated = val.lastUpdated;
@@ -213,7 +215,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
   });
-  ['today','weekly','progress','settings'].forEach(t => {
+  ['today','weekly','progress','subject','settings'].forEach(t => {
     const el = document.getElementById(`tab-${t}`);
     if (el) el.style.display = t === tab ? '' : 'none';
   });
@@ -225,6 +227,7 @@ function renderCurrentTab() {
   if (currentTab === 'today')    renderToday();
   if (currentTab === 'weekly')   renderWeekly();
   if (currentTab === 'progress') renderProgress();
+  if (currentTab === 'subject')  renderSubject();
   if (currentTab === 'settings') renderSettings();
 }
 
@@ -235,17 +238,21 @@ function renderToday() {
   const el = document.getElementById('tab-today');
   if (!el) return;
 
-  const now     = new Date();
-  const dowIdx  = now.getDay();
-  const dayKey  = DOW_KEY[dowIdx];
+  // 1분마다 자동 갱신 (현재 교시 강조 업데이트)
+  if (todayRefreshTimer) clearInterval(todayRefreshTimer);
+  todayRefreshTimer = setInterval(() => {
+    if (currentTab === 'today') renderToday();
+  }, 60000);
+
+  const now      = new Date();
+  const dowIdx   = now.getDay();
+  const dayKey   = DOW_KEY[dowIdx];
   const schedule = userData.timetable?.schedule?.[dayKey] || {};
   const periods  = getPeriods();
-  const today   = todayStr();
-  const calendar = schoolData?.calendar?.[today] || {};
+  const today    = todayStr();
 
   el.innerHTML = '';
 
-  // 헤더
   const header = document.createElement('div');
   header.className = 'section-header';
   header.innerHTML = `
@@ -269,29 +276,35 @@ function renderToday() {
   const curP  = getCurrentPeriod();
   const nextP = getNextPeriod(schedule);
 
-  // NOW/NEXT 배너
+  // NOW/NEXT 배너 (학사일정 있으면 숨김)
   if (curP && schedule[curP]?.class) {
-    const { class: cls, subject } = schedule[curP];
-    const key     = `${cls}_${subject}`;
-    const current = userData.progress[key]?.current || '?';
-    const topic   = userData.curriculum[key]?.[current] || '';
-    el.innerHTML += `
-      <div class="banner banner-now">
-        <span class="banner-label">NOW</span>
-        <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
-        <span class="banner-time">${formatPeriodTime(curP)}</span>
-      </div>`;
+    const ev = getCalendarEvent(today, String(curP));
+    if (!ev) {
+      const { class: cls, subject } = schedule[curP];
+      const key     = `${cls}_${subject}`;
+      const current = userData.progress[key]?.current || '?';
+      const topic   = userData.curriculum[key]?.[current] || '';
+      el.innerHTML += `
+        <div class="banner banner-now">
+          <span class="banner-label">NOW</span>
+          <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-time">${formatPeriodTime(curP)}</span>
+        </div>`;
+    }
   } else if (nextP && schedule[nextP]?.class) {
-    const { class: cls, subject } = schedule[nextP];
-    const key     = `${cls}_${subject}`;
-    const current = userData.progress[key]?.current || '?';
-    const topic   = userData.curriculum[key]?.[current] || '';
-    el.innerHTML += `
-      <div class="banner banner-next">
-        <span class="banner-label">NEXT</span>
-        <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
-        <span class="banner-time">${formatPeriodTime(nextP)}</span>
-      </div>`;
+    const ev = getCalendarEvent(today, String(nextP));
+    if (!ev) {
+      const { class: cls, subject } = schedule[nextP];
+      const key     = `${cls}_${subject}`;
+      const current = userData.progress[key]?.current || '?';
+      const topic   = userData.curriculum[key]?.[current] || '';
+      el.innerHTML += `
+        <div class="banner banner-next">
+          <span class="banner-label">NEXT</span>
+          <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-time">${formatPeriodTime(nextP)}</span>
+        </div>`;
+    }
   }
 
   // 교시 카드
@@ -299,13 +312,24 @@ function renderToday() {
   list.className = 'period-list';
 
   for (const p of periodList) {
-    const cell = schedule[p];
+    const cell  = schedule[p];
     const isCur = p === curP;
-    const ev    = calendar[String(p)];
+    const ev    = getCalendarEvent(today, String(p));
+    const card  = document.createElement('div');
 
-    const card = document.createElement('div');
-
-    if (cell?.class) {
+    // 학사일정이 있으면 수업 카드 대신 일정 카드
+    if (ev) {
+      card.className = `period-card event-card${isCur ? ' current' : ''}`;
+      card.innerHTML = `
+        ${isCur ? '<div class="current-dot"></div>' : ''}
+        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body">
+          <span class="event-badge badge-${ev.type}">${ev.label}</span>
+          <span class="empty-label"></span>
+        </div>
+      `;
+    } else if (cell?.class) {
       const { class: cls, subject } = cell;
       const key     = `${cls}_${subject}`;
       const current = userData.progress[key]?.current ?? 1;
@@ -322,7 +346,6 @@ function renderToday() {
             <span class="class-badge">${cls}</span>
             <span class="class-subject">${subject}</span>
             <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
-            ${ev ? `<span class="event-badge badge-${ev.type}">${ev.label}</span>` : ''}
             <span class="class-step" id="step-display-${p}">${current}차시</span>
           </div>
           <div class="step-editor" id="editor-${p}">
@@ -341,8 +364,7 @@ function renderToday() {
         <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
         <div class="period-divider"></div>
         <div class="period-body">
-          ${ev ? `<span class="event-badge badge-${ev.type}">${ev.label}</span>` : ''}
-          <span class="empty-label">${ev ? '' : '공강'}</span>
+          <span class="empty-label">공강</span>
         </div>
       `;
     }
@@ -365,13 +387,9 @@ window.adjustStep = function(p, delta) {
   const next = Math.max(1, cur + delta);
   disp.textContent = next;
 
-  // 커리큘럼에서 해당 차시 주제 자동 채우기
-  const card = document.querySelector(`[data-key]`);
-  const periodCards = document.querySelectorAll('.period-card');
   let key = '';
-  periodCards.forEach(c => {
-    const editor = c.querySelector(`#editor-${p}`);
-    if (editor) key = c.dataset.key;
+  document.querySelectorAll('.period-card').forEach(c => {
+    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
   });
 
   if (key && userData.curriculum[key]?.[next]) {
@@ -384,7 +402,6 @@ window.saveStep = async function(p) {
   const disp  = document.getElementById(`step-disp-${p}`);
   const input = document.getElementById(`topic-inp-${p}`);
 
-  // key 찾기
   let key = '';
   document.querySelectorAll('.period-card').forEach(c => {
     if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
@@ -408,7 +425,6 @@ window.saveStep = async function(p) {
     }
     await update(ref(db), updates);
 
-    // 로컬 반영
     if (!userData.progress[key]) userData.progress[key] = {};
     userData.progress[key].current     = newStep;
     userData.progress[key].lastUpdated = todayStr();
@@ -437,10 +453,10 @@ function renderWeekly() {
   let activeWeek = 0;
 
   function renderWeekGrid(offsetWeeks) {
-    const dates    = getWeekDates(offsetWeeks);
-    const periods  = getPeriods();
+    const dates      = getWeekDates(offsetWeeks);
+    const periods    = getPeriods();
     const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
-    const today    = todayStr();
+    const today      = todayStr();
 
     let html = '<div class="week-grid"><table><thead><tr><th></th>';
     dates.forEach((d, i) => {
@@ -456,9 +472,13 @@ function renderWeekly() {
         const cell    = userData.timetable?.schedule?.[dayKey]?.[p];
         const isToday = dateToStr(d) === today;
         const dateStr = dateToStr(d);
-        const ev      = schoolData?.calendar?.[dateStr]?.[String(p)];
+        const ev      = getCalendarEvent(dateStr, String(p));
 
-        if (cell?.class) {
+        if (ev) {
+          html += `<td class="event-cell${isToday ? ' today-col' : ''}">
+            <span class="cell-badge badge-${ev.type}">${ev.label}</span>
+          </td>`;
+        } else if (cell?.class) {
           const key     = `${cell.class}_${cell.subject}`;
           const current = userData.progress[key]?.current ?? '?';
           const topic   = userData.curriculum[key]?.[current] || '';
@@ -466,10 +486,9 @@ function renderWeekly() {
             <span class="cell-class">${cell.class}</span>
             <span class="cell-subject">${cell.subject}</span>
             ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
-            ${ev ? `<span class="cell-badge badge-${ev.type}">${ev.label}</span>` : ''}
           </td>`;
         } else {
-          html += `<td class="empty-cell${isToday ? ' today-col' : ''}">${ev ? `<span class="cell-badge badge-${ev.type}">${ev.label}</span>` : '·'}</td>`;
+          html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
         }
       });
       html += '</tr>';
@@ -505,7 +524,7 @@ function renderProgress() {
   if (!el) return;
 
   const schedule = userData.timetable?.schedule || {};
-  const classSet = new Map(); // key → { class, subject }
+  const classSet = new Map();
 
   for (const daySchedule of Object.values(schedule)) {
     for (const cell of Object.values(daySchedule)) {
@@ -521,7 +540,6 @@ function renderProgress() {
     return;
   }
 
-  // 과목별 그룹핑
   const groups = new Map();
   for (const [key, info] of classSet) {
     if (!groups.has(info.subject)) groups.set(info.subject, []);
@@ -529,13 +547,13 @@ function renderProgress() {
   }
 
   let html = '<div class="progress-grid">';
-  
-const subjectOrder = ['역사', '역사A', '역사B'];
-const sortedGroups = [...groups.entries()].sort(
-  (a, b) => subjectOrder.indexOf(a[0]) - subjectOrder.indexOf(b[0])
-);
 
-for (const [subject, items] of sortedGroups) {
+  const subjectOrder = ['역사', '역사A', '역사B'];
+  const sortedGroups = [...groups.entries()].sort(
+    (a, b) => subjectOrder.indexOf(a[0]) - subjectOrder.indexOf(b[0])
+  );
+
+  for (const [subject, items] of sortedGroups) {
     html += `
       <div class="prog-group-header" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.arrow').classList.toggle('collapsed')">
         <span class="prog-group-title">${subject}</span>
@@ -544,11 +562,10 @@ for (const [subject, items] of sortedGroups) {
       </div>
       <div class="prog-group-body">`;
 
-    // 반 번호 기준 정렬
     items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
 
     for (const item of items) {
-      const current  = userData.progress[item.key]?.current ?? 1;
+      const current   = userData.progress[item.key]?.current ?? 1;
       const currTopic = userData.curriculum[item.key]?.[current] || '주제 미설정';
       const nextTopic = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopic= userData.curriculum[item.key]?.[current + 2] || '';
@@ -580,6 +597,154 @@ for (const [subject, items] of sortedGroups) {
   html += '</div>';
   el.innerHTML = html;
 }
+
+// ============================================================
+// 수업 주제 탭 (신규)
+// ============================================================
+function renderSubject() {
+  const el = document.getElementById('tab-subject');
+  if (!el) return;
+
+  // 그룹 정의
+  const groups = [
+    { label: '3학년',  subject: '역사',  classes: ['305','306','307','308'] },
+    { label: '2학년 A', subject: '역사A', classes: ['201 A','202 A','203 A'] },
+    { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
+  ];
+
+  // 현재 열려있는 그룹 상태 유지
+  const openState = {};
+  el.querySelectorAll('.subj-group').forEach(g => {
+    const key = g.dataset.group;
+    openState[key] = !g.querySelector('.subj-body').classList.contains('hidden');
+  });
+
+  let html = '<div class="subject-editor">';
+
+  groups.forEach((group, gi) => {
+    // 대표 반의 커리큘럼 사용 (첫 번째 반 기준)
+    const repClass = group.classes[0];
+    const repKey   = `${repClass}_${group.subject}`;
+    const curriculum = userData.curriculum[repKey] || {};
+    const steps    = Object.keys(curriculum).map(Number).sort((a,b) => a-b);
+
+    const isOpen = openState[group.label] !== undefined ? openState[group.label] : gi === 0;
+
+    html += `
+      <div class="subj-group" data-group="${group.label}">
+        <div class="subj-group-header" onclick="window.toggleSubjGroup(this)">
+          <span class="subj-group-title">${group.label}</span>
+          <div class="subj-group-line"></div>
+          <span class="arrow">${isOpen ? '▼' : '▶'}</span>
+        </div>
+        <div class="subj-body${isOpen ? '' : ' hidden'}">
+          <div class="subj-table-wrap">
+            <table class="subj-table">
+              <thead>
+                <tr><th>차시</th><th>주제</th><th></th></tr>
+              </thead>
+              <tbody id="subj-tbody-${gi}">`;
+
+    steps.forEach(step => {
+      const topic = curriculum[step] || '';
+      html += `
+                <tr data-step="${step}">
+                  <td class="subj-step">${step}</td>
+                  <td><input class="subj-topic-input" data-gi="${gi}" data-step="${step}" value="${topic.replace(/"/g,'&quot;')}" placeholder="주제 입력" /></td>
+                  <td><button class="btn-del" onclick="window.deleteSubjRow(${gi}, ${step}, '${group.subject}', ${JSON.stringify(group.classes)})">✕</button></td>
+                </tr>`;
+    });
+
+    html += `
+              </tbody>
+            </table>
+          </div>
+          <div class="subj-actions">
+            <button class="btn-add-period" onclick="window.addSubjRow(${gi})">+ 차시 추가</button>
+            <button class="btn-primary subj-save-btn" onclick="window.saveSubject(${gi}, '${group.subject}', ${JSON.stringify(group.classes)})">저장</button>
+          </div>
+        </div>
+      </div>`;
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+window.toggleSubjGroup = function(header) {
+  const body  = header.nextElementSibling;
+  const arrow = header.querySelector('.arrow');
+  body.classList.toggle('hidden');
+  arrow.textContent = body.classList.contains('hidden') ? '▶' : '▼';
+};
+
+window.addSubjRow = function(gi) {
+  const tbody = document.getElementById(`subj-tbody-${gi}`);
+  const rows  = tbody.querySelectorAll('tr');
+  const lastStep = rows.length > 0
+    ? Math.max(...[...rows].map(r => Number(r.dataset.step) || 0))
+    : 0;
+  const newStep = lastStep + 1;
+
+  const tr = document.createElement('tr');
+  tr.dataset.step = newStep;
+  tr.innerHTML = `
+    <td class="subj-step">${newStep}</td>
+    <td><input class="subj-topic-input" data-gi="${gi}" data-step="${newStep}" value="" placeholder="주제 입력" /></td>
+    <td><button class="btn-del" onclick="this.closest('tr').remove()">✕</button></td>`;
+  tbody.appendChild(tr);
+  tr.querySelector('input').focus();
+};
+
+window.deleteSubjRow = async function(gi, step, subject, classes) {
+  if (!confirm(`${step}차시를 삭제하시겠어요?`)) return;
+  try {
+    const dbUpdates = {};
+    classes.forEach(cls => {
+      const key = `${cls}_${subject}`;
+      dbUpdates[`users/${currentUser.uid}/curriculum/${key}/${step}`] = null;
+      if (userData.curriculum[key]) delete userData.curriculum[key][step];
+    });
+    await update(ref(db), dbUpdates);
+    showToast(`${step}차시 삭제 완료`);
+    renderSubject();
+  } catch(e) {
+    showToast('삭제 실패: ' + e.message, true);
+  }
+};
+
+window.saveSubject = async function(gi, subject, classes) {
+  const tbody  = document.getElementById(`subj-tbody-${gi}`);
+  const inputs = tbody.querySelectorAll('.subj-topic-input');
+  const newCurriculum = {};
+
+  inputs.forEach(input => {
+    const step  = Number(input.dataset.step);
+    const topic = input.value.trim();
+    if (step > 0) newCurriculum[step] = topic;
+  });
+
+  const btn = tbody.closest('.subj-body').querySelector('.subj-save-btn');
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const dbUpdates = {};
+    classes.forEach(cls => {
+      const key = `${cls}_${subject}`;
+      dbUpdates[`users/${currentUser.uid}/curriculum/${key}`] = newCurriculum;
+      userData.curriculum[key] = { ...newCurriculum };
+    });
+    await update(ref(db), dbUpdates);
+    showToast(`${subject} 커리큘럼 저장 완료`);
+    renderSubject();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+};
 
 // ============================================================
 // 설정 탭
@@ -629,11 +794,11 @@ function renderSettings() {
 // 시간표 편집기 (그리드)
 // ============================================================
 window.openTimetableEditor = function() {
-  const periods  = getPeriods();
+  const periods    = getPeriods();
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
-  const schedule = userData.timetable?.schedule || {};
-  const days     = ['mon','tue','wed','thu','fri'];
-  const dayLabels= ['월','화','수','목','금'];
+  const schedule   = userData.timetable?.schedule || {};
+  const days       = ['mon','tue','wed','thu','fri'];
+  const dayLabels  = ['월','화','수','목','금'];
 
   let html = `
     <div class="modal-overlay" id="modal-timetable">
@@ -688,7 +853,6 @@ window.saveTimetable = async function() {
       const subject = parts[1] || '';
       if (cls && subject) {
         schedule[day][p] = { class: cls, subject };
-        // progress 초기화 (없는 경우에만)
         const key = `${cls}_${subject}`;
         if (!userData.progress[key]) {
           userData.progress[key] = { current: 1, lastUpdated: todayStr() };
@@ -700,7 +864,6 @@ window.saveTimetable = async function() {
   try {
     const dbUpdates = {};
     dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
-    // 새 progress 항목 추가
     for (const [key, val] of Object.entries(userData.progress)) {
       dbUpdates[`users/${currentUser.uid}/progress/${key}`] = val;
     }
@@ -731,16 +894,16 @@ window.openPeriodsEditor = function() {
         </div>
         <div class="modal-body">
           <table class="periods-table">
-         <thead><tr><th>교시</th><th>시작</th><th>종료</th><th></th></tr></thead>
+            <thead><tr><th>교시</th><th>시작</th><th>종료</th><th></th></tr></thead>
             <tbody>`;
   for (const p of periodList) {
     const t = periods[p];
-html += `<tr data-period="${p}">
-  <td>${p}교시</td>
-  <td><input type="time" class="time-input" data-period="${p}" data-field="start" value="${t.start}" /></td>
-  <td><input type="time" class="time-input" data-period="${p}" data-field="end"   value="${t.end}"   /></td>
-  <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>
-</tr>`;
+    html += `<tr data-period="${p}">
+      <td>${p}교시</td>
+      <td><input type="time" class="time-input" data-period="${p}" data-field="start" value="${t.start}" /></td>
+      <td><input type="time" class="time-input" data-period="${p}" data-field="end"   value="${t.end}"   /></td>
+      <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>
+    </tr>`;
   }
   html += `</tbody></table>
           <button class="btn-add-period" onclick="window.addPeriodRow()">+ 교시 추가</button>
@@ -814,11 +977,12 @@ window.reindexPeriods = function() {
 };
 
 // ============================================================
-// 학사일정 편집기 (관리자)
+// 학사일정 편집기 (관리자) — 하루종일 토글 추가
 // ============================================================
 window.openCalendarEditor = function() {
   const calendar = schoolData?.calendar || {};
   const entries  = [];
+
   for (const [date, periods] of Object.entries(calendar)) {
     for (const [period, ev] of Object.entries(periods)) {
       entries.push({ date, period, ...ev });
@@ -826,10 +990,21 @@ window.openCalendarEditor = function() {
   }
   entries.sort((a,b) => a.date.localeCompare(b.date));
 
-  let rows = entries.map((e, i) => `
+  let rows = entries.map((e, i) => {
+    const isAll = e.period === 'all';
+    return `
     <tr id="cal-row-${i}">
-      <td><input class="cal-input" data-idx="${i}" data-field="date"   value="${e.date}"   placeholder="YYYY-MM-DD" /></td>
-      <td><input class="cal-input" data-idx="${i}" data-field="period" value="${e.period}" placeholder="교시 (빈칸=전체)" /></td>
+      <td><input class="cal-input" data-idx="${i}" data-field="date" value="${e.date}" placeholder="YYYY-MM-DD" /></td>
+      <td class="cal-allday-cell">
+        <label class="allday-toggle">
+          <input type="checkbox" class="cal-allday-check" data-idx="${i}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+          <span>하루종일</span>
+        </label>
+        <input class="cal-input cal-period-input" data-idx="${i}" data-field="period"
+          value="${isAll ? '' : e.period}"
+          placeholder="교시"
+          style="${isAll ? 'display:none' : ''}" />
+      </td>
       <td>
         <select class="cal-select" data-idx="${i}" data-field="type">
           <option value="holiday" ${e.type==='holiday'?'selected':''}>휴업</option>
@@ -841,7 +1016,8 @@ window.openCalendarEditor = function() {
       </td>
       <td><input class="cal-input" data-idx="${i}" data-field="label" value="${e.label||''}" placeholder="표시 텍스트" /></td>
       <td><button class="btn-del" onclick="document.getElementById('cal-row-${i}').remove()">✕</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const html = `
     <div class="modal-overlay" id="modal-calendar">
@@ -867,13 +1043,29 @@ window.openCalendarEditor = function() {
   document.body.insertAdjacentHTML('beforeend', html);
 };
 
+window.toggleAlldayCheck = function(checkbox) {
+  const periodInput = checkbox.closest('td').querySelector('.cal-period-input');
+  if (checkbox.checked) {
+    periodInput.style.display = 'none';
+    periodInput.value = '';
+  } else {
+    periodInput.style.display = '';
+  }
+};
+
 window.addCalRow = function() {
   const tbody = document.getElementById('cal-tbody');
   const idx   = Date.now();
   tbody.insertAdjacentHTML('beforeend', `
     <tr id="cal-row-${idx}">
-      <td><input class="cal-input" data-idx="${idx}" data-field="date"   value="" placeholder="YYYY-MM-DD" /></td>
-      <td><input class="cal-input" data-idx="${idx}" data-field="period" value="" placeholder="교시" /></td>
+      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="" placeholder="YYYY-MM-DD" /></td>
+      <td class="cal-allday-cell">
+        <label class="allday-toggle">
+          <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
+          <span>하루종일</span>
+        </label>
+        <input class="cal-input cal-period-input" data-idx="${idx}" data-field="period" value="" placeholder="교시" />
+      </td>
       <td>
         <select class="cal-select" data-idx="${idx}" data-field="type">
           <option value="holiday">휴업</option>
@@ -889,17 +1081,26 @@ window.addCalRow = function() {
 };
 
 window.saveCalendar = async function() {
-  const rows    = document.querySelectorAll('#cal-tbody tr');
-  const calendar= {};
+  const rows     = document.querySelectorAll('#cal-tbody tr');
+  const calendar = {};
 
   rows.forEach(row => {
-    const inputs  = row.querySelectorAll('.cal-input, .cal-select');
-    const data    = {};
-    inputs.forEach(input => { data[input.dataset.field] = input.value.trim(); });
-    if (!data.date) return;
-    if (!calendar[data.date]) calendar[data.date] = {};
-    const periodKey = data.period || 'all';
-    calendar[data.date][periodKey] = { type: data.type, label: data.label };
+    const dateInput   = row.querySelector('[data-field="date"]');
+    const alldayCheck = row.querySelector('.cal-allday-check');
+    const periodInput = row.querySelector('.cal-period-input');
+    const typeSelect  = row.querySelector('[data-field="type"]');
+    const labelInput  = row.querySelector('[data-field="label"]');
+
+    const date  = dateInput?.value.trim();
+    if (!date) return;
+
+    const isAll     = alldayCheck?.checked;
+    const periodKey = isAll ? 'all' : (periodInput?.value.trim() || 'all');
+    const type      = typeSelect?.value || 'event';
+    const label     = labelInput?.value.trim() || '';
+
+    if (!calendar[date]) calendar[date] = {};
+    calendar[date][periodKey] = { type, label };
   });
 
   try {
@@ -928,7 +1129,6 @@ window.copyInviteLink = function() {
   navigator.clipboard.writeText(link).then(() => showToast('초대 링크 복사 완료'));
 };
 
-// 초대 링크로 접속한 경우 invitedBy 저장
 function checkInviteParam() {
   const params    = new URLSearchParams(location.search);
   const invitedBy = params.get('invite');
@@ -958,7 +1158,6 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
 
-    // 프로필 확인/생성
     const profileSnap = await get(ref(db, `users/${user.uid}/profile`));
     if (!profileSnap.exists()) {
       const invitedBy = sessionStorage.getItem('invitedBy');
@@ -986,13 +1185,13 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 function showApp() {
-  document.getElementById('login-screen').style.display  = 'none';
-  document.getElementById('app-screen').style.display    = '';
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-screen').style.display   = '';
 }
 
 function showLogin() {
-  document.getElementById('login-screen').style.display  = '';
-  document.getElementById('app-screen').style.display    = 'none';
+  document.getElementById('login-screen').style.display = '';
+  document.getElementById('app-screen').style.display   = 'none';
 }
 
 // ============================================================
@@ -1000,8 +1199,8 @@ function showLogin() {
 // ============================================================
 function showToast(msg, isErr = false) {
   const el = document.getElementById('toast');
-  el.textContent  = msg;
-  el.className    = `toast show${isErr ? ' error' : ''}`;
+  el.textContent = msg;
+  el.className   = `toast show${isErr ? ' error' : ''}`;
   clearTimeout(window._toastTimer);
   window._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
