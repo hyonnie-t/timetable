@@ -529,7 +529,13 @@ function renderProgress() {
   }
 
   let html = '<div class="progress-grid">';
-  for (const [subject, items] of groups) {
+  
+const subjectOrder = ['역사', '역사A', '역사B'];
+const sortedGroups = [...groups.entries()].sort(
+  (a, b) => subjectOrder.indexOf(a[0]) - subjectOrder.indexOf(b[0])
+);
+
+for (const [subject, items] of sortedGroups) {
     html += `
       <div class="prog-group-header" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.arrow').classList.toggle('collapsed')">
         <span class="prog-group-title">${subject}</span>
