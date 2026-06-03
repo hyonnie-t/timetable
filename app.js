@@ -611,8 +611,13 @@ function renderSubject() {
     { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
   ];
 
-  let html = '<div class="subject-columns">';
-
+const groupLabels = groups.map(g => g.label);
+let html = `
+  <div class="subj-tab-btns">
+    ${groupLabels.map((l, i) => `<button class="subj-tab-btn${i === 0 ? ' active' : ''}" onclick="window.subjTabSwitch(${i})">${l}</button>`).join('')}
+  </div>
+  <div class="subject-columns">`;
+  
   groups.forEach((group, gi) => {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
@@ -628,8 +633,7 @@ function renderSubject() {
     for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
     const visible  = [...stepSet].sort((a,b) => a-b);
 
-    html += `
-      <div class="subj-column">
+    html += `<div class="subj-column${gi === 0 ? ' active' : ''}">`;
         <div class="subj-col-header">${group.label}</div>
         <table class="subj-table">
           <thead><tr><th>차시</th><th>주제</th><th></th></tr></thead>
@@ -661,6 +665,11 @@ function renderSubject() {
 
   html += '</div>';
   el.innerHTML = html;
+window.subjTabSwitch = function(idx) {
+  document.querySelectorAll('.subj-tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.querySelectorAll('.subj-column').forEach((c, i) => c.classList.toggle('active', i === idx));
+};
+
 }
 
 window.addSubjRow = function(gi) {
