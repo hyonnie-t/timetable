@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getDatabase, ref, get, set, update, onValue }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
@@ -19,4 +19,4 @@ export const auth = getAuth(app);
 export const db   = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export { ref, get, set, update, onValue, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged };
+export { ref, get, set, update, onValue, signInWithPopup, signOut, onAuthStateChanged };
