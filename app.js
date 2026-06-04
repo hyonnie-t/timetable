@@ -1127,7 +1127,7 @@ function checkInviteParam() {
 // ============================================================
 window.handleSignIn = async function() {
   try {
-    await signInWithRedirect(auth, googleProvider);
+    await signInWithPopup(auth, googleProvider);
   } catch(e) {
     console.error(e);
   }
