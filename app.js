@@ -1,7 +1,7 @@
 import {
   auth, db, googleProvider,
   ref, get, set, update, onValue,
-  signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
+  signInWithPopup, signOut, onAuthStateChanged
 } from './firebase.js';
 
 // ============================================================
@@ -1139,7 +1139,6 @@ window.handleSignOut = async function() {
 
 window.switchTab = switchTab;
 
-getRedirectResult(auth).catch(e => console.error(e));
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
