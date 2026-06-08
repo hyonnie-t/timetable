@@ -114,18 +114,26 @@ function getCalendarEvent(dateStr, periodStr) {
 }
 
 // ============================================================
-// [수정] 특정 주(offsetWeeks)에서 특정 반+과목의 실제 수업 횟수 계산
+// [수정] 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
+// "오늘" 이후 ~ targetDateStr 전날까지 해당 반+과목 실제 수업 횟수
 // 학사일정으로 취소된 수업은 제외
 // ============================================================
-function countClassesInWeek(cls, subject, offsetWeeks) {
-  const dates    = getWeekDates(offsetWeeks);
+function getOffsetUpToDate(cls, subject, targetDateStr) {
   const schedule = userData?.timetable?.schedule || {};
-  let count = 0;
+  const today    = todayStr();
 
-  for (const date of dates) {
-    const dayKey      = DOW_KEY[date.getDay()];
+  // 오늘 다음 날부터 targetDate 전날까지 순회
+  const start = new Date(today);
+  start.setDate(start.getDate() + 1);          // 오늘 수업은 current에 이미 반영
+  const end   = new Date(targetDateStr);        // targetDate 당일은 제외 (아직 안 한 수업)
+
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor < end) {
+    const dateStr  = dateToStr(cursor);
+    const dayKey   = DOW_KEY[cursor.getDay()];
     const daySchedule = schedule[dayKey] || {};
-    const dateStr     = dateToStr(date);
 
     for (const [periodStr, cell] of Object.entries(daySchedule)) {
       if (cell?.class === cls && cell?.subject === subject) {
@@ -133,20 +141,9 @@ function countClassesInWeek(cls, subject, offsetWeeks) {
         if (!ev) count++;
       }
     }
+    cursor.setDate(cursor.getDate() + 1);
   }
   return count;
-}
-
-// offsetWeeks 이전 주들의 누적 수업 횟수 → 차시 오프셋
-// offsetWeeks=0(이번주): 오프셋 0
-// offsetWeeks=1(다음주): 이번주 수업 수
-// offsetWeeks=2(다다음주): 이번주 + 다음주 수업 수
-function getProgressOffset(cls, subject, offsetWeeks) {
-  let offset = 0;
-  for (let w = 0; w < offsetWeeks; w++) {
-    offset += countClassesInWeek(cls, subject, w);
-  }
-  return offset;
 }
 
 // ============================================================
@@ -513,8 +510,8 @@ function renderWeekly() {
           const key = `${cell.class}_${cell.subject}`;
           const base = userData.progress[key]?.current ?? 1;
 
-          // [수정] offsetWeeks 이전 주들의 누적 수업 수를 더해 해당 주 예상 차시 계산
-          const offset  = getProgressOffset(cell.class, cell.subject, offsetWeeks);
+          // [수정] 오늘 이후 ~ 해당 날짜 전날까지 실제 수업 횟수를 오프셋으로 사용
+          const offset  = getOffsetUpToDate(cell.class, cell.subject, dateStr);
           const current = base + offset;
           const topic   = userData.curriculum[key]?.[current] || '';
 
