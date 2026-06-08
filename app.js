@@ -604,7 +604,6 @@ function renderSubject() {
     { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
   ];
 
-  // 탭 버튼 (모바일에서만 표시, CSS로 제어)
   let html = `
     <div class="subj-tab-btns">
       ${groups.map((g, i) => `<button class="subj-tab-btn${i === 0 ? ' active' : ''}" onclick="window.subjTabSwitch(${i})">${g.label}</button>`).join('')}
@@ -625,6 +624,9 @@ function renderSubject() {
     for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
     const visible  = [...stepSet].sort((a,b) => a-b);
 
+    // classes 배열을 data 속성용으로 인코딩
+    const encodedClasses = encodeURIComponent(JSON.stringify(group.classes));
+
     html += `
       <div class="subj-column${gi === 0 ? ' active' : ''}">
         <div class="subj-col-header">${group.label}</div>
@@ -641,7 +643,10 @@ function renderSubject() {
               <td><input class="subj-topic-input" data-gi="${gi}" data-step="${step}"
                 value="${topic.replace(/"/g,'&quot;')}" placeholder="주제 입력" /></td>
               <td><button class="btn-del"
-                onclick="window.deleteSubjRow(${gi}, ${step}, '${group.subject}', ${JSON.stringify(group.classes)})">✕</button></td>
+                data-gi="${gi}"
+                data-step="${step}"
+                data-subject="${group.subject}"
+                data-classes="${encodedClasses}">✕</button></td>
             </tr>`;
     });
 
@@ -650,8 +655,10 @@ function renderSubject() {
         </table>
         <div class="subj-actions">
           <button class="btn-add-period" onclick="window.addSubjRow(${gi})">+ 차시 추가</button>
-          <button class="btn-primary subj-save-btn" data-gi="${gi}"
-            onclick="window.saveSubject(${gi}, '${group.subject}', ${JSON.stringify(group.classes)})">저장</button>
+          <button class="btn-primary subj-save-btn"
+            data-gi="${gi}"
+            data-subject="${group.subject}"
+            data-classes="${encodedClasses}">저장</button>
         </div>
       </div>`;
   });
@@ -730,6 +737,32 @@ window.saveSubject = async function(gi, subject, classes) {
     if (btn) { btn.disabled = false; btn.textContent = '저장'; }
   }
 };
+
+// ============================================================
+// 수업 주제 탭 이벤트 위임 (저장 / 삭제 버튼)
+// ============================================================
+document.addEventListener('click', function(e) {
+  // 저장 버튼
+  const saveBtn = e.target.closest('.subj-save-btn');
+  if (saveBtn) {
+    const gi      = Number(saveBtn.dataset.gi);
+    const subject = saveBtn.dataset.subject;
+    const classes = JSON.parse(decodeURIComponent(saveBtn.dataset.classes));
+    window.saveSubject(gi, subject, classes);
+    return;
+  }
+
+  // 삭제 버튼 (data-classes 있는 경우만 — 새로 추가한 행은 onclick으로 처리)
+  const delBtn = e.target.closest('.btn-del[data-classes]');
+  if (delBtn) {
+    const gi      = Number(delBtn.dataset.gi);
+    const step    = Number(delBtn.dataset.step);
+    const subject = delBtn.dataset.subject;
+    const classes = JSON.parse(decodeURIComponent(delBtn.dataset.classes));
+    window.deleteSubjRow(gi, step, subject, classes);
+    return;
+  }
+});
 
 // ============================================================
 // 설정 탭
