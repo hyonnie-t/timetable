@@ -114,6 +114,42 @@ function getCalendarEvent(dateStr, periodStr) {
 }
 
 // ============================================================
+// [수정] 특정 주(offsetWeeks)에서 특정 반+과목의 실제 수업 횟수 계산
+// 학사일정으로 취소된 수업은 제외
+// ============================================================
+function countClassesInWeek(cls, subject, offsetWeeks) {
+  const dates    = getWeekDates(offsetWeeks);
+  const schedule = userData?.timetable?.schedule || {};
+  let count = 0;
+
+  for (const date of dates) {
+    const dayKey      = DOW_KEY[date.getDay()];
+    const daySchedule = schedule[dayKey] || {};
+    const dateStr     = dateToStr(date);
+
+    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+      if (cell?.class === cls && cell?.subject === subject) {
+        const ev = getCalendarEvent(dateStr, periodStr);
+        if (!ev) count++;
+      }
+    }
+  }
+  return count;
+}
+
+// offsetWeeks 이전 주들의 누적 수업 횟수 → 차시 오프셋
+// offsetWeeks=0(이번주): 오프셋 0
+// offsetWeeks=1(다음주): 이번주 수업 수
+// offsetWeeks=2(다다음주): 이번주 + 다음주 수업 수
+function getProgressOffset(cls, subject, offsetWeeks) {
+  let offset = 0;
+  for (let w = 0; w < offsetWeeks; w++) {
+    offset += countClassesInWeek(cls, subject, w);
+  }
+  return offset;
+}
+
+// ============================================================
 // 진도 자동 계산 (어제까지만)
 // ============================================================
 async function autoUpdateProgress() {
@@ -445,6 +481,8 @@ function renderWeekly() {
 
   let activeWeek = 0;
 
+  // [수정] offsetWeeks를 받아 해당 주 그리드 렌더링
+  // 각 셀의 차시는 현재 progress + 그 주 이전까지의 누적 수업 수로 계산
   function renderWeekGrid(offsetWeeks) {
     const dates      = getWeekDates(offsetWeeks);
     const periods    = getPeriods();
@@ -472,9 +510,14 @@ function renderWeekly() {
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
-          const key     = `${cell.class}_${cell.subject}`;
-          const current = userData.progress[key]?.current ?? '?';
+          const key = `${cell.class}_${cell.subject}`;
+          const base = userData.progress[key]?.current ?? 1;
+
+          // [수정] offsetWeeks 이전 주들의 누적 수업 수를 더해 해당 주 예상 차시 계산
+          const offset  = getProgressOffset(cell.class, cell.subject, offsetWeeks);
+          const current = base + offset;
           const topic   = userData.curriculum[key]?.[current] || '';
+
           html += `<td class="has-class${isToday ? ' today-col' : ''}">
             <span class="cell-class">${cell.class}</span>
             <span class="cell-subject">${cell.subject}</span>
@@ -614,17 +657,18 @@ function renderSubject() {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
     const current    = userData.progress[repKey]?.current ?? 1;
-    const steps      = Object.keys(curriculum).map(Number).sort((a,b) => a-b);
 
+    // [수정] 저장된 최대 차시와 current+WINDOW 중 큰 값을 maxStep으로 사용
+    // → 저장 후 다시 렌더해도 추가된 행이 사라지지 않음
     const WINDOW   = 2;
     const minStep  = Math.max(1, current - WINDOW);
-    const maxStep  = current + WINDOW;
+    const savedMax = Object.keys(curriculum).map(Number).reduce((a, b) => Math.max(a, b), 0);
+    const maxStep  = Math.max(current + WINDOW, savedMax);
 
-    const stepSet  = new Set(steps.filter(s => s >= minStep && s <= maxStep));
+    const stepSet  = new Set();
     for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
     const visible  = [...stepSet].sort((a,b) => a-b);
 
-    // classes 배열을 data 속성용으로 인코딩
     const encodedClasses = encodeURIComponent(JSON.stringify(group.classes));
 
     html += `
@@ -742,7 +786,6 @@ window.saveSubject = async function(gi, subject, classes) {
 // 수업 주제 탭 이벤트 위임 (저장 / 삭제 버튼)
 // ============================================================
 document.addEventListener('click', function(e) {
-  // 저장 버튼
   const saveBtn = e.target.closest('.subj-save-btn');
   if (saveBtn) {
     const gi      = Number(saveBtn.dataset.gi);
@@ -752,7 +795,6 @@ document.addEventListener('click', function(e) {
     return;
   }
 
-  // 삭제 버튼 (data-classes 있는 경우만 — 새로 추가한 행은 onclick으로 처리)
   const delBtn = e.target.closest('.btn-del[data-classes]');
   if (delBtn) {
     const gi      = Number(delBtn.dataset.gi);
