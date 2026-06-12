@@ -119,12 +119,14 @@ function getCalendarEvent(dateStr, periodStr) {
 // 학사일정으로 취소된 수업은 제외
 // ============================================================
 function getOffsetUpToDate(cls, subject, targetDateStr) {
-  const schedule = userData?.timetable?.schedule || {};
-  const today    = todayStr();
+  const schedule    = userData?.timetable?.schedule || {};
+  const progressKey = `${cls}_${subject}`;
+  const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  // 오늘 다음 날부터 targetDate 전날까지 순회
-  const start = new Date(today);
-  start.setDate(start.getDate() + 1);          // 오늘 수업은 current에 이미 반영
+  // lastUpdated 다음 날부터 targetDate 전날까지 순회
+  // → current에 이미 반영된 날 이후 수업만 카운트
+  const start = new Date(lastUpdated);
+  start.setDate(start.getDate() + 1);
   const end   = new Date(targetDateStr);        // targetDate 당일은 제외 (아직 안 한 수업)
 
   let count = 0;
