@@ -114,32 +114,28 @@ function getCalendarEvent(dateStr, periodStr) {
 }
 
 // ============================================================
-// [수정완료] 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
+// 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
 // ============================================================
 function getOffsetUpToDate(cls, subject, targetDateStr) {
   const schedule    = userData?.timetable?.schedule || {};
   const progressKey = `${cls}_${subject}`;
-  
-  // 기준점이 되는 날짜 (진도가 마지막으로 자동/수동 반영된 날)
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  const lastDate   = new Date(lastUpdated);
-  const targetDate = new Date(targetDateStr);
-
-  // 시·분·초 초기화로 순수 날짜 비교 보장
-  lastDate.setHours(0,0,0,0);
-  targetDate.setHours(0,0,0,0);
+  // 타깃 날짜와 기준 날짜의 단순 문자열 비교 (YYYY-MM-DD 형식이라 문자열 비교가 안전합니다)
+  if (targetDateStr === lastUpdated) {
+    return 0; // 같은 날이면 계산할 오프셋 없음
+  }
 
   let count = 0;
 
-  if (targetDate > lastDate) {
-    // [수정] 미래 방향: lastUpdated '당일'부터 targetDate '당일'까지 포함하여 계산
-    // 단, lastUpdated 당일의 수업은 이미 진도(current)에 반영되었을 수 있으므로 
-    // 시간이나 처리 여부에 따른 정밀 조건이 필요하나, 주차별 예상을 위해 당일부터 순회하도록 변경합니다.
-    let cursor = new Date(lastDate);
-    let end    = new Date(targetDate);
+  if (targetDateStr > lastUpdated) {
+    // 미래 방향: lastUpdated '다음날'부터 targetDate '당일'까지 루프를 돌며 실제 수업 카운트
+    let cursor = new Date(lastUpdated);
+    cursor.setDate(cursor.getDate() + 1);
+    
+    const targetDate = new Date(targetDateStr);
 
-    while (cursor <= end) { // <= 로 변경하여 targetDate 당일도 포함
+    while (dateToStr(cursor) <= targetDateStr) {
       const dateStr     = dateToStr(cursor);
       const dayKey      = DOW_KEY[cursor.getDay()];
       const daySchedule = schedule[dayKey] || {};
@@ -147,34 +143,19 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
       for (const [periodStr, cell] of Object.entries(daySchedule)) {
         if (cell?.class === cls && cell?.subject === subject) {
           const ev = getCalendarEvent(dateStr, periodStr);
-          if (!ev) {
-            // 만약 현재 순회 중인 날짜가 lastUpdated(오늘)와 같다면, 
-            // 오늘 이미 수업이 지나서 자동 업데이트(autoUpdateProgress) 되었거나 
-            // 수동 저장된 교시보다 '이후 교시'인 경우에만 오프셋을 추가해야 합니다.
-            if (dateStr === lastUpdated) {
-              // 오늘 탭에서 수동 완료했거나, 어제까지 자동 증가된 시점 이후의 수업인지 체크
-              // 여기서는 심플하게 주차별 탭의 미래 예측을 위해 '오늘 이후 시점의 수업'으로 카운트합니다.
-              // 안전하게 오늘보다 미래의 날짜에 있는 수업만 세거나, 오늘 안에서 아직 도래하지 않은 교시만 카운트
-              const curPeriod = getCurrentPeriod() || 0;
-              if (Number(periodStr) > curPeriod) {
-                count++;
-              }
-            } else {
-              count++;
-            }
-          }
+          if (!ev) count++; // 학사일정 결강이 없을 때만 카운트 증가
         }
       }
       cursor.setDate(cursor.getDate() + 1);
     }
     return count;
 
-  } else if (targetDate < lastDate) {
-    // 과거 방향: targetDate부터 lastDate 전날까지 역산
-    let cursor = new Date(targetDate);
-    let end    = new Date(lastDate);
+  } else {
+    // 과거 방향: targetDate '다음날'부터 lastUpdated '당일'까지 루프를 돌며 역산
+    let cursor = new Date(targetDateStr);
+    cursor.setDate(cursor.getDate() + 1);
 
-    while (cursor < end) {
+    while (dateToStr(cursor) <= lastUpdated) {
       const dateStr     = dateToStr(cursor);
       const dayKey      = DOW_KEY[cursor.getDay()];
       const daySchedule = schedule[dayKey] || {};
@@ -189,8 +170,6 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     }
     return -count;
   }
-
-  return 0; // 같은 날이면 오프셋 없음
 }
 // ============================================================
 // 진도 자동 계산 (어제까지만)
