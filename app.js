@@ -119,22 +119,36 @@ function getCalendarEvent(dateStr, periodStr) {
 // 학사일정으로 취소된 수업은 제외
 // ============================================================
 function getOffsetUpToDate(cls, subject, targetDateStr) {
+  // 기준: lastUpdated 당일은 current에 반영된 수업
+  // - targetDate가 미래/오늘: lastUpdated 다음날 ~ targetDate 전날까지 카운트 (+)
+  // - targetDate가 과거:      targetDate 다음날 ~ lastUpdated까지 카운트 (-)
   const schedule    = userData?.timetable?.schedule || {};
   const progressKey = `${cls}_${subject}`;
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  // lastUpdated 다음 날부터 targetDate 전날까지 순회
-  // → current에 이미 반영된 날 이후 수업만 카운트
-  const start = new Date(lastUpdated);
-  start.setDate(start.getDate() + 1);
-  const end   = new Date(targetDateStr);        // targetDate 당일은 제외 (아직 안 한 수업)
+  const lastDate   = new Date(lastUpdated);
+  const targetDate = new Date(targetDateStr);
 
-  let count = 0;
-  const cursor = new Date(start);
+  let count  = 0;
+  let cursor, end, sign;
+
+  if (targetDate > lastDate) {
+    // 미래 방향: lastUpdated 다음날 ~ targetDate 전날
+    cursor = new Date(lastDate); cursor.setDate(cursor.getDate() + 1);
+    end    = new Date(targetDate);
+    sign   = 1;
+  } else if (targetDate < lastDate) {
+    // 과거 방향: targetDate 다음날 ~ lastUpdated
+    cursor = new Date(targetDate); cursor.setDate(cursor.getDate() + 1);
+    end    = new Date(lastDate); end.setDate(end.getDate() + 1); // lastUpdated 당일 포함
+    sign   = -1;
+  } else {
+    return 0; // 같은 날이면 오프셋 없음
+  }
 
   while (cursor < end) {
-    const dateStr  = dateToStr(cursor);
-    const dayKey   = DOW_KEY[cursor.getDay()];
+    const dateStr     = dateToStr(cursor);
+    const dayKey      = DOW_KEY[cursor.getDay()];
     const daySchedule = schedule[dayKey] || {};
 
     for (const [periodStr, cell] of Object.entries(daySchedule)) {
@@ -145,7 +159,7 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     }
     cursor.setDate(cursor.getDate() + 1);
   }
-  return count;
+  return sign * count;
 }
 
 // ============================================================
