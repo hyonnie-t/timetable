@@ -121,21 +121,18 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   const progressKey = `${cls}_${subject}`;
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  // 타깃 날짜와 기준 날짜의 단순 문자열 비교 (YYYY-MM-DD 형식이라 문자열 비교가 안전합니다)
-  if (targetDateStr === lastUpdated) {
-    return 0; // 같은 날이면 계산할 오프셋 없음
-  }
-
   let count = 0;
 
-  if (targetDateStr > lastUpdated) {
-    // 미래 방향: lastUpdated '다음날'부터 targetDate '당일'까지 루프를 돌며 실제 수업 카운트
+  if (targetDateStr >= lastUpdated) {
+    // 미래 방향 (오늘 포함): lastUpdated 당일부터 targetDate 당일까지 순회
     let cursor = new Date(lastUpdated);
-    cursor.setDate(cursor.getDate() + 1);
-    
     const targetDate = new Date(targetDateStr);
 
-    while (dateToStr(cursor) <= targetDateStr) {
+    // 안전한 날짜 비교를 위해 시분초 초기화
+    cursor.setHours(0,0,0,0);
+    targetDate.setHours(0,0,0,0);
+
+    while (cursor <= targetDate) {
       const dateStr     = dateToStr(cursor);
       const dayKey      = DOW_KEY[cursor.getDay()];
       const daySchedule = schedule[dayKey] || {};
@@ -143,7 +140,18 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
       for (const [periodStr, cell] of Object.entries(daySchedule)) {
         if (cell?.class === cls && cell?.subject === subject) {
           const ev = getCalendarEvent(dateStr, periodStr);
-          if (!ev) count++; // 학사일정 결강이 없을 때만 카운트 증가
+          if (!ev) {
+            // [핵심] 순회 중인 날짜가 lastUpdated(오늘)와 같다면,
+            // 현재 교시(getCurrentPeriod)보다 '이후 교시'인 수업만 미래 예측 카운트에 포함합니다.
+            if (dateStr === lastUpdated) {
+              const curPeriod = getCurrentPeriod() || 0;
+              if (Number(periodStr) > curPeriod) {
+                count++;
+              }
+            } else {
+              count++;
+            }
+          }
         }
       }
       cursor.setDate(cursor.getDate() + 1);
@@ -151,11 +159,15 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     return count;
 
   } else {
-    // 과거 방향: targetDate '다음날'부터 lastUpdated '당일'까지 루프를 돌며 역산
+    // 과거 방향: targetDate '다음날'부터 lastUpdated '당일'까지 역산
     let cursor = new Date(targetDateStr);
     cursor.setDate(cursor.getDate() + 1);
+    
+    const lastDate = new Date(lastUpdated);
+    cursor.setHours(0,0,0,0);
+    lastDate.setHours(0,0,0,0);
 
-    while (dateToStr(cursor) <= lastUpdated) {
+    while (cursor <= lastDate) {
       const dateStr     = dateToStr(cursor);
       const dayKey      = DOW_KEY[cursor.getDay()];
       const daySchedule = schedule[dayKey] || {};
