@@ -516,7 +516,7 @@ function renderWeekly() {
 
   // [수정] offsetWeeks를 받아 해당 주 그리드 렌더링
   // 각 셀의 차시는 현재 progress + 그 주 이전까지의 누적 수업 수로 계산
-  function renderWeekGrid(offsetWeeks) {
+ function renderWeekGrid(offsetWeeks) {
     const dates      = getWeekDates(offsetWeeks);
     const periods    = getPeriods();
     const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
@@ -543,20 +543,17 @@ function renderWeekly() {
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
-          const key = `${cell.class}_${cell.subject}`;
+          const key  = `${cell.class}_${cell.subject}`;
           const base = userData.progress[key]?.current ?? 1;
 
-          // [수정] 오늘 이후 ~ 해당 날짜 전날까지 실제 수업 횟수를 오프셋으로 사용
-         let current;
+          let current;
           if (offsetWeeks === 0) {
-     let current;
-          if (offsetWeeks === 0) {
-            // 이번 주: 이번 주 월요일부터 해당 날짜 전날까지 수업 횟수만큼 +
-            const thisWeekDates = getWeekDates(0);
-            const thisMonStr = dateToStr(thisWeekDates[0]);
-            const targetPrev = new Date(dateStr);
+            // 이번 주: 월요일부터 해당 날짜 전날까지 같은 반 수업 횟수 카운트
+            const thisWeekDates  = getWeekDates(0);
+            const thisMonStr     = dateToStr(thisWeekDates[0]);
+            const targetPrev     = new Date(dateStr);
             targetPrev.setDate(targetPrev.getDate() - 1);
-            const targetPrevStr = dateToStr(targetPrev);
+            const targetPrevStr  = dateToStr(targetPrev);
 
             let thisWeekOffset = 0;
             if (targetPrevStr >= thisMonStr) {
@@ -565,13 +562,13 @@ function renderWeekly() {
               cursor.setHours(0,0,0,0);
               toDate.setHours(0,0,0,0);
               while (cursor <= toDate) {
-                const dStr = dateToStr(cursor);
-                const dKey = DOW_KEY[cursor.getDay()];
+                const dStr    = dateToStr(cursor);
+                const dKey    = DOW_KEY[cursor.getDay()];
                 const daySched = userData.timetable?.schedule?.[dKey] || {};
                 for (const [pStr, c] of Object.entries(daySched)) {
                   if (c?.class === cell.class && c?.subject === cell.subject) {
-                    const ev = getCalendarEvent(dStr, pStr);
-                    if (!ev) thisWeekOffset++;
+                    const ev2 = getCalendarEvent(dStr, pStr);
+                    if (!ev2) thisWeekOffset++;
                   }
                 }
                 cursor.setDate(cursor.getDate() + 1);
@@ -582,8 +579,8 @@ function renderWeekly() {
             // 다음/다다음 주: 이번 주 끝 기준으로 예측
             current = getOffsetUpToDate(cell.class, cell.subject, dateStr);
           }
-          const topic = userData.curriculum[key]?.[current] || '';
 
+          const topic = userData.curriculum[key]?.[current] || '';
           html += `<td class="has-class${isToday ? ' today-col' : ''}">
             <span class="cell-class">${cell.class}</span>
             <span class="cell-subject">${cell.subject}</span>
@@ -598,7 +595,6 @@ function renderWeekly() {
     html += '</tbody></table></div>';
     return html;
   }
-
   function fullHTML() {
     const labels = ['이번 주', '다음 주', '다다음 주'];
     let tabs = '<div class="week-tabs">';
