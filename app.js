@@ -121,53 +121,24 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   const progressKey = `${cls}_${subject}`;
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  let count = 0;
+  // 이번 주 일요일(= 이번 주 끝) 구하기
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const dow = now.getDay();
+  const thisWeekSun = new Date(now);
+  thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
+  const thisWeekSunStr = dateToStr(thisWeekSun);
 
-  if (targetDateStr >= lastUpdated) {
-    // 미래 방향 (오늘 포함): lastUpdated 당일부터 targetDate 당일까지 순회
-    let cursor = new Date(lastUpdated);
-    const targetDate = new Date(targetDateStr);
-
-    // 안전한 날짜 비교를 위해 시분초 초기화
+  // 이번 주 남은 수업 포함해서 "이번 주 끝 기준 current" 계산
+  // lastUpdated ~ 이번 주 일요일 사이 수업 수
+  function countLessons(fromStr, toStr) {
+    let count = 0;
+    const cursor = new Date(fromStr);
+    const toDate = new Date(toStr);
     cursor.setHours(0,0,0,0);
-    targetDate.setHours(0,0,0,0);
+    toDate.setHours(0,0,0,0);
 
-    while (cursor <= targetDate) {
-      const dateStr     = dateToStr(cursor);
-      const dayKey      = DOW_KEY[cursor.getDay()];
-      const daySchedule = schedule[dayKey] || {};
-
-      for (const [periodStr, cell] of Object.entries(daySchedule)) {
-        if (cell?.class === cls && cell?.subject === subject) {
-          const ev = getCalendarEvent(dateStr, periodStr);
-          if (!ev) {
-            // [핵심] 순회 중인 날짜가 lastUpdated(오늘)와 같다면,
-            // 현재 교시(getCurrentPeriod)보다 '이후 교시'인 수업만 미래 예측 카운트에 포함합니다.
-            if (dateStr === lastUpdated) {
-              const curPeriod = getCurrentPeriod() || 0;
-              if (Number(periodStr) > curPeriod) {
-                count++;
-              }
-            } else {
-              count++;
-            }
-          }
-        }
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return count;
-
-  } else {
-    // 과거 방향: targetDate '다음날'부터 lastUpdated '당일'까지 역산
-    let cursor = new Date(targetDateStr);
-    cursor.setDate(cursor.getDate() + 1);
-    
-    const lastDate = new Date(lastUpdated);
-    cursor.setHours(0,0,0,0);
-    lastDate.setHours(0,0,0,0);
-
-    while (cursor <= lastDate) {
+    while (cursor <= toDate) {
       const dateStr     = dateToStr(cursor);
       const dayKey      = DOW_KEY[cursor.getDay()];
       const daySchedule = schedule[dayKey] || {};
@@ -180,9 +151,37 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
       }
       cursor.setDate(cursor.getDate() + 1);
     }
-    return -count;
+    return count;
   }
+
+  // lastUpdated 다음날부터 이번 주 일요일까지 남은 수업 수
+  const lastUpdatedNext = new Date(lastUpdated);
+  lastUpdatedNext.setDate(lastUpdatedNext.getDate() + 1);
+  const remainThisWeek = countLessons(dateToStr(lastUpdatedNext), thisWeekSunStr);
+
+  // 이번 주 끝 기준 current (= 기준점)
+  const baseAtEndOfWeek = (userData?.progress[progressKey]?.current ?? 1) + remainThisWeek;
+
+  // targetDate가 다음 주 이후: 이번 주 일요일 다음날부터 targetDate 전날까지 수업 수
+  const targetDate = new Date(targetDateStr);
+  targetDate.setHours(0,0,0,0);
+
+  const nextWeekMon = new Date(thisWeekSun);
+  nextWeekMon.setDate(thisWeekSun.getDate() + 1);
+
+  // targetDate 전날
+  const targetPrev = new Date(targetDate);
+  targetPrev.setDate(targetDate.getDate() - 1);
+
+  if (targetPrev < nextWeekMon) {
+    // targetDate가 다음 주 월요일이면 그 전날은 이번 주 일요일 → 오프셋 0
+    return baseAtEndOfWeek;
+  }
+
+  const offset = countLessons(dateToStr(nextWeekMon), dateToStr(targetPrev));
+  return baseAtEndOfWeek + offset;
 }
+
 // ============================================================
 // 진도 자동 계산 (어제까지만)
 // ============================================================
@@ -548,9 +547,15 @@ function renderWeekly() {
           const base = userData.progress[key]?.current ?? 1;
 
           // [수정] 오늘 이후 ~ 해당 날짜 전날까지 실제 수업 횟수를 오프셋으로 사용
-          const offset  = getOffsetUpToDate(cell.class, cell.subject, dateStr);
-          const current = base + offset;
-          const topic   = userData.curriculum[key]?.[current] || '';
+         let current;
+          if (offsetWeeks === 0) {
+            // 이번 주: 고정
+            current = base;
+          } else {
+            // 다음/다다음 주: 이번 주 끝 기준으로 예측
+            current = getOffsetUpToDate(cell.class, cell.subject, dateStr);
+          }
+          const topic = userData.curriculum[key]?.[current] || '';
 
           html += `<td class="has-class${isToday ? ' today-col' : ''}">
             <span class="cell-class">${cell.class}</span>
