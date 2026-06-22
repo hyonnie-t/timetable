@@ -549,8 +549,35 @@ function renderWeekly() {
           // [수정] 오늘 이후 ~ 해당 날짜 전날까지 실제 수업 횟수를 오프셋으로 사용
          let current;
           if (offsetWeeks === 0) {
-            // 이번 주: 고정
-            current = base;
+     let current;
+          if (offsetWeeks === 0) {
+            // 이번 주: 이번 주 월요일부터 해당 날짜 전날까지 수업 횟수만큼 +
+            const thisWeekDates = getWeekDates(0);
+            const thisMonStr = dateToStr(thisWeekDates[0]);
+            const targetPrev = new Date(dateStr);
+            targetPrev.setDate(targetPrev.getDate() - 1);
+            const targetPrevStr = dateToStr(targetPrev);
+
+            let thisWeekOffset = 0;
+            if (targetPrevStr >= thisMonStr) {
+              const cursor = new Date(thisMonStr);
+              const toDate = new Date(targetPrevStr);
+              cursor.setHours(0,0,0,0);
+              toDate.setHours(0,0,0,0);
+              while (cursor <= toDate) {
+                const dStr = dateToStr(cursor);
+                const dKey = DOW_KEY[cursor.getDay()];
+                const daySched = userData.timetable?.schedule?.[dKey] || {};
+                for (const [pStr, c] of Object.entries(daySched)) {
+                  if (c?.class === cell.class && c?.subject === cell.subject) {
+                    const ev = getCalendarEvent(dStr, pStr);
+                    if (!ev) thisWeekOffset++;
+                  }
+                }
+                cursor.setDate(cursor.getDate() + 1);
+              }
+            }
+            current = base + thisWeekOffset;
           } else {
             // 다음/다다음 주: 이번 주 끝 기준으로 예측
             current = getOffsetUpToDate(cell.class, cell.subject, dateStr);
