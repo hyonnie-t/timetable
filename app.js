@@ -346,7 +346,7 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[curP];
       const key     = `${cls}_${subject}`;
-      const current = userData.progress[key]?.current || '?';
+      const current = (userData.progress[key]?.current ?? 0) + 1;
       const topic   = userData.curriculum[key]?.[current] || '';
       el.innerHTML += `
         <div class="banner banner-now">
@@ -360,7 +360,7 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[nextP];
       const key     = `${cls}_${subject}`;
-      const current = userData.progress[key]?.current || '?';
+      const current = (userData.progress[key]?.current ?? 0) + 1;
       const topic   = userData.curriculum[key]?.[current] || '';
       el.innerHTML += `
         <div class="banner banner-next">
@@ -394,7 +394,7 @@ function renderToday() {
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
       const key     = `${cls}_${subject}`;
-      const current = userData.progress[key]?.current ?? 1;
+      const current = (userData.progress[key]?.current ?? 0) + 1;
       const topic   = userData.curriculum[key]?.[current] || '';
 
       card.className = `period-card has-class${isCur ? ' current' : ''}`;
@@ -583,8 +583,8 @@ function renderWeekGrid(offsetWeeks) {
             prevDate.setDate(prevDate.getDate() - 1);
             const fromStr  = dateToStr(fromDate);
             const prevStr  = dateToStr(prevDate);
-            const offset   = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
-            current = base + offset;
+           const offset = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
+                 current = base + offset + 1;
           } else {
             // 셀 날짜 < lastUpdated → 역산
             const fromDate = new Date(dateStr);
@@ -595,7 +595,7 @@ function renderWeekGrid(offsetWeeks) {
           }
         } else {
           // 다음/다다음 주: 기존 로직 유지
-          current = getOffsetUpToDate(cell.class, cell.subject, dateStr);
+          current = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
         }
 
         const topic = userData.curriculum[key]?.[current] || '';
@@ -682,7 +682,7 @@ function renderProgress() {
     items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
 
     for (const item of items) {
-      const current   = userData.progress[item.key]?.current ?? 1;
+      const current = (userData.progress[key]?.current ?? 0) + 1;
       const currTopic = userData.curriculum[item.key]?.[current] || '주제 미설정';
       const nextTopic = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopic= userData.curriculum[item.key]?.[current + 2] || '';
@@ -737,7 +737,7 @@ function renderSubject() {
   groups.forEach((group, gi) => {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
-    const current    = userData.progress[repKey]?.current ?? 1;
+    const current = (userData.progress[key]?.current ?? 0) + 1;
 
     // [수정] 저장된 최대 차시와 current+WINDOW 중 큰 값을 maxStep으로 사용
     // → 저장 후 다시 렌더해도 추가된 행이 사라지지 않음
