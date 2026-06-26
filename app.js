@@ -737,7 +737,7 @@ function renderSubject() {
   groups.forEach((group, gi) => {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
-    const current = (userData.progress[key]?.current ?? 0) + 1;
+    const current = (userData.progress[repKey]?.current ?? 0) + 1;
 
     // [수정] 저장된 최대 차시와 current+WINDOW 중 큰 값을 maxStep으로 사용
     // → 저장 후 다시 렌더해도 추가된 행이 사라지지 않음
