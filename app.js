@@ -9,7 +9,7 @@ import {
 // ============================================================
 const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
-const ADMIN_EMAIL = '0000yhshin@gmail.com';
+const ADMIN_EMAIL = '0000.yhshin@gmail.com'; // [수정] 점 추가
 
 // ============================================================
 // 상태
@@ -121,7 +121,6 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   const progressKey = `${cls}_${subject}`;
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
-  // 이번 주 일요일(= 이번 주 끝) 구하기
   const now = new Date();
   now.setHours(0,0,0,0);
   const dow = now.getDay();
@@ -129,8 +128,6 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
   const thisWeekSunStr = dateToStr(thisWeekSun);
 
-  // 이번 주 남은 수업 포함해서 "이번 주 끝 기준 current" 계산
-  // lastUpdated ~ 이번 주 일요일 사이 수업 수
   function countLessons(fromStr, toStr) {
     let count = 0;
     const cursor = new Date(fromStr);
@@ -154,27 +151,22 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     return count;
   }
 
-  // lastUpdated 다음날부터 이번 주 일요일까지 남은 수업 수
   const lastUpdatedNext = new Date(lastUpdated);
   lastUpdatedNext.setDate(lastUpdatedNext.getDate() + 1);
   const remainThisWeek = countLessons(dateToStr(lastUpdatedNext), thisWeekSunStr);
 
-  // 이번 주 끝 기준 current (= 기준점)
   const baseAtEndOfWeek = (userData?.progress[progressKey]?.current ?? 1) + remainThisWeek;
 
-  // targetDate가 다음 주 이후: 이번 주 일요일 다음날부터 targetDate 전날까지 수업 수
   const targetDate = new Date(targetDateStr);
   targetDate.setHours(0,0,0,0);
 
   const nextWeekMon = new Date(thisWeekSun);
   nextWeekMon.setDate(thisWeekSun.getDate() + 1);
 
-  // targetDate 전날
   const targetPrev = new Date(targetDate);
   targetPrev.setDate(targetDate.getDate() - 1);
 
   if (targetPrev < nextWeekMon) {
-    // targetDate가 다음 주 월요일이면 그 전날은 이번 주 일요일 → 오프셋 0
     return baseAtEndOfWeek;
   }
 
@@ -459,6 +451,7 @@ window.adjustStep = function(p, delta) {
   }
 };
 
+// [수정] saveStep: 화면 표시값은 current+1이므로 저장 시 -1 해서 current로 저장
 window.saveStep = async function(p) {
   const btn   = document.getElementById(`save-btn-${p}`);
   const disp  = document.getElementById(`step-disp-${p}`);
@@ -470,7 +463,8 @@ window.saveStep = async function(p) {
   });
   if (!key) return;
 
-  const newStep  = parseInt(disp.textContent) || 1;
+  const displayStep  = parseInt(disp.textContent) || 1; // 화면에 보이는 값 (다음 차시)
+  const currentToSave = displayStep - 1;                // [수정] Firebase에 저장할 current (완료한 차시)
   const newTopic = input.value.trim();
 
   btn.disabled    = true;
@@ -479,22 +473,22 @@ window.saveStep = async function(p) {
   try {
     const updates = {};
     updates[`users/${currentUser.uid}/progress/${key}`] = {
-      current: newStep,
+      current: currentToSave,   // [수정]
       lastUpdated: todayStr()
     };
     if (newTopic) {
-      updates[`users/${currentUser.uid}/curriculum/${key}/${newStep}`] = newTopic;
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
     await update(ref(db), updates);
 
     if (!userData.progress[key]) userData.progress[key] = {};
-    userData.progress[key].current     = newStep;
+    userData.progress[key].current     = currentToSave;  // [수정]
     userData.progress[key].lastUpdated = todayStr();
     if (!userData.curriculum[key]) userData.curriculum[key] = {};
-    if (newTopic) userData.curriculum[key][newStep] = newTopic;
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
 
     document.getElementById(`topic-display-${p}`).textContent = newTopic || '주제 미설정';
-    document.getElementById(`step-display-${p}`).textContent  = `${newStep}차시`;
+    document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
     document.getElementById(`editor-${p}`).classList.remove('open');
     showToast(`${key} 저장 완료`);
   } catch(e) {
@@ -514,106 +508,100 @@ function renderWeekly() {
 
   let activeWeek = 0;
 
-  // [수정] offsetWeeks를 받아 해당 주 그리드 렌더링
-  // 각 셀의 차시는 현재 progress + 그 주 이전까지의 누적 수업 수로 계산
-function renderWeekGrid(offsetWeeks) {
-  const dates      = getWeekDates(offsetWeeks);
-  const periods    = getPeriods();
-  const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
-  const today      = todayStr();
+  function renderWeekGrid(offsetWeeks) {
+    const dates      = getWeekDates(offsetWeeks);
+    const periods    = getPeriods();
+    const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
+    const today      = todayStr();
 
-  let html = '<div class="week-grid"><table><thead><tr><th></th>';
-  dates.forEach((d, i) => {
-    const isToday = dateToStr(d) === today;
-    html += `<th class="${isToday ? 'today-col' : ''}">${DOW_KO[i+1]}<br><span class="th-date">${d.getMonth()+1}/${d.getDate()}</span></th>`;
-  });
-  html += '</tr></thead><tbody>';
-
-  for (const p of periodList) {
-    html += `<tr><td class="period-col">${p}</td>`;
+    let html = '<div class="week-grid"><table><thead><tr><th></th>';
     dates.forEach((d, i) => {
-      const dayKey  = DOW_KEY[d.getDay()];
-      const cell    = userData.timetable?.schedule?.[dayKey]?.[p];
       const isToday = dateToStr(d) === today;
-      const dateStr = dateToStr(d);
-      const ev      = getCalendarEvent(dateStr, String(p));
-
-      if (ev) {
-        html += `<td class="event-cell${isToday ? ' today-col' : ''}">
-          <span class="cell-badge badge-${ev.type}">${ev.label}</span>
-        </td>`;
-      } else if (cell?.class) {
-        const key         = `${cell.class}_${cell.subject}`;
-        const base        = userData.progress[key]?.current ?? 1;
-        const lastUpdated = userData.progress[key]?.lastUpdated || today;
-
-        let current;
-
-        if (offsetWeeks === 0) {
-          // 이번 주: lastUpdated 기준으로 역산/순산
-          function countBetween(fromStr, toStr) {
-            let count = 0;
-            const cursor = new Date(fromStr);
-            const toDate = new Date(toStr);
-            cursor.setHours(0,0,0,0);
-            toDate.setHours(0,0,0,0);
-            while (cursor <= toDate) {
-              const dStr    = dateToStr(cursor);
-              const dKey    = DOW_KEY[cursor.getDay()];
-              const daySched = userData.timetable?.schedule?.[dKey] || {};
-              for (const [pStr, c] of Object.entries(daySched)) {
-                if (c?.class === cell.class && c?.subject === cell.subject) {
-                  const ev2 = getCalendarEvent(dStr, pStr);
-                  if (!ev2) count++;
-                }
-              }
-              cursor.setDate(cursor.getDate() + 1);
-            }
-            return count;
-          }
-
-          if (dateStr === lastUpdated) {
-            // 셀 날짜 = lastUpdated → 그대로
-            current = base;
-          } else if (dateStr > lastUpdated) {
-            // 셀 날짜 > lastUpdated → 순산
-            const fromDate = new Date(lastUpdated);
-            fromDate.setDate(fromDate.getDate() + 1);
-            const prevDate = new Date(dateStr);
-            prevDate.setDate(prevDate.getDate() - 1);
-            const fromStr  = dateToStr(fromDate);
-            const prevStr  = dateToStr(prevDate);
-           const offset = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
-                 current = base + offset + 1;
-          } else {
-            // 셀 날짜 < lastUpdated → 역산
-            const fromDate = new Date(dateStr);
-            fromDate.setDate(fromDate.getDate() + 1);
-            const fromStr  = dateToStr(fromDate);
-            const offset   = fromStr <= lastUpdated ? countBetween(fromStr, lastUpdated) : 0;
-            current = base - offset;
-          }
-        } else {
-          // 다음/다다음 주: 기존 로직 유지
-          current = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
-        }
-
-        const topic = userData.curriculum[key]?.[current] || '';
-        html += `<td class="has-class${isToday ? ' today-col' : ''}">
-          <span class="cell-class">${cell.class}</span>
-          <span class="cell-subject">${cell.subject}</span>
-          ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
-          <span class="cell-step">${current}차시</span>
-        </td>`;
-      } else {
-        html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
-      }
+      html += `<th class="${isToday ? 'today-col' : ''}">${DOW_KO[i+1]}<br><span class="th-date">${d.getMonth()+1}/${d.getDate()}</span></th>`;
     });
-    html += '</tr>';
+    html += '</tr></thead><tbody>';
+
+    for (const p of periodList) {
+      html += `<tr><td class="period-col">${p}</td>`;
+      dates.forEach((d, i) => {
+        const dayKey  = DOW_KEY[d.getDay()];
+        const cell    = userData.timetable?.schedule?.[dayKey]?.[p];
+        const isToday = dateToStr(d) === today;
+        const dateStr = dateToStr(d);
+        const ev      = getCalendarEvent(dateStr, String(p));
+
+        if (ev) {
+          html += `<td class="event-cell${isToday ? ' today-col' : ''}">
+            <span class="cell-badge badge-${ev.type}">${ev.label}</span>
+          </td>`;
+        } else if (cell?.class) {
+          const key         = `${cell.class}_${cell.subject}`;
+          const base        = userData.progress[key]?.current ?? 1;
+          const lastUpdated = userData.progress[key]?.lastUpdated || today;
+
+          let current;
+
+          if (offsetWeeks === 0) {
+            function countBetween(fromStr, toStr) {
+              let count = 0;
+              const cursor = new Date(fromStr);
+              const toDate = new Date(toStr);
+              cursor.setHours(0,0,0,0);
+              toDate.setHours(0,0,0,0);
+              while (cursor <= toDate) {
+                const dStr    = dateToStr(cursor);
+                const dKey    = DOW_KEY[cursor.getDay()];
+                const daySched = userData.timetable?.schedule?.[dKey] || {};
+                for (const [pStr, c] of Object.entries(daySched)) {
+                  if (c?.class === cell.class && c?.subject === cell.subject) {
+                    const ev2 = getCalendarEvent(dStr, pStr);
+                    if (!ev2) count++;
+                  }
+                }
+                cursor.setDate(cursor.getDate() + 1);
+              }
+              return count;
+            }
+
+            if (dateStr === lastUpdated) {
+              current = base + 1;
+            } else if (dateStr > lastUpdated) {
+              const fromDate = new Date(lastUpdated);
+              fromDate.setDate(fromDate.getDate() + 1);
+              const prevDate = new Date(dateStr);
+              prevDate.setDate(prevDate.getDate() - 1);
+              const fromStr  = dateToStr(fromDate);
+              const prevStr  = dateToStr(prevDate);
+              const offset = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
+              current = base + offset + 1;
+            } else {
+              const fromDate = new Date(dateStr);
+              fromDate.setDate(fromDate.getDate() + 1);
+              const fromStr  = dateToStr(fromDate);
+              const offset   = fromStr <= lastUpdated ? countBetween(fromStr, lastUpdated) : 0;
+              current = base - offset + 1;
+            }
+          } else {
+            current = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
+          }
+
+          const topic = userData.curriculum[key]?.[current] || '';
+          html += `<td class="has-class${isToday ? ' today-col' : ''}">
+            <span class="cell-class">${cell.class}</span>
+            <span class="cell-subject">${cell.subject}</span>
+            ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
+            <span class="cell-step">${current}차시</span>
+          </td>`;
+        } else {
+          html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
+        }
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
   }
-  html += '</tbody></table></div>';
-  return html;
-}
+
   function fullHTML() {
     const labels = ['이번 주', '다음 주', '다다음 주'];
     let tabs = '<div class="week-tabs">';
@@ -682,10 +670,10 @@ function renderProgress() {
     items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
 
     for (const item of items) {
-      const current = (userData.progress[key]?.current ?? 0) + 1;
-      const currTopic = userData.curriculum[item.key]?.[current] || '주제 미설정';
-      const nextTopic = userData.curriculum[item.key]?.[current + 1] || '';
-      const afterTopic= userData.curriculum[item.key]?.[current + 2] || '';
+      const current = (userData.progress[item.key]?.current ?? 0) + 1; // [수정] key → item.key
+      const currTopic  = userData.curriculum[item.key]?.[current]     || '주제 미설정';
+      const nextTopic  = userData.curriculum[item.key]?.[current + 1] || '';
+      const afterTopic = userData.curriculum[item.key]?.[current + 2] || '';
 
       html += `
         <div class="progress-card">
@@ -739,8 +727,6 @@ function renderSubject() {
     const curriculum = userData.curriculum[repKey] || {};
     const current = (userData.progress[repKey]?.current ?? 0) + 1;
 
-    // [수정] 저장된 최대 차시와 current+WINDOW 중 큰 값을 maxStep으로 사용
-    // → 저장 후 다시 렌더해도 추가된 행이 사라지지 않음
     const WINDOW   = 2;
     const minStep  = Math.max(1, current - WINDOW);
     const savedMax = Object.keys(curriculum).map(Number).reduce((a, b) => Math.max(a, b), 0);
