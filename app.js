@@ -9,7 +9,7 @@ import {
 // ============================================================
 const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
-const ADMIN_EMAIL = '0000.yhshin@gmail.com'; // [수정] 점 추가
+const ADMIN_EMAIL = '0000.yhshin@gmail.com';
 
 // ============================================================
 // 상태
@@ -39,8 +39,7 @@ function minToStr(min) {
 }
 
 function todayStr() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  return dateToStr(new Date()); // [리팩토링] dateToStr(new Date())와 동일하므로 위임
 }
 
 function dateToStr(date) {
@@ -114,10 +113,39 @@ function getCalendarEvent(dateStr, periodStr) {
 }
 
 // ============================================================
+// [리팩토링 ①] 날짜 범위 수업 횟수 계산 — 통합 공통 함수
+// 기존: getOffsetUpToDate 내부의 countLessons +
+//       renderWeekly 내부의 countBetween 이 거의 동일한 로직으로 중복 구현되어 있었음.
+// 이후: 두 함수를 countLessonsInRange 하나로 통합.
+// ============================================================
+function countLessonsInRange(cls, subject, fromStr, toStr) {
+  const schedule = userData?.timetable?.schedule || {};
+  let count = 0;
+  const cursor = new Date(fromStr);
+  const toDate = new Date(toStr);
+  cursor.setHours(0,0,0,0);
+  toDate.setHours(0,0,0,0);
+
+  while (cursor <= toDate) {
+    const dateStr     = dateToStr(cursor);
+    const dayKey      = DOW_KEY[cursor.getDay()];
+    const daySchedule = schedule[dayKey] || {};
+
+    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+      if (cell?.class === cls && cell?.subject === subject) {
+        const ev = getCalendarEvent(dateStr, periodStr);
+        if (!ev) count++;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+// ============================================================
 // 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
 // ============================================================
 function getOffsetUpToDate(cls, subject, targetDateStr) {
-  const schedule    = userData?.timetable?.schedule || {};
   const progressKey = `${cls}_${subject}`;
   const lastUpdated = userData?.progress[progressKey]?.lastUpdated || todayStr();
 
@@ -128,32 +156,10 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
   const thisWeekSunStr = dateToStr(thisWeekSun);
 
-  function countLessons(fromStr, toStr) {
-    let count = 0;
-    const cursor = new Date(fromStr);
-    const toDate = new Date(toStr);
-    cursor.setHours(0,0,0,0);
-    toDate.setHours(0,0,0,0);
-
-    while (cursor <= toDate) {
-      const dateStr     = dateToStr(cursor);
-      const dayKey      = DOW_KEY[cursor.getDay()];
-      const daySchedule = schedule[dayKey] || {};
-
-      for (const [periodStr, cell] of Object.entries(daySchedule)) {
-        if (cell?.class === cls && cell?.subject === subject) {
-          const ev = getCalendarEvent(dateStr, periodStr);
-          if (!ev) count++;
-        }
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return count;
-  }
-
   const lastUpdatedNext = new Date(lastUpdated);
   lastUpdatedNext.setDate(lastUpdatedNext.getDate() + 1);
-  const remainThisWeek = countLessons(dateToStr(lastUpdatedNext), thisWeekSunStr);
+  // [리팩토링 ①] countLessons → countLessonsInRange 호출로 교체
+  const remainThisWeek = countLessonsInRange(cls, subject, dateToStr(lastUpdatedNext), thisWeekSunStr);
 
   const baseAtEndOfWeek = (userData?.progress[progressKey]?.current ?? 1) + remainThisWeek;
 
@@ -170,7 +176,8 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     return baseAtEndOfWeek;
   }
 
-  const offset = countLessons(dateToStr(nextWeekMon), dateToStr(targetPrev));
+  // [리팩토링 ①] countLessons → countLessonsInRange 호출로 교체
+  const offset = countLessonsInRange(cls, subject, dateToStr(nextWeekMon), dateToStr(targetPrev));
   return baseAtEndOfWeek + offset;
 }
 
@@ -451,7 +458,6 @@ window.adjustStep = function(p, delta) {
   }
 };
 
-// [수정] saveStep: 화면 표시값은 current+1이므로 저장 시 -1 해서 current로 저장
 window.saveStep = async function(p) {
   const btn   = document.getElementById(`save-btn-${p}`);
   const disp  = document.getElementById(`step-disp-${p}`);
@@ -463,8 +469,8 @@ window.saveStep = async function(p) {
   });
   if (!key) return;
 
-  const displayStep  = parseInt(disp.textContent) || 1; // 화면에 보이는 값 (다음 차시)
-  const currentToSave = displayStep - 1;                // [수정] Firebase에 저장할 current (완료한 차시)
+  const displayStep   = parseInt(disp.textContent) || 1;
+  const currentToSave = displayStep - 1;
   const newTopic = input.value.trim();
 
   btn.disabled    = true;
@@ -473,7 +479,7 @@ window.saveStep = async function(p) {
   try {
     const updates = {};
     updates[`users/${currentUser.uid}/progress/${key}`] = {
-      current: currentToSave,   // [수정]
+      current: currentToSave,
       lastUpdated: todayStr()
     };
     if (newTopic) {
@@ -482,7 +488,7 @@ window.saveStep = async function(p) {
     await update(ref(db), updates);
 
     if (!userData.progress[key]) userData.progress[key] = {};
-    userData.progress[key].current     = currentToSave;  // [수정]
+    userData.progress[key].current     = currentToSave;
     userData.progress[key].lastUpdated = todayStr();
     if (!userData.curriculum[key]) userData.curriculum[key] = {};
     if (newTopic) userData.curriculum[key][displayStep] = newTopic;
@@ -542,27 +548,7 @@ function renderWeekly() {
           let current;
 
           if (offsetWeeks === 0) {
-            function countBetween(fromStr, toStr) {
-              let count = 0;
-              const cursor = new Date(fromStr);
-              const toDate = new Date(toStr);
-              cursor.setHours(0,0,0,0);
-              toDate.setHours(0,0,0,0);
-              while (cursor <= toDate) {
-                const dStr    = dateToStr(cursor);
-                const dKey    = DOW_KEY[cursor.getDay()];
-                const daySched = userData.timetable?.schedule?.[dKey] || {};
-                for (const [pStr, c] of Object.entries(daySched)) {
-                  if (c?.class === cell.class && c?.subject === cell.subject) {
-                    const ev2 = getCalendarEvent(dStr, pStr);
-                    if (!ev2) count++;
-                  }
-                }
-                cursor.setDate(cursor.getDate() + 1);
-              }
-              return count;
-            }
-
+            // [리팩토링 ①] 내부 함수 countBetween 제거 → countLessonsInRange 직접 호출
             if (dateStr === lastUpdated) {
               current = base + 1;
             } else if (dateStr > lastUpdated) {
@@ -572,13 +558,17 @@ function renderWeekly() {
               prevDate.setDate(prevDate.getDate() - 1);
               const fromStr  = dateToStr(fromDate);
               const prevStr  = dateToStr(prevDate);
-              const offset = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
+              const offset = fromStr <= prevStr
+                ? countLessonsInRange(cell.class, cell.subject, fromStr, prevStr)
+                : 0;
               current = base + offset + 1;
             } else {
               const fromDate = new Date(dateStr);
               fromDate.setDate(fromDate.getDate() + 1);
               const fromStr  = dateToStr(fromDate);
-              const offset   = fromStr <= lastUpdated ? countBetween(fromStr, lastUpdated) : 0;
+              const offset   = fromStr <= lastUpdated
+                ? countLessonsInRange(cell.class, cell.subject, fromStr, lastUpdated)
+                : 0;
               current = base - offset + 1;
             }
           } else {
@@ -670,7 +660,7 @@ function renderProgress() {
     items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
 
     for (const item of items) {
-      const current = (userData.progress[item.key]?.current ?? 0) + 1; // [수정] key → item.key
+      const current    = (userData.progress[item.key]?.current ?? 0) + 1;
       const currTopic  = userData.curriculum[item.key]?.[current]     || '주제 미설정';
       const nextTopic  = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopic = userData.curriculum[item.key]?.[current + 2] || '';
@@ -704,17 +694,55 @@ function renderProgress() {
 }
 
 // ============================================================
+// [리팩토링 ②] 수업 주제 탭 — 학급 그룹 동적 생성
+// 기존: groups 배열이 코드에 하드코딩되어 있어 학년이 바뀌면 코드 수정 필요.
+// 이후: userData.timetable.schedule에서 실제 등록된 반/과목을 읽어 자동 생성.
+// ============================================================
+function buildSubjectGroups() {
+  const schedule   = userData?.timetable?.schedule || {};
+  const subjectMap = new Map(); // subject → Set<class>
+
+  for (const daySchedule of Object.values(schedule)) {
+    for (const cell of Object.values(daySchedule)) {
+      if (cell?.class && cell?.subject) {
+        if (!subjectMap.has(cell.subject)) subjectMap.set(cell.subject, new Set());
+        subjectMap.get(cell.subject).add(cell.class);
+      }
+    }
+  }
+
+  const subjectOrder = ['역사', '역사A', '역사B'];
+
+  return [...subjectMap.entries()]
+    .sort((a, b) => {
+      const ai = subjectOrder.indexOf(a[0]);
+      const bi = subjectOrder.indexOf(b[0]);
+      if (ai === -1 && bi === -1) return a[0].localeCompare(b[0]);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    })
+    .map(([subject, classSet]) => ({
+      label: subject,
+      subject,
+      classes: [...classSet].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    }));
+}
+
+// ============================================================
 // 수업 주제 탭 — 반응형 (모바일: 탭, PC: 3열)
 // ============================================================
 function renderSubject() {
   const el = document.getElementById('tab-subject');
   if (!el) return;
 
-  const groups = [
-    { label: '3학년',   subject: '역사',  classes: ['305','306','307','308'] },
-    { label: '2학년 A', subject: '역사A', classes: ['201 A','202 A','203 A'] },
-    { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
-  ];
+  // [리팩토링 ②] 하드코딩 배열 → buildSubjectGroups() 동적 생성
+  const groups = buildSubjectGroups();
+
+  if (!groups.length) {
+    el.innerHTML = `<div class="empty-state">시간표를 먼저 설정해주세요<br><button class="btn-primary" onclick="window.switchTab('settings')">시간표 설정하러 가기</button></div>`;
+    return;
+  }
 
   let html = `
     <div class="subj-tab-btns">
