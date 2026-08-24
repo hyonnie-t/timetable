@@ -159,20 +159,20 @@ function addDaysStr(dateStr, delta) {
 function getOffsetUpToDate(cls, subject, targetDateStr) {
   const progressKey = `${cls}_${subject}`;
   const progress    = semProgress();
-  const lastUpdated = progress[progressKey]?.lastUpdated || todayStr();
+  const current      = progress[progressKey]?.current ?? 0;
 
   const now = new Date();
   now.setHours(0,0,0,0);
+  const today = todayStr();
   const dow = now.getDay();
   const thisWeekSun = new Date(now);
   thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
   const thisWeekSunStr = dateToStr(thisWeekSun);
 
-  const lastUpdatedNext = new Date(lastUpdated);
-  lastUpdatedNext.setDate(lastUpdatedNext.getDate() + 1);
-  const remainThisWeek = countKeyLessonsBetween(cls, subject, dateToStr(lastUpdatedNext), thisWeekSunStr);
-
-  const baseAtEndOfWeek = (progress[progressKey]?.current ?? 0) + remainThisWeek;
+  // lastUpdated 대신 "오늘부터 이번 주 일요일까지" 를 anchor로 사용
+  // (정상 상황에서는 lastUpdated+1 === today라서 결과 동일, 오늘 수동편집 시에도 안전)
+  const remainThisWeek = countKeyLessonsBetween(cls, subject, today, thisWeekSunStr);
+  const baseAtEndOfWeek = current + remainThisWeek;
 
   const targetDate = new Date(targetDateStr);
   targetDate.setHours(0,0,0,0);
