@@ -310,6 +310,37 @@ body {
   flex-shrink: 0;
 }
 
+.class-note {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 4px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.note-input {
+  flex: 1 1 100%;
+  min-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 44px;
+  order: 10;
+}
+.note-input:focus { border-color: var(--accent2); }
+
+.prog-row.note-row .r-topic {
+  color: var(--text2);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .empty-label { font-size: 13px; color: var(--text3); font-style: italic; }
 .empty-day   {
   text-align: center;
