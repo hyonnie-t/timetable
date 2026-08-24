@@ -649,9 +649,9 @@ body {
 .subj-save-btn { padding: 7px 18px; font-size: 12px; }
 
 /* ============================================================
-   학사일정 — 하루종일 토글
+   학사일정 — 하루종일 토글 + 교시 체크박스
    ============================================================ */
-.cal-allday-cell { min-width: 130px; }
+.cal-allday-cell { min-width: 180px; }
 
 .allday-toggle {
   display: flex;
@@ -661,7 +661,7 @@ body {
   color: var(--text2);
   cursor: pointer;
   user-select: none;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .allday-toggle input[type="checkbox"] {
   width: 14px; height: 14px;
@@ -670,7 +670,39 @@ body {
 }
 .allday-toggle span { font-weight: 500; }
 
-.cal-period-input { margin-top: 2px; }
+.cal-period-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.period-check-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  cursor: pointer;
+  user-select: none;
+  font-family: 'Space Mono', monospace;
+  transition: all .15s;
+}
+.period-check-label:has(input:checked) {
+  background: var(--current-bg);
+  border-color: var(--accent2);
+  color: var(--accent);
+  font-weight: 700;
+}
+.period-check-label input[type="checkbox"] {
+  width: 12px; height: 12px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+}
 
 /* ============================================================
    설정 탭
