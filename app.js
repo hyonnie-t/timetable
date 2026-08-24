@@ -1122,43 +1122,59 @@ window.reindexPeriods = function() {
 // ============================================================
 window.openCalendarEditor = function() {
   const calendar = schoolData?.calendar || {};
-  const entries  = [];
 
+  // 같은 날짜+종류+텍스트인 항목들을 하나의 행으로 그룹핑
+  const groupMap = new Map(); // key: date||type||label -> { date, type, label, periods:[], isAll }
   for (const [date, periods] of Object.entries(calendar)) {
     for (const [period, ev] of Object.entries(periods)) {
-      entries.push({ date, period, ...ev });
+      const key = `${date}||${ev.type}||${ev.label}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, { date, type: ev.type, label: ev.label, periods: [], isAll: false });
+      }
+      const g = groupMap.get(key);
+      if (period === 'all') g.isAll = true;
+      else g.periods.push(Number(period));
     }
   }
-  entries.sort((a,b) => b.date.localeCompare(a.date));
 
-  let rows = entries.map((e, i) => {
-    const isAll = e.period === 'all';
+  const groups = [...groupMap.values()].sort((a,b) => b.date.localeCompare(a.date));
+
+  function renderRow(idx, g) {
+    const isAll = g.isAll;
+    const periods = g.periods || [];
     return `
-    <tr id="cal-row-${i}">
-      <td><input class="cal-input" data-idx="${i}" data-field="date" value="${e.date}" placeholder="YYYY-MM-DD" /></td>
+    <tr id="cal-row-${idx}">
+      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
       <td class="cal-allday-cell">
-        <label class="allday-toggle">
-          <input type="checkbox" class="cal-allday-check" data-idx="${i}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
-          <span>하루종일</span>
-        </label>
-        <input class="cal-input cal-period-input" data-idx="${i}" data-field="period"
-          value="${isAll ? '' : e.period}"
-          placeholder="교시"
-          style="${isAll ? 'display:none' : ''}" />
+        <div class="cal-period-group" data-idx="${idx}">
+          <label class="allday-toggle">
+            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+            <span>하루종일</span>
+          </label>
+          <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
+            ${[1,2,3,4,5,6,7].map(p => `
+              <label class="period-check-label">
+                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
+                ${p}
+              </label>`).join('')}
+          </div>
+        </div>
       </td>
       <td>
-        <select class="cal-select" data-idx="${i}" data-field="type">
-          <option value="holiday" ${e.type==='holiday'?'selected':''}>휴업</option>
-          <option value="event"   ${e.type==='event'  ?'selected':''}>행사</option>
-          <option value="exam"    ${e.type==='exam'   ?'selected':''}>시험</option>
-          <option value="club"    ${e.type==='club'   ?'selected':''}>동아리</option>
-          <option value="noclass" ${e.type==='noclass'?'selected':''}>수업없음</option>
+        <select class="cal-select" data-idx="${idx}" data-field="type">
+          <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
+          <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
+          <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
+          <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
+          <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
         </select>
       </td>
-      <td><input class="cal-input" data-idx="${i}" data-field="label" value="${e.label||''}" placeholder="표시 텍스트" /></td>
-      <td><button class="btn-del" onclick="document.getElementById('cal-row-${i}').remove()">✕</button></td>
+      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
     </tr>`;
-  }).join('');
+  }
+
+  const rows = groups.map((g, i) => renderRow(i, g)).join('');
 
   const html = `
     <div class="modal-overlay" id="modal-calendar">
@@ -1185,27 +1201,36 @@ window.openCalendarEditor = function() {
 };
 
 window.toggleAlldayCheck = function(checkbox) {
-  const periodInput = checkbox.closest('td').querySelector('.cal-period-input');
+  const group = checkbox.closest('.cal-period-group');
+  const checksDiv = group.querySelector('.cal-period-checks');
   if (checkbox.checked) {
-    periodInput.style.display = 'none';
-    periodInput.value = '';
+    checksDiv.style.display = 'none';
+    checksDiv.querySelectorAll('.cal-period-check').forEach(c => c.checked = false);
   } else {
-    periodInput.style.display = '';
+    checksDiv.style.display = '';
   }
 };
 
 window.addCalRow = function() {
   const tbody = document.getElementById('cal-tbody');
   const idx   = Date.now();
-  tbody.insertAdjacentHTML('beforeend', `
+  tbody.insertAdjacentHTML('afterbegin', `
     <tr id="cal-row-${idx}">
       <td><input class="cal-input" data-idx="${idx}" data-field="date" value="" placeholder="YYYY-MM-DD" /></td>
       <td class="cal-allday-cell">
-        <label class="allday-toggle">
-          <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
-          <span>하루종일</span>
-        </label>
-        <input class="cal-input cal-period-input" data-idx="${idx}" data-field="period" value="" placeholder="교시" />
+        <div class="cal-period-group" data-idx="${idx}">
+          <label class="allday-toggle">
+            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
+            <span>하루종일</span>
+          </label>
+          <div class="cal-period-checks">
+            ${[1,2,3,4,5,6,7].map(p => `
+              <label class="period-check-label">
+                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" />
+                ${p}
+              </label>`).join('')}
+          </div>
+        </div>
       </td>
       <td>
         <select class="cal-select" data-idx="${idx}" data-field="type">
@@ -1219,6 +1244,9 @@ window.addCalRow = function() {
       <td><input class="cal-input" data-idx="${idx}" data-field="label" value="" placeholder="표시 텍스트" /></td>
       <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
     </tr>`);
+
+  // 새 행이 잘 보이도록 스크롤
+  document.getElementById(`cal-row-${idx}`)?.scrollIntoView({ block: 'nearest' });
 };
 
 window.saveCalendar = async function() {
@@ -1228,20 +1256,26 @@ window.saveCalendar = async function() {
   rows.forEach(row => {
     const dateInput   = row.querySelector('[data-field="date"]');
     const alldayCheck = row.querySelector('.cal-allday-check');
-    const periodInput = row.querySelector('.cal-period-input');
     const typeSelect  = row.querySelector('[data-field="type"]');
     const labelInput  = row.querySelector('[data-field="label"]');
 
     const date = dateInput?.value.trim();
     if (!date) return;
 
-    const isAll     = alldayCheck?.checked;
-    const periodKey = isAll ? 'all' : (periodInput?.value.trim() || 'all');
-    const type      = typeSelect?.value || 'event';
-    const label     = labelInput?.value.trim() || '';
+    const type  = typeSelect?.value || 'event';
+    const label = labelInput?.value.trim() || '';
+    const isAll = alldayCheck?.checked;
 
     if (!calendar[date]) calendar[date] = {};
-    calendar[date][periodKey] = { type, label };
+
+    if (isAll) {
+      calendar[date]['all'] = { type, label };
+    } else {
+      const checkedPeriods = [...row.querySelectorAll('.cal-period-check:checked')].map(c => c.value);
+      checkedPeriods.forEach(p => {
+        calendar[date][p] = { type, label };
+      });
+    }
   });
 
   try {
