@@ -1052,3 +1052,17 @@ body {
   from { transform: translateY(40px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
 }
+
+.note-label {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--text3);
+  order: 9;
+  margin-top: 2px;
+}
+
+.progress-header .edit-btn {
+  opacity: .5;
+  margin-left: auto;
+}
+.progress-header .edit-btn:hover { opacity: 1; }
