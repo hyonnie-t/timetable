@@ -402,10 +402,11 @@ function renderToday() {
       `;
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
-      const key     = `${cls}_${subject}`;
-      const current = (progress[key]?.current ?? 0) + 1;
-      const topic   = userData.curriculum[key]?.[current] || '';
-      const note    = userData.lessonNotes?.[key]?.[current] || '';
+      const key           = `${cls}_${subject}`;
+      const current       = (progress[key]?.current ?? 0) + 1; // 화면 표시 = 다음 차시
+      const completedStep = progress[key]?.current ?? 0;        // 메모는 방금 끝난 차시 기준
+      const topic         = userData.curriculum[key]?.[current] || '';
+      const note          = userData.lessonNotes?.[key]?.[completedStep] || '';
 
       card.className = `period-card has-class${isCur ? ' current' : ''}`;
       card.dataset.key = key;
@@ -426,6 +427,7 @@ function renderToday() {
             <span class="step-display" id="step-disp-${p}">${current}</span>
             <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
             <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
+            <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
             <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
           </div>
@@ -467,8 +469,11 @@ window.adjustStep = function(p, delta) {
   });
 
   if (key) {
+    const completedStep = next - 1;
     document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next] || '';
-    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[completedStep] || '';
+    const noteLabel = document.getElementById(`note-label-${p}`);
+    if (noteLabel) noteLabel.textContent = `${completedStep}차시 메모`;
   }
 };
 
@@ -502,7 +507,7 @@ window.saveStep = async function(p) {
     if (newTopic) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
-    updates[`users/${currentUser.uid}/lessonNotes/${key}/${displayStep}`] = newNote || null;
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
 
     await update(ref(db), updates);
 
@@ -516,9 +521,9 @@ window.saveStep = async function(p) {
 
     if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
     if (newNote) {
-      userData.lessonNotes[key][displayStep] = newNote;
+      userData.lessonNotes[key][currentToSave] = newNote;
     } else {
-      delete userData.lessonNotes[key][displayStep];
+      delete userData.lessonNotes[key][currentToSave];
     }
 
     document.getElementById(`topic-display-${p}`).textContent = newTopic || '주제 미설정';
@@ -672,6 +677,8 @@ function renderProgress() {
     (a, b) => subjectOrder.indexOf(a[0]) - subjectOrder.indexOf(b[0])
   );
 
+  let progIdx = 0;
+
   for (const [subject, items] of sortedGroups) {
     html += `
       <div class="prog-group-header" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.arrow').classList.toggle('collapsed')">
@@ -684,35 +691,47 @@ function renderProgress() {
     items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
 
     for (const item of items) {
-      const current    = (progress[item.key]?.current ?? 0) + 1;
-      const currTopic  = userData.curriculum[item.key]?.[current]     || '주제 미설정';
-      const nextTopic  = userData.curriculum[item.key]?.[current + 1] || '';
-      const afterTopic = userData.curriculum[item.key]?.[current + 2] || '';
-      const currNote   = userData.lessonNotes?.[item.key]?.[current]  || '';
+      const idx           = progIdx++;
+      const current       = (progress[item.key]?.current ?? 0) + 1; // 화면 표시(다음 차시)
+      const completedStep = progress[item.key]?.current ?? 0;        // 메모 귀속 차시
+      const currTopicRaw  = userData.curriculum[item.key]?.[current]     || '';
+      const nextTopicRaw  = userData.curriculum[item.key]?.[current + 1] || '';
+      const afterTopicRaw = userData.curriculum[item.key]?.[current + 2] || '';
+      const currNote      = userData.lessonNotes?.[item.key]?.[completedStep] || '';
 
       html += `
-        <div class="progress-card">
+        <div class="progress-card" data-key="${item.key}">
           <div class="progress-header">
             <span class="prog-badge">${item.class}</span>
             <span class="prog-step">${current}차시</span>
+            <button class="edit-btn" onclick="window.toggleProgEditor(${idx})">✏️</button>
           </div>
           <div class="prog-dates">
             <div class="prog-row current-row">
               <span class="r-label">이번</span>
-              <span class="r-topic">${currTopic}</span>
+              <span class="r-topic">${currTopicRaw || '주제 미설정'}</span>
             </div>
-            ${currNote ? `<div class="prog-row note-row">
+            <div class="prog-row note-row" id="prog-note-row-${idx}" style="${currNote ? '' : 'display:none'}">
               <span class="r-label">메모</span>
-              <span class="r-topic">${currNote}</span>
-            </div>` : ''}
-            ${nextTopic ? `<div class="prog-row next-row">
+              <span class="r-topic" id="prog-note-display-${idx}">${currNote}</span>
+            </div>
+            <div class="prog-row next-row">
               <span class="r-label">다음</span>
-              <span class="r-topic">${nextTopic}</span>
-            </div>` : ''}
-            ${afterTopic ? `<div class="prog-row after-row">
+              <span class="r-topic">${nextTopicRaw || '주제 미설정'}</span>
+            </div>
+            <div class="prog-row after-row">
               <span class="r-label">다다음</span>
-              <span class="r-topic">${afterTopic}</span>
-            </div>` : ''}
+              <span class="r-topic">${afterTopicRaw || '주제 미설정'}</span>
+            </div>
+          </div>
+          <div class="step-editor" id="prog-editor-${idx}">
+            <button class="step-btn" onclick="window.adjustProgStep(${idx}, -1)">−</button>
+            <span class="step-display" id="prog-step-disp-${idx}">${current}</span>
+            <button class="step-btn" onclick="window.adjustProgStep(${idx}, +1)">+</button>
+            <input class="topic-input" id="prog-topic-inp-${idx}" value="${currTopicRaw.replace(/"/g,'&quot;')}" placeholder="수업 주제 입력" />
+            <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
+            <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
+            <button class="save-btn" id="prog-save-btn-${idx}" onclick="window.saveProgStep(${idx})">저장</button>
           </div>
         </div>`;
     }
@@ -721,6 +740,88 @@ function renderProgress() {
   html += '</div>';
   el.innerHTML = html;
 }
+
+window.toggleProgEditor = function(idx) {
+  document.getElementById(`prog-editor-${idx}`)?.classList.toggle('open');
+};
+
+window.adjustProgStep = function(idx, delta) {
+  const disp = document.getElementById(`prog-step-disp-${idx}`);
+  if (!disp) return;
+  const cur  = parseInt(disp.textContent) || 1;
+  const next = Math.max(1, cur + delta);
+  disp.textContent = next;
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+
+  if (key) {
+    const completedStep = next - 1;
+    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[next] || '';
+    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[completedStep] || '';
+    const noteLabel = document.getElementById(`prog-note-label-${idx}`);
+    if (noteLabel) noteLabel.textContent = `${completedStep}차시 메모`;
+  }
+};
+
+window.saveProgStep = async function(idx) {
+  const btn     = document.getElementById(`prog-save-btn-${idx}`);
+  const disp    = document.getElementById(`prog-step-disp-${idx}`);
+  const input   = document.getElementById(`prog-topic-inp-${idx}`);
+  const noteInp = document.getElementById(`prog-note-inp-${idx}`);
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+  if (!key) return;
+
+  const displayStep   = parseInt(disp.textContent) || 1;
+  const currentToSave = displayStep - 1;
+  const newTopic      = input.value.trim();
+  const newNote       = noteInp.value.trim();
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const updates = {};
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (newTopic) {
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
+    }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+
+    await update(ref(db), updates);
+
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (!userData.curriculum[key]) userData.curriculum[key] = {};
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
+
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][currentToSave] = newNote;
+    } else {
+      delete userData.lessonNotes[key][currentToSave];
+    }
+
+    showToast(`${key} 저장 완료`);
+    renderProgress();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+};
 
 // ============================================================
 // 수업 주제 탭
