@@ -268,13 +268,14 @@ async function loadUserData() {
     get(ref(db, 'school'))
   ]);
 
-  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {} };
+  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {}, lessonNotes: {} };
   schoolData = schoolSnap.val() || { calendar: {} };
 
-  if (!userData.timetable)  userData.timetable  = { periods: {}, schedule: {} };
-  if (!userData.progress)   userData.progress   = {};
+  if (!userData.timetable)   userData.timetable   = { periods: {}, schedule: {} };
+  if (!userData.progress)    userData.progress    = {};
   if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-  if (!userData.curriculum) userData.curriculum  = {};
+  if (!userData.curriculum)  userData.curriculum  = {};
+  if (!userData.lessonNotes) userData.lessonNotes = {};
 
   await autoUpdateProgress();
   renderCurrentTab();
@@ -404,6 +405,7 @@ function renderToday() {
       const key     = `${cls}_${subject}`;
       const current = (progress[key]?.current ?? 0) + 1;
       const topic   = userData.curriculum[key]?.[current] || '';
+      const note    = userData.lessonNotes?.[key]?.[current] || '';
 
       card.className = `period-card has-class${isCur ? ' current' : ''}`;
       card.dataset.key = key;
@@ -418,11 +420,13 @@ function renderToday() {
             <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
             <span class="class-step" id="step-display-${p}">${current}차시</span>
           </div>
+          ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
           <div class="step-editor" id="editor-${p}">
             <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
             <span class="step-display" id="step-disp-${p}">${current}</span>
             <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
             <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
+            <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
             <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
           </div>
         </div>
@@ -462,16 +466,18 @@ window.adjustStep = function(p, delta) {
     if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
   });
 
-  if (key && userData.curriculum[key]?.[next]) {
-    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key][next];
+  if (key) {
+    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next] || '';
+    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[next] || '';
   }
 };
 
 // 화면 표시값은 current+1 이므로 저장 시 -1 해서 current로 저장
 window.saveStep = async function(p) {
-  const btn   = document.getElementById(`save-btn-${p}`);
-  const disp  = document.getElementById(`step-disp-${p}`);
-  const input = document.getElementById(`topic-inp-${p}`);
+  const btn      = document.getElementById(`save-btn-${p}`);
+  const disp     = document.getElementById(`step-disp-${p}`);
+  const input    = document.getElementById(`topic-inp-${p}`);
+  const noteInp  = document.getElementById(`note-inp-${p}`);
 
   let key = '';
   document.querySelectorAll('.period-card').forEach(c => {
@@ -482,6 +488,7 @@ window.saveStep = async function(p) {
   const displayStep   = parseInt(disp.textContent) || 1;
   const currentToSave = displayStep - 1;
   const newTopic      = input.value.trim();
+  const newNote       = noteInp.value.trim();
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
@@ -495,6 +502,8 @@ window.saveStep = async function(p) {
     if (newTopic) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${displayStep}`] = newNote || null;
+
     await update(ref(db), updates);
 
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
@@ -505,8 +514,25 @@ window.saveStep = async function(p) {
     if (!userData.curriculum[key]) userData.curriculum[key] = {};
     if (newTopic) userData.curriculum[key][displayStep] = newTopic;
 
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][displayStep] = newNote;
+    } else {
+      delete userData.lessonNotes[key][displayStep];
+    }
+
     document.getElementById(`topic-display-${p}`).textContent = newTopic || '주제 미설정';
     document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
+
+    const noteDisplay = document.getElementById(`note-display-${p}`);
+    if (newNote) {
+      noteDisplay.textContent = `📝 ${newNote}`;
+      noteDisplay.style.display = '';
+    } else {
+      noteDisplay.textContent = '';
+      noteDisplay.style.display = 'none';
+    }
+
     document.getElementById(`editor-${p}`).classList.remove('open');
     showToast(`${key} 저장 완료`);
   } catch(e) {
@@ -662,6 +688,7 @@ function renderProgress() {
       const currTopic  = userData.curriculum[item.key]?.[current]     || '주제 미설정';
       const nextTopic  = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopic = userData.curriculum[item.key]?.[current + 2] || '';
+      const currNote   = userData.lessonNotes?.[item.key]?.[current]  || '';
 
       html += `
         <div class="progress-card">
@@ -674,6 +701,10 @@ function renderProgress() {
               <span class="r-label">이번</span>
               <span class="r-topic">${currTopic}</span>
             </div>
+            ${currNote ? `<div class="prog-row note-row">
+              <span class="r-label">메모</span>
+              <span class="r-topic">${currNote}</span>
+            </div>` : ''}
             ${nextTopic ? `<div class="prog-row next-row">
               <span class="r-label">다음</span>
               <span class="r-topic">${nextTopic}</span>
