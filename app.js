@@ -122,11 +122,41 @@ function getCalendarEvent(dateStr, periodStr) {
   return dayEvents[periodStr] || dayEvents['all'] || null;
 }
 
+// cls/subject 수업이 fromStr~toStr(둘 다 포함) 사이에 학사일정 이벤트 없이 몇 번 있는지 카운트
+function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
+  if (fromStr > toStr) return 0;
+  let count = 0;
+  const cursor = new Date(fromStr);
+  const toDate = new Date(toStr);
+  cursor.setHours(0,0,0,0);
+  toDate.setHours(0,0,0,0);
+  while (cursor <= toDate) {
+    const dateStr     = dateToStr(cursor);
+    const dayKey      = DOW_KEY[cursor.getDay()];
+    const daySchedule = userData?.timetable?.schedule?.[dayKey] || {};
+    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+      if (cell?.class === cls && cell?.subject === subject) {
+        const ev = getCalendarEvent(dateStr, periodStr);
+        if (!ev) count++;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+// dateStr 기준으로 delta일 이동한 날짜 문자열
+function addDaysStr(dateStr, delta) {
+  const d = new Date(dateStr);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + delta);
+  return dateToStr(d);
+}
+
 // ============================================================
 // 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
 // ============================================================
 function getOffsetUpToDate(cls, subject, targetDateStr) {
-  const schedule    = userData?.timetable?.schedule || {};
   const progressKey = `${cls}_${subject}`;
   const progress    = semProgress();
   const lastUpdated = progress[progressKey]?.lastUpdated || todayStr();
@@ -138,30 +168,9 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
   thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
   const thisWeekSunStr = dateToStr(thisWeekSun);
 
-  function countLessons(fromStr, toStr) {
-    let count = 0;
-    const cursor = new Date(fromStr);
-    const toDate = new Date(toStr);
-    cursor.setHours(0,0,0,0);
-    toDate.setHours(0,0,0,0);
-    while (cursor <= toDate) {
-      const dateStr     = dateToStr(cursor);
-      const dayKey      = DOW_KEY[cursor.getDay()];
-      const daySchedule = schedule[dayKey] || {};
-      for (const [periodStr, cell] of Object.entries(daySchedule)) {
-        if (cell?.class === cls && cell?.subject === subject) {
-          const ev = getCalendarEvent(dateStr, periodStr);
-          if (!ev) count++;
-        }
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return count;
-  }
-
   const lastUpdatedNext = new Date(lastUpdated);
   lastUpdatedNext.setDate(lastUpdatedNext.getDate() + 1);
-  const remainThisWeek = countLessons(dateToStr(lastUpdatedNext), thisWeekSunStr);
+  const remainThisWeek = countKeyLessonsBetween(cls, subject, dateToStr(lastUpdatedNext), thisWeekSunStr);
 
   const baseAtEndOfWeek = (progress[progressKey]?.current ?? 0) + remainThisWeek;
 
@@ -178,7 +187,7 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
     return baseAtEndOfWeek;
   }
 
-  const offset = countLessons(dateToStr(nextWeekMon), dateToStr(targetPrev));
+  const offset = countKeyLessonsBetween(cls, subject, dateToStr(nextWeekMon), dateToStr(targetPrev));
   return baseAtEndOfWeek + offset;
 }
 
@@ -522,6 +531,7 @@ function renderWeekly() {
     const periods    = getPeriods();
     const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
     const today      = todayStr();
+    const yesterday  = addDaysStr(today, -1);
     const progress   = semProgress();
 
     let html = '<div class="week-grid"><table><thead><tr><th></th>';
@@ -545,62 +555,29 @@ function renderWeekly() {
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
-          const key         = `${cell.class}_${cell.subject}`;
-          const base        = progress[key]?.current ?? 0;
-          const lastUpdated = progress[key]?.lastUpdated || today;
+          const key     = `${cell.class}_${cell.subject}`;
+          const current = progress[key]?.current ?? 0;
 
-          let current;
-
+          let step;
           if (offsetWeeks === 0) {
-            function countBetween(fromStr, toStr) {
-              let count = 0;
-              const cursor = new Date(fromStr);
-              const toDate = new Date(toStr);
-              cursor.setHours(0,0,0,0);
-              toDate.setHours(0,0,0,0);
-              while (cursor <= toDate) {
-                const dStr     = dateToStr(cursor);
-                const dKey     = DOW_KEY[cursor.getDay()];
-                const daySched = userData.timetable?.schedule?.[dKey] || {};
-                for (const [pStr, c] of Object.entries(daySched)) {
-                  if (c?.class === cell.class && c?.subject === cell.subject) {
-                    const ev2 = getCalendarEvent(dStr, pStr);
-                    if (!ev2) count++;
-                  }
-                }
-                cursor.setDate(cursor.getDate() + 1);
-              }
-              return count;
-            }
-
-            if (dateStr === lastUpdated) {
-              current = base + 1;
-            } else if (dateStr > lastUpdated) {
-              const fromDate = new Date(lastUpdated);
-              fromDate.setDate(fromDate.getDate() + 1);
-              const prevDate = new Date(dateStr);
-              prevDate.setDate(prevDate.getDate() - 1);
-              const fromStr  = dateToStr(fromDate);
-              const prevStr  = dateToStr(prevDate);
-              const offset   = fromStr <= prevStr ? countBetween(fromStr, prevStr) : 0;
-              current = base + offset + 1;
+            // 오늘 기준으로 과거/미래를 나눠 계산 (lastUpdated는 사용 안 함 — 셀 간 충돌 방지)
+            if (dateStr < today) {
+              const afterCount = countKeyLessonsBetween(cell.class, cell.subject, addDaysStr(dateStr, 1), yesterday);
+              step = current - afterCount;
             } else {
-              const fromDate = new Date(dateStr);
-              fromDate.setDate(fromDate.getDate() + 1);
-              const fromStr  = dateToStr(fromDate);
-              const offset   = fromStr <= lastUpdated ? countBetween(fromStr, lastUpdated) : 0;
-              current = base - offset + 1;
+              const upToCount = countKeyLessonsBetween(cell.class, cell.subject, today, dateStr);
+              step = current + upToCount;
             }
           } else {
-            current = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
+            step = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
           }
 
-          const topic = userData.curriculum[key]?.[current] || '';
+          const topic = userData.curriculum[key]?.[step] || '';
           html += `<td class="has-class${isToday ? ' today-col' : ''}">
             <span class="cell-class">${cell.class}</span>
             <span class="cell-subject">${cell.subject}</span>
             ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
-            <span class="cell-step">${current}차시</span>
+            <span class="cell-step">${step}차시</span>
           </td>`;
         } else {
           html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
