@@ -552,76 +552,6 @@ window.saveStep = async function(p) {
   }
 };
 
-// 화면 표시값은 current+1 이므로 저장 시 -1 해서 current로 저장
-window.saveStep = async function(p) {
-  const btn      = document.getElementById(`save-btn-${p}`);
-  const disp     = document.getElementById(`step-disp-${p}`);
-  const input    = document.getElementById(`topic-inp-${p}`);
-  const noteInp  = document.getElementById(`note-inp-${p}`);
-
-  let key = '';
-  document.querySelectorAll('.period-card').forEach(c => {
-    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
-  });
-  if (!key) return;
-
-  const displayStep   = parseInt(disp.textContent) || 1;
-  const currentToSave = displayStep - 1;
-  const newTopic      = input.value.trim();
-  const newNote       = noteInp.value.trim();
-
-  btn.disabled    = true;
-  btn.textContent = '저장 중…';
-
-  try {
-    const updates = {};
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
-      current: currentToSave,
-      lastUpdated: todayStr()
-    };
-    if (newTopic) {
-      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
-    }
-    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
-
-    await update(ref(db), updates);
-
-    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-    userData.progress[CURRENT_SEMESTER][key] = {
-      current: currentToSave,
-      lastUpdated: todayStr()
-    };
-    if (!userData.curriculum[key]) userData.curriculum[key] = {};
-    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
-
-    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
-    if (newNote) {
-      userData.lessonNotes[key][currentToSave] = newNote;
-    } else {
-      delete userData.lessonNotes[key][currentToSave];
-    }
-
-    document.getElementById(`topic-display-${p}`).textContent = newTopic || '주제 미설정';
-    document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
-
-    const noteDisplay = document.getElementById(`note-display-${p}`);
-    if (newNote) {
-      noteDisplay.textContent = `📝 ${newNote}`;
-      noteDisplay.style.display = '';
-    } else {
-      noteDisplay.textContent = '';
-      noteDisplay.style.display = 'none';
-    }
-
-    document.getElementById(`editor-${p}`).classList.remove('open');
-    showToast(`${key} 저장 완료`);
-  } catch(e) {
-    showToast('저장 실패: ' + e.message, true);
-  } finally {
-    btn.disabled    = false;
-    btn.textContent = '저장';
-  }
-};
 
 // ============================================================
 // 주차별 탭
@@ -817,6 +747,89 @@ function renderProgress() {
   html += '</div>';
   el.innerHTML = html;
 }
+
+window.toggleProgEditor = function(idx) {
+  document.getElementById(`prog-editor-${idx}`)?.classList.toggle('open');
+};
+
+window.adjustProgStep = function(idx, delta) {
+  const disp = document.getElementById(`prog-step-disp-${idx}`);
+  if (!disp) return;
+  const cur  = parseInt(disp.textContent) || 0;
+  const next = Math.max(0, cur + delta);
+  disp.textContent = next;
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+
+  if (key) {
+    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[next + 1] || '';
+    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    const topicLabel = document.getElementById(`prog-topic-label-${idx}`);
+    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
+    const noteLabel = document.getElementById(`prog-note-label-${idx}`);
+    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+  }
+};
+
+window.saveProgStep = async function(idx) {
+  const btn     = document.getElementById(`prog-save-btn-${idx}`);
+  const disp    = document.getElementById(`prog-step-disp-${idx}`);
+  const input   = document.getElementById(`prog-topic-inp-${idx}`);
+  const noteInp = document.getElementById(`prog-note-inp-${idx}`);
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+  if (!key) return;
+
+  const currentToSave = parseInt(disp.textContent) || 0;
+  const displayStep    = currentToSave + 1;
+  const newTopic       = input.value.trim();
+  const newNote        = noteInp.value.trim();
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const updates = {};
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (newTopic) {
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
+    }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+
+    await update(ref(db), updates);
+
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (!userData.curriculum[key]) userData.curriculum[key] = {};
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
+
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][currentToSave] = newNote;
+    } else {
+      delete userData.lessonNotes[key][currentToSave];
+    }
+
+    showToast(`${key} 저장 완료`);
+    renderProgress();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+};
 
 // ============================================================
 // 수업 주제 탭
