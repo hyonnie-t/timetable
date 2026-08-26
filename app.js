@@ -403,8 +403,8 @@ function renderToday() {
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
       const key           = `${cls}_${subject}`;
-      const current       = (progress[key]?.current ?? 0) + 1; // 화면 표시 = 다음 차시
-      const completedStep = progress[key]?.current ?? 0;        // 메모는 방금 끝난 차시 기준
+      const current       = (progress[key]?.current ?? 0) + 1; // 화면 표시(뱃지) = 다음 차시
+      const completedStep = progress[key]?.current ?? 0;        // 편집 카운터의 기준값 = 완료한 차시
       const topic         = userData.curriculum[key]?.[current] || '';
       const note          = userData.lessonNotes?.[key]?.[completedStep] || '';
 
@@ -423,9 +423,11 @@ function renderToday() {
           </div>
           ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
           <div class="step-editor" id="editor-${p}">
+            <div class="step-editor-label">완료한 차시</div>
             <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
-            <span class="step-display" id="step-disp-${p}">${current}</span>
+            <span class="step-display" id="step-disp-${p}">${completedStep}</span>
             <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
+            <span class="topic-label" id="topic-label-${p}">${completedStep + 1}차시 주제</span>
             <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
             <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
@@ -459,8 +461,8 @@ window.toggleEditor = function(p) {
 window.adjustStep = function(p, delta) {
   const disp = document.getElementById(`step-disp-${p}`);
   if (!disp) return;
-  const cur  = parseInt(disp.textContent) || 1;
-  const next = Math.max(1, cur + delta);
+  const cur  = parseInt(disp.textContent) || 0;
+  const next = Math.max(0, cur + delta); // 완료 차시는 0부터 시작 가능 (0 = 아직 안 함)
   disp.textContent = next;
 
   let key = '';
@@ -469,11 +471,84 @@ window.adjustStep = function(p, delta) {
   });
 
   if (key) {
-    const completedStep = next - 1;
-    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next] || '';
-    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[completedStep] || '';
+    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next + 1] || '';
+    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    const topicLabel = document.getElementById(`topic-label-${p}`);
+    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
     const noteLabel = document.getElementById(`note-label-${p}`);
-    if (noteLabel) noteLabel.textContent = `${completedStep}차시 메모`;
+    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+  }
+};
+
+// 화면 숫자 = 완료한 차시. 더 이상 -1 계산 없음 — 보이는 숫자가 곧 저장값.
+window.saveStep = async function(p) {
+  const btn      = document.getElementById(`save-btn-${p}`);
+  const disp     = document.getElementById(`step-disp-${p}`);
+  const input    = document.getElementById(`topic-inp-${p}`);
+  const noteInp  = document.getElementById(`note-inp-${p}`);
+
+  let key = '';
+  document.querySelectorAll('.period-card').forEach(c => {
+    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
+  });
+  if (!key) return;
+
+  const currentToSave = parseInt(disp.textContent) || 0;
+  const displayStep    = currentToSave + 1; // 다음 차시 (뱃지 표시 / 주제 인덱스용)
+  const newTopic       = input.value.trim();
+  const newNote        = noteInp.value.trim();
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const updates = {};
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (newTopic) {
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
+    }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+
+    await update(ref(db), updates);
+
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = {
+      current: currentToSave,
+      lastUpdated: todayStr()
+    };
+    if (!userData.curriculum[key]) userData.curriculum[key] = {};
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
+
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][currentToSave] = newNote;
+    } else {
+      delete userData.lessonNotes[key][currentToSave];
+    }
+
+    document.getElementById(`topic-display-${p}`).textContent =
+      userData.curriculum[key][displayStep] || '주제 미설정';
+    document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
+
+    const noteDisplay = document.getElementById(`note-display-${p}`);
+    if (newNote) {
+      noteDisplay.textContent = `📝 ${newNote}`;
+      noteDisplay.style.display = '';
+    } else {
+      noteDisplay.textContent = '';
+      noteDisplay.style.display = 'none';
+    }
+
+    document.getElementById(`editor-${p}`).classList.remove('open');
+    showToast(`${key} 저장 완료`);
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '저장';
   }
 };
 
@@ -693,7 +768,7 @@ function renderProgress() {
     for (const item of items) {
       const idx           = progIdx++;
       const current       = (progress[item.key]?.current ?? 0) + 1; // 화면 표시(다음 차시)
-      const completedStep = progress[item.key]?.current ?? 0;        // 메모 귀속 차시
+      const completedStep = progress[item.key]?.current ?? 0;        // 편집 카운터 기준값
       const currTopicRaw  = userData.curriculum[item.key]?.[current]     || '';
       const nextTopicRaw  = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopicRaw = userData.curriculum[item.key]?.[current + 2] || '';
@@ -725,9 +800,11 @@ function renderProgress() {
             </div>
           </div>
           <div class="step-editor" id="prog-editor-${idx}">
+            <div class="step-editor-label">완료한 차시</div>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, -1)">−</button>
-            <span class="step-display" id="prog-step-disp-${idx}">${current}</span>
+            <span class="step-display" id="prog-step-disp-${idx}">${completedStep}</span>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, +1)">+</button>
+            <span class="topic-label" id="prog-topic-label-${idx}">${completedStep + 1}차시 주제</span>
             <input class="topic-input" id="prog-topic-inp-${idx}" value="${currTopicRaw.replace(/"/g,'&quot;')}" placeholder="수업 주제 입력" />
             <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
@@ -740,88 +817,6 @@ function renderProgress() {
   html += '</div>';
   el.innerHTML = html;
 }
-
-window.toggleProgEditor = function(idx) {
-  document.getElementById(`prog-editor-${idx}`)?.classList.toggle('open');
-};
-
-window.adjustProgStep = function(idx, delta) {
-  const disp = document.getElementById(`prog-step-disp-${idx}`);
-  if (!disp) return;
-  const cur  = parseInt(disp.textContent) || 1;
-  const next = Math.max(1, cur + delta);
-  disp.textContent = next;
-
-  let key = '';
-  document.querySelectorAll('.progress-card').forEach(c => {
-    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
-  });
-
-  if (key) {
-    const completedStep = next - 1;
-    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[next] || '';
-    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[completedStep] || '';
-    const noteLabel = document.getElementById(`prog-note-label-${idx}`);
-    if (noteLabel) noteLabel.textContent = `${completedStep}차시 메모`;
-  }
-};
-
-window.saveProgStep = async function(idx) {
-  const btn     = document.getElementById(`prog-save-btn-${idx}`);
-  const disp    = document.getElementById(`prog-step-disp-${idx}`);
-  const input   = document.getElementById(`prog-topic-inp-${idx}`);
-  const noteInp = document.getElementById(`prog-note-inp-${idx}`);
-
-  let key = '';
-  document.querySelectorAll('.progress-card').forEach(c => {
-    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
-  });
-  if (!key) return;
-
-  const displayStep   = parseInt(disp.textContent) || 1;
-  const currentToSave = displayStep - 1;
-  const newTopic      = input.value.trim();
-  const newNote       = noteInp.value.trim();
-
-  btn.disabled    = true;
-  btn.textContent = '저장 중…';
-
-  try {
-    const updates = {};
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
-      current: currentToSave,
-      lastUpdated: todayStr()
-    };
-    if (newTopic) {
-      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
-    }
-    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
-
-    await update(ref(db), updates);
-
-    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-    userData.progress[CURRENT_SEMESTER][key] = {
-      current: currentToSave,
-      lastUpdated: todayStr()
-    };
-    if (!userData.curriculum[key]) userData.curriculum[key] = {};
-    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
-
-    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
-    if (newNote) {
-      userData.lessonNotes[key][currentToSave] = newNote;
-    } else {
-      delete userData.lessonNotes[key][currentToSave];
-    }
-
-    showToast(`${key} 저장 완료`);
-    renderProgress();
-  } catch(e) {
-    showToast('저장 실패: ' + e.message, true);
-    btn.disabled    = false;
-    btn.textContent = '저장';
-  }
-};
 
 // ============================================================
 // 수업 주제 탭
