@@ -321,9 +321,8 @@ function renderClassNoteBlock(key) {
   const safeKey  = escapeHtml(key);
   return `
     <div class="classnote-wrap${noteText ? ' has-note' : ''}" data-classnote-key="${safeKey}">
-      <div class="classnote-view">
-        <span class="classnote-text">${noteText ? escapeHtml(noteText) : '학급 메모 없음'}</span>
-        <button class="classnote-edit-btn" data-classnote-action="edit" data-classnote-key="${safeKey}">✏️</button>
+      <div class="classnote-view" data-classnote-action="edit" data-classnote-key="${safeKey}">
+        <span class="classnote-text">🗒 ${noteText ? escapeHtml(noteText) : '학급 메모 없음 (탭해서 입력)'}</span>
       </div>
       <div class="classnote-edit">
         <textarea class="classnote-input" placeholder="학급 메모 (상시, 차시와 무관)">${escapeHtml(noteText)}</textarea>
@@ -366,7 +365,7 @@ window.saveClassNote = async function(key, wrap) {
     document.querySelectorAll(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`).forEach(w => {
       const view  = w.querySelector('.classnote-text');
       const input = w.querySelector('.classnote-input');
-      if (view)  view.textContent = newText || '학급 메모 없음';
+      if (view)  view.textContent = `🗒 ${newText || '학급 메모 없음 (탭해서 입력)'}`;
       if (input) input.value = newText;
       w.classList.toggle('has-note', !!newText);
       w.classList.remove('editing');
