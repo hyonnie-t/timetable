@@ -1069,3 +1069,85 @@ body {
 }
 
 .progress-header .edit-btn:hover { opacity: 1; }
+
+/* ============================================================
+   학급 메모 (classNotes) — 차시 진도와 무관한 상시 메모
+   ============================================================ */
+.classnote-wrap { margin-top: 6px; font-size: 12px; }
+
+.classnote-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.classnote-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text3);
+  font-style: italic;
+  word-break: break-word;
+}
+.classnote-wrap.has-note .classnote-text {
+  color: var(--text2);
+  font-style: normal;
+}
+
+.classnote-edit-btn {
+  background: none; border: none;
+  font-size: 13px; cursor: pointer;
+  opacity: .4; transition: opacity .2s;
+  padding: 2px; flex-shrink: 0;
+}
+.classnote-wrap:hover .classnote-edit-btn { opacity: .6; }
+.classnote-edit-btn:hover { opacity: 1 !important; }
+
+.classnote-edit { display: none; }
+.classnote-wrap.editing .classnote-view { display: none; }
+.classnote-wrap.editing .classnote-edit { display: block; }
+
+.classnote-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 44px;
+}
+.classnote-input:focus { border-color: var(--accent2); }
+
+.classnote-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.classnote-cancel-btn,
+.classnote-save-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+.classnote-cancel-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text2);
+}
+.classnote-cancel-btn:hover { border-color: var(--text2); }
+
+.classnote-save-btn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+.classnote-save-btn:hover { background: #235c42; }
+.classnote-save-btn:disabled { background: var(--text3); cursor: not-allowed; }

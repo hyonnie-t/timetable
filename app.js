@@ -268,7 +268,7 @@ async function loadUserData() {
     get(ref(db, 'school'))
   ]);
 
-  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {}, lessonNotes: {} };
+  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {}, lessonNotes: {}, classNotes: {} };
   schoolData = schoolSnap.val() || { calendar: {} };
 
   if (!userData.timetable)   userData.timetable   = { periods: {}, schedule: {} };
@@ -276,6 +276,7 @@ async function loadUserData() {
   if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
   if (!userData.curriculum)  userData.curriculum  = {};
   if (!userData.lessonNotes) userData.lessonNotes = {};
+  if (!userData.classNotes)  userData.classNotes  = {};
 
   await autoUpdateProgress();
   renderCurrentTab();
@@ -304,6 +305,80 @@ function renderCurrentTab() {
   if (currentTab === 'subject')  renderSubject();
   if (currentTab === 'settings') renderSettings();
 }
+
+// ============================================================
+// 학급 메모 (classNotes) — 차시 진도와 무관하게 반별로 상시 유지되는 메모
+// 오늘 탭 / 진도표 탭에서 공통으로 사용
+// ============================================================
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function renderClassNoteBlock(key) {
+  const noteText = userData.classNotes?.[key]?.text || '';
+  const safeKey  = escapeHtml(key);
+  return `
+    <div class="classnote-wrap${noteText ? ' has-note' : ''}" data-classnote-key="${safeKey}">
+      <div class="classnote-view">
+        <span class="classnote-text">${noteText ? escapeHtml(noteText) : '학급 메모 없음'}</span>
+        <button class="classnote-edit-btn" data-classnote-action="edit" data-classnote-key="${safeKey}">✏️</button>
+      </div>
+      <div class="classnote-edit">
+        <textarea class="classnote-input" placeholder="학급 메모 (상시, 차시와 무관)">${escapeHtml(noteText)}</textarea>
+        <div class="classnote-edit-actions">
+          <button class="classnote-cancel-btn" data-classnote-action="cancel" data-classnote-key="${safeKey}">취소</button>
+          <button class="classnote-save-btn" data-classnote-action="save" data-classnote-key="${safeKey}">저장</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+window.saveClassNote = async function(key, wrap) {
+  if (!wrap) {
+    wrap = document.querySelector(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`);
+  }
+  if (!wrap) return;
+
+  const textarea = wrap.querySelector('.classnote-input');
+  const saveBtn  = wrap.querySelector('[data-classnote-action="save"]');
+  if (!textarea) return;
+
+  const newText = textarea.value.trim();
+
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중…'; }
+
+  try {
+    const path = `users/${currentUser.uid}/classNotes/${key}`;
+    if (!userData.classNotes) userData.classNotes = {};
+
+    if (newText) {
+      const updatedAt = Date.now();
+      await update(ref(db), { [path]: { text: newText, updatedAt } });
+      userData.classNotes[key] = { text: newText, updatedAt };
+    } else {
+      await update(ref(db), { [path]: null });
+      delete userData.classNotes[key];
+    }
+
+    // 오늘 탭 / 진도표 탭에 같은 key로 렌더링된 모든 인스턴스를 동기화
+    document.querySelectorAll(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`).forEach(w => {
+      const view  = w.querySelector('.classnote-text');
+      const input = w.querySelector('.classnote-input');
+      if (view)  view.textContent = newText || '학급 메모 없음';
+      if (input) input.value = newText;
+      w.classList.toggle('has-note', !!newText);
+      w.classList.remove('editing');
+    });
+
+    showToast('학급 메모 저장 완료');
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
+  }
+};
 
 // ============================================================
 // 오늘 탭
@@ -422,6 +497,7 @@ function renderToday() {
             <span class="class-step" id="step-display-${p}">${current}차시</span>
           </div>
           ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
+          ${renderClassNoteBlock(key)}
           <div class="step-editor" id="editor-${p}">
             <div class="step-editor-label">완료한 차시</div>
             <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
@@ -729,6 +805,7 @@ function renderProgress() {
               <span class="r-topic">${afterTopicRaw || '주제 미설정'}</span>
             </div>
           </div>
+          ${renderClassNoteBlock(item.key)}
           <div class="step-editor" id="prog-editor-${idx}">
             <div class="step-editor-label">완료한 차시</div>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, -1)">−</button>
@@ -999,6 +1076,26 @@ document.addEventListener('click', function(e) {
     const subject = delBtn.dataset.subject;
     const classes = JSON.parse(decodeURIComponent(delBtn.dataset.classes));
     window.deleteSubjRow(gi, step, subject, classes);
+    return;
+  }
+
+  const cnBtn = e.target.closest('[data-classnote-action]');
+  if (cnBtn) {
+    const action = cnBtn.dataset.classnoteAction;
+    const key    = cnBtn.dataset.classnoteKey;
+    const wrap   = cnBtn.closest('.classnote-wrap');
+    if (!wrap) return;
+
+    if (action === 'edit') {
+      wrap.classList.add('editing');
+      wrap.querySelector('.classnote-input')?.focus();
+    } else if (action === 'cancel') {
+      const input = wrap.querySelector('.classnote-input');
+      if (input) input.value = userData.classNotes?.[key]?.text || '';
+      wrap.classList.remove('editing');
+    } else if (action === 'save') {
+      window.saveClassNote(key, wrap);
+    }
     return;
   }
 });
