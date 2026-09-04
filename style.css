@@ -956,6 +956,17 @@ body {
   vertical-align: middle;
 }
 
+/* ============================================================
+   데이터 진단
+   ============================================================ */
+.diag-space {
+  background: #ffe28a;
+  color: #7a4a00;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 700;
+}
+
 .cal-input {
   width: 100%;
   border: 1px solid var(--border);

@@ -1118,6 +1118,9 @@ function renderSettings() {
         <button class="settings-item" onclick="window.openPeriodsEditor()">
           <span>교시 시간 설정</span><span class="arrow-r">→</span>
         </button>
+        <button class="settings-item" onclick="window.openDataDiag()">
+          <span>데이터 진단 (반 이름 확인)</span><span class="arrow-r">→</span>
+        </button>
       </div>
       ${isAdmin ? `
       <div class="settings-section">
@@ -1328,6 +1331,91 @@ window.reindexPeriods = function() {
       input.dataset.period = p;
     });
   });
+};
+
+// ============================================================
+// 데이터 진단 — 시간표 셀 문자열과 progress 키를 있는 그대로 대조
+// (반 이름 표기가 칸마다 미묘하게 달라서 진도가 갈라지는 문제 확인용)
+// ============================================================
+function visibleStr(str) {
+  // 공백류 문자를 눈에 보이는 기호로 바꿔서 렌더링 (공백/탭/전각공백 등 구분)
+  const escaped = escapeHtml(str);
+  return escaped
+    .replace(/ /g, '<span class="diag-space">␣</span>')
+    .replace(/　/g, '<span class="diag-space">⭞</span>')
+    .replace(/\t/g, '<span class="diag-space">→</span>');
+}
+
+window.openDataDiag = function() {
+  const schedule  = userData.timetable?.schedule || {};
+  const progress  = semProgress();
+  const dayLabels = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금' };
+
+  // 시간표에서 실제 쓰이고 있는 (반, 과목) 셀 전부 수집
+  const cells = [];
+  for (const [day, daySchedule] of Object.entries(schedule)) {
+    for (const [period, cell] of Object.entries(daySchedule)) {
+      if (cell?.class && cell?.subject) {
+        cells.push({ day, period: Number(period), class: cell.class, subject: cell.subject, key: `${cell.class}_${cell.subject}` });
+      }
+    }
+  }
+  cells.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }) || a.period - b.period);
+
+  const scheduleKeys = new Set(cells.map(c => c.key));
+  const progressKeys = new Set(Object.keys(progress));
+
+  const missingProgress = [...scheduleKeys].filter(k => !progressKeys.has(k)); // 시간표엔 있는데 progress엔 없음
+  const orphanProgress  = [...progressKeys].filter(k => !scheduleKeys.has(k)); // progress엔 있는데 지금 시간표엔 없음 (옛 표기 흔적일 수 있음)
+
+  let html = `
+    <div class="modal-overlay" id="modal-datadiag">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2>데이터 진단</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-datadiag')">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint">공백은 <code>␣</code>(반각) / <code>⭞</code>(전각) 기호로 표시돼. 같은 반인데 칸마다 문자열이 다르면 진도가 따로 카운트돼.</p>`;
+
+  if (missingProgress.length || orphanProgress.length) {
+    html += `<p class="modal-hint" style="color:#d33">⚠ 아래처럼 불일치가 있어:</p><ul style="margin:0 0 12px;padding-left:18px;font-size:13px;line-height:1.6">`;
+    missingProgress.forEach(k => {
+      html += `<li>시간표엔 <code>${visibleStr(k)}</code> 셀이 있는데 progress 기록이 없음 (진도 0으로 안 잡혀 있을 수 있음)</li>`;
+    });
+    orphanProgress.forEach(k => {
+      html += `<li>progress에 <code>${visibleStr(k)}</code> 기록이 남아있는데 지금 시간표엔 이 조합이 없음 (예전 표기 흔적일 가능성)</li>`;
+    });
+    html += `</ul>`;
+  } else {
+    html += `<p class="modal-hint">시간표 셀과 progress 키가 1:1로 일치해. 표기 문제는 아닌 걸로 보여.</p>`;
+  }
+
+  html += `
+          <table class="cal-table">
+            <thead><tr><th>요일</th><th>교시</th><th>반(문자열)</th><th>과목(문자열)</th><th>progress key</th><th>current</th><th>lastUpdated</th></tr></thead>
+            <tbody>`;
+  cells.forEach(c => {
+    const prog = progress[c.key];
+    html += `<tr>
+      <td>${dayLabels[c.day] || c.day}</td>
+      <td>${c.period}</td>
+      <td><code>${visibleStr(c.class)}</code></td>
+      <td><code>${visibleStr(c.subject)}</code></td>
+      <td><code>${visibleStr(c.key)}</code></td>
+      <td>${prog ? prog.current : '<span style="color:#d33">없음</span>'}</td>
+      <td>${prog ? (prog.lastUpdated || '') : ''}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-datadiag')">닫기</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
 };
 
 // ============================================================
