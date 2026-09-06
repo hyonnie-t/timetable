@@ -573,6 +573,14 @@ window.saveStep = async function(p) {
   const newTopic       = input.value.trim();
   const newNote        = noteInp.value.trim();
 
+  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
+  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
+  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
+  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
+  const countChanged = currentToSave !== (prevEntry.current ?? 0);
+  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+
   btn.disabled    = true;
   btn.textContent = '저장 중…';
 
@@ -580,7 +588,7 @@ window.saveStep = async function(p) {
     const updates = {};
     updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
       current: currentToSave,
-      lastUpdated: todayStr()
+      lastUpdated
     };
     if (newTopic) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
@@ -592,7 +600,7 @@ window.saveStep = async function(p) {
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
       current: currentToSave,
-      lastUpdated: todayStr()
+      lastUpdated
     };
     if (!userData.curriculum[key]) userData.curriculum[key] = {};
     if (newTopic) userData.curriculum[key][displayStep] = newTopic;
@@ -867,6 +875,13 @@ window.saveProgStep = async function(idx) {
   const newTopic       = input.value.trim();
   const newNote        = noteInp.value.trim();
 
+  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
+  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
+  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
+  const countChanged = currentToSave !== (prevEntry.current ?? 0);
+  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+
   btn.disabled    = true;
   btn.textContent = '저장 중…';
 
@@ -874,7 +889,7 @@ window.saveProgStep = async function(idx) {
     const updates = {};
     updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
       current: currentToSave,
-      lastUpdated: todayStr()
+      lastUpdated
     };
     if (newTopic) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
@@ -886,7 +901,7 @@ window.saveProgStep = async function(idx) {
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
       current: currentToSave,
-      lastUpdated: todayStr()
+      lastUpdated
     };
     if (!userData.curriculum[key]) userData.curriculum[key] = {};
     if (newTopic) userData.curriculum[key][displayStep] = newTopic;
