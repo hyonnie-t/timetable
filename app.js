@@ -1227,9 +1227,12 @@ window.saveTimetable = async function() {
         schedule[day][p] = { class: cls, subject };
         const key = `${cls}_${subject}`;
         // 현재 학기에 없는 키면 0으로 초기화
+        // lastUpdated를 오늘이 아니라 어제로 잡아둔다 — 시간표를 추가한 날이
+        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 autoUpdateProgress가
+        // 그날을 "이미 처리됨"으로 보고 첫 수업을 영구히 못 세는 문제가 생김
         if (!progress[key]) {
           if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-          userData.progress[CURRENT_SEMESTER][key] = { current: 0, lastUpdated: todayStr() };
+          userData.progress[CURRENT_SEMESTER][key] = { current: 0, lastUpdated: addDaysStr(todayStr(), -1) };
         }
       }
     }
