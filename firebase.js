@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getDatabase, ref, get, set, update, onValue }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
@@ -18,5 +18,10 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db   = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// 새로고침/재접속해도 로그인 유지되도록 로컬 저장소 기반 세션 명시
+setPersistence(auth, browserLocalPersistence).catch(err => {
+  console.error('로그인 세션 저장 설정 실패:', err);
+});
 
 export { ref, get, set, update, onValue, signInWithPopup, signOut, onAuthStateChanged };
