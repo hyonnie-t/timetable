@@ -21,6 +21,8 @@ let userData     = null;
 let schoolData   = null;
 let currentTab   = 'today';
 let todayRefreshTimer = null;
+let pipWindow      = null;
+let pipRefreshTimer = null;
 
 // ============================================================
 // 유틸: 시간 → 분
@@ -1681,12 +1683,157 @@ onAuthStateChanged(auth, async (user) => {
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').style.display   = '';
+
+  const pipBtn = document.getElementById('pip-btn');
+  if (pipBtn && !('documentPictureInPicture' in window)) pipBtn.style.display = 'none';
 }
 
 function showLogin() {
   document.getElementById('login-screen').style.display = '';
   document.getElementById('app-screen').style.display   = 'none';
 }
+
+// ============================================================
+// 미니창(Document Picture-in-Picture) — 항상 위 + 투명도 조절
+// 다른 작업을 하면서 오늘 시간표를 겹쳐 볼 수 있도록 별도 창으로 띄운다.
+// 크로미움 기반 브라우저(웨일 포함)만 지원, 미지원 브라우저는 버튼 자체를 숨김.
+// ============================================================
+const PIP_CSS = `
+  html, body { margin:0; padding:0; height:100%; background:transparent; }
+  * { box-sizing:border-box; font-family:'Noto Sans KR', -apple-system, sans-serif; }
+  #pip-widget {
+    display:flex; flex-direction:column; height:100%;
+    background: rgba(20,22,26, var(--pip-alpha,0.55));
+    color:#fff; border-radius:10px; overflow:hidden;
+  }
+  #pip-head {
+    display:flex; align-items:center; justify-content:space-between;
+    gap:8px; padding:8px 10px; font-size:12px; font-weight:600;
+    border-bottom:1px solid rgba(255,255,255,.15); flex:0 0 auto;
+  }
+  #pip-date { opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #pip-opacity { width:64px; accent-color:#fff; }
+  #pip-body { flex:1 1 auto; overflow-y:auto; padding:4px 8px 8px; font-size:12px; }
+  .pip-row { display:flex; gap:8px; padding:6px 2px; border-bottom:1px solid rgba(255,255,255,.1); align-items:flex-start; }
+  .pip-row:last-child { border-bottom:none; }
+  .pip-row.current { background:rgba(255,255,255,.16); border-radius:6px; }
+  .pip-p { flex:0 0 16px; font-weight:700; opacity:.75; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:baseline; }
+  .pip-class { font-weight:700; }
+  .pip-topic, .pip-note { flex-basis:100%; opacity:.85; font-size:11px; }
+  .pip-note { color:#ffd479; }
+  .pip-empty-cell, .pip-empty { opacity:.5; }
+  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.2); font-size:11px; }
+`;
+
+function pipRowsHtml() {
+  if (!userData) return `<div class="pip-empty">데이터를 불러오는 중…</div>`;
+
+  const now      = new Date();
+  const dowIdx   = now.getDay();
+  if (dowIdx === 0 || dowIdx === 6) return `<div class="pip-empty">오늘은 주말이에요 🎉</div>`;
+
+  const dayKey   = DOW_KEY[dowIdx];
+  const schedule = userData.timetable?.schedule?.[dayKey] || {};
+  const periods  = getPeriods();
+  const today    = todayStr();
+  const progress = semProgress();
+  const periodList = Object.keys(periods).map(Number).sort((a, b) => a - b);
+  const curP     = getCurrentPeriod();
+
+  if (!periodList.some(p => schedule[p]?.class)) return `<div class="pip-empty">오늘은 수업이 없어요</div>`;
+
+  return periodList.map(p => {
+    const cell  = schedule[p];
+    const ev    = getCalendarEvent(today, String(p));
+    const isCur = p === curP;
+    let body;
+
+    if (ev) {
+      body = `<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
+    } else if (cell?.class) {
+      const key     = `${cell.class}_${cell.subject}`;
+      const current = (progress[key]?.current ?? 0) + 1;
+      const topic   = userData.curriculum?.[key]?.[current] || '';
+      const note    = userData.classNotes?.[key]?.text || '';
+      body = `
+        <span class="pip-class">${escapeHtml(cell.class)}</span>
+        <span>${escapeHtml(cell.subject)}</span>
+        ${topic ? `<span class="pip-topic">${escapeHtml(topic)}</span>` : ''}
+        ${note  ? `<span class="pip-note">🗒 ${escapeHtml(note)}</span>` : ''}
+      `;
+    } else {
+      body = `<span class="pip-empty-cell">공강</span>`;
+    }
+
+    return `
+      <div class="pip-row${isCur ? ' current' : ''}">
+        <span class="pip-p">${p}</span>
+        <div class="pip-info">${body}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderPipWidget() {
+  if (!pipWindow) return;
+  const doc = pipWindow.document;
+  const now = new Date();
+
+  const dateEl = doc.getElementById('pip-date');
+  if (dateEl) {
+    dateEl.textContent = `${now.getMonth()+1}월 ${now.getDate()}일(${DOW_KO[now.getDay()]}) ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  }
+  const bodyEl = doc.getElementById('pip-body');
+  if (bodyEl) bodyEl.innerHTML = pipRowsHtml();
+}
+
+window.openPipWidget = async function() {
+  if (!('documentPictureInPicture' in window)) {
+    showToast('이 브라우저는 미니창 기능을 지원하지 않아요', true);
+    return;
+  }
+  if (pipWindow) {
+    pipWindow.focus();
+    return;
+  }
+
+  try {
+    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 300, height: 260 });
+  } catch (e) {
+    showToast('미니창을 열 수 없어요', true);
+    return;
+  }
+
+  const style = pipWindow.document.createElement('style');
+  style.textContent = PIP_CSS;
+  pipWindow.document.head.appendChild(style);
+
+  const savedAlpha = localStorage.getItem('pipAlpha') || '0.55';
+
+  pipWindow.document.body.innerHTML = `
+    <div id="pip-widget" style="--pip-alpha:${savedAlpha}">
+      <div id="pip-head">
+        <span id="pip-date"></span>
+        <input id="pip-opacity" type="range" min="0.1" max="0.95" step="0.05" value="${savedAlpha}" title="투명도" />
+      </div>
+      <div id="pip-body"></div>
+    </div>
+  `;
+
+  pipWindow.document.getElementById('pip-opacity').addEventListener('input', (e) => {
+    pipWindow.document.getElementById('pip-widget').style.setProperty('--pip-alpha', e.target.value);
+    localStorage.setItem('pipAlpha', e.target.value);
+  });
+
+  renderPipWidget();
+  pipRefreshTimer = setInterval(renderPipWidget, 30000);
+
+  pipWindow.addEventListener('pagehide', () => {
+    clearInterval(pipRefreshTimer);
+    pipRefreshTimer = null;
+    pipWindow = null;
+  });
+};
 
 // ============================================================
 // 토스트
