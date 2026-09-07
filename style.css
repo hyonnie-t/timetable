@@ -147,6 +147,20 @@ body {
 
 .settings-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+.pip-tab-btn {
+  padding: 8px 10px 10px;
+  font-size: 15px;
+  color: var(--text3);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all .2s;
+}
+
+.pip-tab-btn:hover { color: var(--text2); }
+
 /* ============================================================
    헤더
    ============================================================ */
