@@ -1703,27 +1703,32 @@ const PIP_CSS = `
   * { box-sizing:border-box; font-family:'Noto Sans KR', -apple-system, sans-serif; }
   #pip-widget {
     display:flex; flex-direction:column; height:100%;
-    background: rgba(20,22,26, var(--pip-alpha,0.55));
-    color:#fff; border-radius:10px; overflow:hidden;
+    background: rgba(15,17,23, var(--pip-alpha,0.55));
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    color:#fff; border-radius:12px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
   }
   #pip-head {
     display:flex; align-items:center; justify-content:space-between;
-    gap:8px; padding:8px 10px; font-size:12px; font-weight:600;
-    border-bottom:1px solid rgba(255,255,255,.15); flex:0 0 auto;
+    gap:6px; padding:7px 9px; font-size:11px; font-weight:700;
+    background: rgba(0,0,0,.18);
+    border-bottom:1px solid rgba(255,255,255,.12); flex:0 0 auto;
   }
-  #pip-date { opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #pip-opacity { width:64px; accent-color:#fff; }
-  #pip-body { flex:1 1 auto; overflow-y:auto; padding:4px 8px 8px; font-size:12px; }
-  .pip-row { display:flex; gap:8px; padding:6px 2px; border-bottom:1px solid rgba(255,255,255,.1); align-items:flex-start; }
+  #pip-date { opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  #pip-opacity { width:52px; accent-color:#52b788; flex-shrink:0; }
+  #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 7px 7px; font-size:11px; }
+  .pip-row { display:flex; gap:6px; padding:6px 3px; border-bottom:1px solid rgba(255,255,255,.08); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
-  .pip-row.current { background:rgba(255,255,255,.16); border-radius:6px; }
-  .pip-p { flex:0 0 16px; font-weight:700; opacity:.75; }
-  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:baseline; }
-  .pip-class { font-weight:700; }
-  .pip-topic, .pip-note { flex-basis:100%; opacity:.85; font-size:11px; }
-  .pip-note { color:#ffd479; }
-  .pip-empty-cell, .pip-empty { opacity:.5; }
-  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.2); font-size:11px; }
+  .pip-row.current { background:rgba(82,183,136,.22); border-left-color:#52b788; border-radius:0 6px 6px 0; }
+  .pip-p { flex:0 0 14px; font-weight:800; opacity:.8; font-size:10px; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:2px 5px; align-items:baseline; text-shadow:0 1px 2px rgba(0,0,0,.55); }
+  .pip-class { font-weight:800; color:#7fd8ac; }
+  .pip-topic { flex-basis:100%; opacity:.92; font-size:11px; }
+  .pip-note  { flex-basis:100%; font-size:10px; color:#ffd479; }
+  .pip-empty-cell, .pip-empty { opacity:.55; }
+  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.18); font-size:10px; }
 `;
 
 function pipRowsHtml() {
@@ -1798,7 +1803,7 @@ window.openPipWidget = async function() {
   }
 
   try {
-    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 300, height: 260 });
+    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 210, height: 260 });
   } catch (e) {
     showToast('미니창을 열 수 없어요', true);
     return;
