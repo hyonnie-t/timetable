@@ -23,6 +23,8 @@ let currentTab   = 'today';
 let todayRefreshTimer = null;
 let pipWindow      = null;
 let pipRefreshTimer = null;
+let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (앱을 며칠씩 안 새로고침해도 자동 진도 계산이 멈추지 않게)
+let dateRolloverTimer = null;
 
 // ============================================================
 // 유틸: 시간 → 분
@@ -281,7 +283,28 @@ async function loadUserData() {
   if (!userData.classNotes)  userData.classNotes  = {};
 
   await autoUpdateProgress();
+  lastKnownDateStr = todayStr();
   renderCurrentTab();
+}
+
+// ============================================================
+// 날짜 넘어감 감지
+// ============================================================
+// autoUpdateProgress는 loadUserData가 호출될 때만 실행됨. 근데 앱을
+// 한번 열어놓고 며칠씩 새로고침을 안 하면(핸드폰 브라우저 탭이 그냥
+// 계속 떠 있는 경우) 자동 진도 카운트가 그 이후로 영원히 멈춘 채로
+// 화면만 계속 보여주는 문제가 있었음. 탭이 다시 보이거나 포커스를
+// 받을 때(백그라운드에 있다가 돌아올 때) 날짜가 바뀌었는지 확인해서
+// 바뀌었으면 진도를 다시 계산한다.
+async function checkDateRollover() {
+  if (!currentUser || !userData) return;
+  const cur = todayStr();
+  if (lastKnownDateStr && cur !== lastKnownDateStr) {
+    lastKnownDateStr = cur;
+    await autoUpdateProgress();
+    renderCurrentTab();
+    if (pipWindow) renderPipWidget();
+  }
 }
 
 // ============================================================
@@ -1673,12 +1696,25 @@ onAuthStateChanged(auth, async (user) => {
 
     showApp();
     await loadUserData();
+
+    if (!dateRolloverTimer) {
+      dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+    }
   } else {
     currentUser = null;
     userProfile = null;
+    if (dateRolloverTimer) { clearInterval(dateRolloverTimer); dateRolloverTimer = null; }
     showLogin();
   }
 });
+
+// 탭이 백그라운드에 있다가 다시 보일 때 / 창에 포커스가 돌아올 때도 확인
+// (모바일 브라우저는 백그라운드에서 setInterval을 아예 멈춰버리는 경우가
+// 많아서, 5분 주기 타이머만 믿으면 며칠씩 안 열어본 경우를 못 잡음)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkDateRollover();
+});
+window.addEventListener('focus', checkDateRollover);
 
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
