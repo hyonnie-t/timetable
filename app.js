@@ -11,6 +11,8 @@ const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
 const ADMIN_EMAIL = '0000.yhshin@gmail.com';
 const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
+const FINAL_EXAM_START   = '2026-10-28'; // 3학년 2학기 기말고사 첫날 — 학기 바뀔 때 여기만 수정
+const FINAL_EXAM_CLASSES = ['305', '306', '307', '308']; // 기말고사 D-차시 표시 대상 반
 
 // ============================================================
 // 상태
@@ -147,6 +149,11 @@ function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
     cursor.setDate(cursor.getDate() + 1);
   }
   return count;
+}
+
+// 기말고사 첫날까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
+function remainingLessonsUntilExam(cls) {
+  return countKeyLessonsBetween(cls, '역사', todayStr(), FINAL_EXAM_START);
 }
 
 // dateStr 기준으로 delta일 이동한 날짜 문자열
@@ -437,6 +444,20 @@ function renderToday() {
     <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
   `;
   el.appendChild(header);
+
+  if (today <= FINAL_EXAM_START) {
+    const [, exM, exD] = FINAL_EXAM_START.split('-').map(Number);
+    const examHtml = FINAL_EXAM_CLASSES.map(cls => `
+      <div class="exam-dday-item">
+        <span class="exam-dday-class">${cls}</span>
+        <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls)}</span>
+      </div>`).join('');
+    el.innerHTML += `
+      <div class="exam-dday-card">
+        <div class="exam-dday-title">기말고사(${exM}/${exD})까지 남은 역사 수업</div>
+        <div class="exam-dday-grid">${examHtml}</div>
+      </div>`;
+  }
 
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
   const hasAnyClass = periodList.some(p => schedule[p]?.class);
