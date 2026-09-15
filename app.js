@@ -1,1 +1,1914 @@
-FILE_CONTENT_PLACEHOLDER
+import {
+  auth, db, googleProvider,
+  ref, get, set, update, onValue,
+  signInWithPopup, signOut, onAuthStateChanged
+} from './firebase.js';
+
+// ============================================================
+// 상수
+// ============================================================
+const DOW_KO  = ['일','월','화','수','목','금','토'];
+const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
+const ADMIN_EMAIL = '0000.yhshin@gmail.com';
+const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
+const FINAL_EXAM_START   = '2026-10-28'; // 3학년 2학기 기말고사 첫날 — 학기 바뀔 때 여기만 수정
+const FINAL_EXAM_CLASSES = ['305', '306', '307', '308']; // 기말고사 D-차시 표시 대상 반
+
+// ============================================================
+// 상태
+// ============================================================
+let currentUser  = null;
+let userProfile  = null;
+let userData     = null;
+let schoolData   = null;
+let currentTab   = 'today';
+let todayRefreshTimer = null;
+let pipWindow      = null;
+let pipRefreshTimer = null;
+let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (앱을 며칠씩 안 새로고침해도 자동 진도 계산이 멈추지 않게)
+let dateRolloverTimer = null;
+
+// ============================================================
+// 유틸: 시간 → 분
+// ============================================================
+function toMin(h, m) { return h * 60 + m; }
+
+function parseTimeToMin(str) {
+  if (!str) return 0;
+  const [h, m] = str.split(':').map(Number);
+  return toMin(h, m);
+}
+
+function minToStr(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function todayStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+}
+
+function dateToStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function getWeekDates(offsetWeeks = 0) {
+  const now  = new Date();
+  const dow  = now.getDay();
+  const mon  = new Date(now);
+  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + offsetWeeks * 7);
+  return Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    return d;
+  });
+}
+
+// ============================================================
+// 학기 progress 헬퍼
+// ============================================================
+// 현재 학기의 progress 객체를 반환 (없으면 빈 객체)
+function semProgress() {
+  return userData?.progress?.[CURRENT_SEMESTER] || {};
+}
+
+// ============================================================
+// 교시 유틸
+// ============================================================
+function getPeriods() {
+  return userData?.timetable?.periods || {
+    1: { start: '09:00', end: '09:45' },
+    2: { start: '09:55', end: '10:40' },
+    3: { start: '10:50', end: '11:35' },
+    4: { start: '11:45', end: '12:30' },
+    5: { start: '13:20', end: '14:05' },
+    6: { start: '14:15', end: '15:00' },
+    7: { start: '15:10', end: '15:55' },
+  };
+}
+
+function getCurrentPeriod() {
+  const periods = getPeriods();
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  for (const [p, t] of Object.entries(periods)) {
+    const s = parseTimeToMin(t.start);
+    const e = parseTimeToMin(t.end);
+    if (cur >= s && cur <= e) return Number(p);
+  }
+  return null;
+}
+
+function getNextPeriod(schedule) {
+  const periods = getPeriods();
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const sorted = Object.keys(periods).map(Number).sort((a,b) => a-b);
+  for (const p of sorted) {
+    const s = parseTimeToMin(periods[p].start);
+    if (s > cur && schedule[p]) return p;
+  }
+  return null;
+}
+
+function formatPeriodTime(p) {
+  const periods = getPeriods();
+  const t = periods[p];
+  if (!t) return '';
+  return `${t.start}~${t.end}`;
+}
+
+// ============================================================
+// 학사일정 헬퍼
+// ============================================================
+function getCalendarEvent(dateStr, periodStr) {
+  const dayEvents = schoolData?.calendar?.[dateStr] || {};
+  return dayEvents[periodStr] || dayEvents['all'] || null;
+}
+
+// cls/subject 수업이 fromStr~toStr(둘 다 포함) 사이에 학사일정 이벤트 없이 몇 번 있는지 카운트
+function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
+  if (fromStr > toStr) return 0;
+  let count = 0;
+  const cursor = new Date(fromStr);
+  const toDate = new Date(toStr);
+  cursor.setHours(0,0,0,0);
+  toDate.setHours(0,0,0,0);
+  while (cursor <= toDate) {
+    const dateStr     = dateToStr(cursor);
+    const dayKey      = DOW_KEY[cursor.getDay()];
+    const daySchedule = userData?.timetable?.schedule?.[dayKey] || {};
+    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+      if (cell?.class === cls && cell?.subject === subject) {
+        const ev = getCalendarEvent(dateStr, periodStr);
+        if (!ev) count++;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+// 기말고사 첫날까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
+function remainingLessonsUntilExam(cls) {
+  return countKeyLessonsBetween(cls, '역사', todayStr(), FINAL_EXAM_START);
+}
+
+// dateStr 기준으로 delta일 이동한 날짜 문자열
+function addDaysStr(dateStr, delta) {
+  const d = new Date(dateStr);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + delta);
+  return dateToStr(d);
+}
+
+// ============================================================
+// 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
+// ============================================================
+function getOffsetUpToDate(cls, subject, targetDateStr) {
+  const progressKey = `${cls}_${subject}`;
+  const progress    = semProgress();
+  const current      = progress[progressKey]?.current ?? 0;
+
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const today = todayStr();
+  const dow = now.getDay();
+  const thisWeekSun = new Date(now);
+  thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
+  const thisWeekSunStr = dateToStr(thisWeekSun);
+
+  // lastUpdated 대신 "오늘부터 이번 주 일요일까지" 를 anchor로 사용
+  // (정상 상황에서는 lastUpdated+1 === today라서 결과 동일, 오늘 수동편집 시에도 안전)
+  const remainThisWeek = countKeyLessonsBetween(cls, subject, today, thisWeekSunStr);
+  const baseAtEndOfWeek = current + remainThisWeek;
+
+  const targetDate = new Date(targetDateStr);
+  targetDate.setHours(0,0,0,0);
+
+  const nextWeekMon = new Date(thisWeekSun);
+  nextWeekMon.setDate(thisWeekSun.getDate() + 1);
+
+  const targetPrev = new Date(targetDate);
+  targetPrev.setDate(targetDate.getDate() - 1);
+
+  if (targetPrev < nextWeekMon) {
+    return baseAtEndOfWeek;
+  }
+
+  const offset = countKeyLessonsBetween(cls, subject, dateToStr(nextWeekMon), dateToStr(targetPrev));
+  return baseAtEndOfWeek + offset;
+}
+
+// ============================================================
+// 진도 자동 계산 (어제까지만, 현재 학기 기준)
+// ============================================================
+async function autoUpdateProgress() {
+  if (!currentUser || !userData) return;
+
+  const schedule = userData.timetable?.schedule || {};
+  const progress = semProgress();
+  const now      = new Date();
+  const today    = todayStr();
+
+  const updates = {};
+
+  const allKeys = Object.keys(progress);
+  if (!allKeys.length) return;
+
+  let startDateStr = allKeys.reduce((acc, key) => {
+    const d = progress[key]?.lastUpdated || today;
+    return d < acc ? d : acc;
+  }, today);
+
+  const cursor = new Date(startDateStr);
+
+  while (cursor <= now) {
+    const dateStr = dateToStr(cursor);
+
+    if (dateStr === today) {
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
+
+    const dayKey      = DOW_KEY[cursor.getDay()];
+    const daySchedule = schedule[dayKey] || {};
+
+    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+      if (!cell?.class || !cell?.subject) continue;
+      const progressKey = `${cell.class}_${cell.subject}`;
+      if (!progress[progressKey]) continue;
+
+      const lastUpdated = progress[progressKey]?.lastUpdated || startDateStr;
+      if (dateStr <= lastUpdated) continue;
+
+      const ev = getCalendarEvent(dateStr, periodStr);
+      if (ev) continue;
+
+      const cur = updates[progressKey]?.current ?? progress[progressKey]?.current ?? 0;
+      updates[progressKey] = {
+        current: cur + 1,
+        lastUpdated: dateStr
+      };
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const dbUpdates = {};
+    for (const [key, val] of Object.entries(updates)) {
+      dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
+      if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+      userData.progress[CURRENT_SEMESTER][key] = val;
+    }
+    await update(ref(db), dbUpdates);
+  }
+}
+
+// ============================================================
+// 데이터 로드
+// ============================================================
+async function loadUserData() {
+  if (!currentUser) return;
+
+  const [userSnap, schoolSnap] = await Promise.all([
+    get(ref(db, `users/${currentUser.uid}`)),
+    get(ref(db, 'school'))
+  ]);
+
+  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {}, lessonNotes: {}, classNotes: {} };
+  schoolData = schoolSnap.val() || { calendar: {} };
+
+  if (!userData.timetable)   userData.timetable   = { periods: {}, schedule: {} };
+  if (!userData.progress)    userData.progress    = {};
+  if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+  if (!userData.curriculum)  userData.curriculum  = {};
+  if (!userData.lessonNotes) userData.lessonNotes = {};
+  if (!userData.classNotes)  userData.classNotes  = {};
+
+  await autoUpdateProgress();
+  lastKnownDateStr = todayStr();
+  renderCurrentTab();
+}
+
+// ============================================================
+// 날짜 넘어감 감지
+// ============================================================
+// autoUpdateProgress는 loadUserData가 호출될 때만 실행됨. 근데 앱을
+// 한번 열어놓고 며칠씩 새로고침을 안 하면(핸드폰 브라우저 탭이 그냥
+// 계속 떠 있는 경우) 자동 진도 카운트가 그 이후로 영원히 멈춘 채로
+// 화면만 계속 보여주는 문제가 있었음. 탭이 다시 보이거나 포커스를
+// 받을 때(백그라운드에 있다가 돌아올 때) 날짜가 바뀌었는지 확인해서
+// 바뀌었으면 진도를 다시 계산한다.
+async function checkDateRollover() {
+  if (!currentUser || !userData) return;
+  const cur = todayStr();
+  if (lastKnownDateStr && cur !== lastKnownDateStr) {
+    lastKnownDateStr = cur;
+    await autoUpdateProgress();
+    renderCurrentTab();
+    if (pipWindow) renderPipWidget();
+  }
+}
+
+// ============================================================
+// 탭 전환
+// ============================================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  ['today','weekly','progress','subject','settings'].forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.style.display = t === tab ? '' : 'none';
+  });
+  renderCurrentTab();
+}
+
+function renderCurrentTab() {
+  if (!userData) return;
+  if (currentTab === 'today')    renderToday();
+  if (currentTab === 'weekly')   renderWeekly();
+  if (currentTab === 'progress') renderProgress();
+  if (currentTab === 'subject')  renderSubject();
+  if (currentTab === 'settings') renderSettings();
+}
+
+// ============================================================
+// 학급 메모 (classNotes) — 차시 진도와 무관하게 반별로 상시 유지되는 메모
+// 오늘 탭 / 진도표 탭에서 공통으로 사용
+// ============================================================
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function renderClassNoteBlock(key) {
+  const noteText = userData.classNotes?.[key]?.text || '';
+  const safeKey  = escapeHtml(key);
+  return `
+    <div class="classnote-wrap${noteText ? ' has-note' : ''}" data-classnote-key="${safeKey}">
+      <div class="classnote-view" data-classnote-action="edit" data-classnote-key="${safeKey}">
+        <span class="classnote-text">🗒 ${noteText ? escapeHtml(noteText) : '학급 메모 없음 (탭해서 입력)'}</span>
+      </div>
+      <div class="classnote-edit">
+        <textarea class="classnote-input" placeholder="학급 메모 (상시, 차시와 무관)">${escapeHtml(noteText)}</textarea>
+        <div class="classnote-edit-actions">
+          <button class="classnote-cancel-btn" data-classnote-action="cancel" data-classnote-key="${safeKey}">취소</button>
+          <button class="classnote-save-btn" data-classnote-action="save" data-classnote-key="${safeKey}">저장</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+window.saveClassNote = async function(key, wrap) {
+  if (!wrap) {
+    wrap = document.querySelector(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`);
+  }
+  if (!wrap) return;
+
+  const textarea = wrap.querySelector('.classnote-input');
+  const saveBtn  = wrap.querySelector('[data-classnote-action="save"]');
+  if (!textarea) return;
+
+  const newText = textarea.value.trim();
+
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중…'; }
+
+  try {
+    const path = `users/${currentUser.uid}/classNotes/${key}`;
+    if (!userData.classNotes) userData.classNotes = {};
+
+    if (newText) {
+      const updatedAt = Date.now();
+      await update(ref(db), { [path]: { text: newText, updatedAt } });
+      userData.classNotes[key] = { text: newText, updatedAt };
+    } else {
+      await update(ref(db), { [path]: null });
+      delete userData.classNotes[key];
+    }
+
+    // 오늘 탭 / 진도표 탭에 같은 key로 렌더링된 모든 인스턴스를 동기화
+    document.querySelectorAll(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`).forEach(w => {
+      const view  = w.querySelector('.classnote-text');
+      const input = w.querySelector('.classnote-input');
+      if (view)  view.textContent = `🗒 ${newText || '학급 메모 없음 (탭해서 입력)'}`;
+      if (input) input.value = newText;
+      w.classList.toggle('has-note', !!newText);
+      w.classList.remove('editing');
+    });
+
+    showToast('학급 메모 저장 완료');
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
+  }
+};
+
+// ============================================================
+// 오늘 탭
+// ============================================================
+function renderToday() {
+  const el = document.getElementById('tab-today');
+  if (!el) return;
+
+  if (todayRefreshTimer) clearInterval(todayRefreshTimer);
+  todayRefreshTimer = setInterval(() => {
+    if (currentTab === 'today') renderToday();
+  }, 60000);
+
+  const now      = new Date();
+  const dowIdx   = now.getDay();
+  const dayKey   = DOW_KEY[dowIdx];
+  const schedule = userData.timetable?.schedule?.[dayKey] || {};
+  const periods  = getPeriods();
+  const today    = todayStr();
+  const progress = semProgress();
+
+  el.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'section-header';
+  header.innerHTML = `
+    <div class="date-label">TODAY</div>
+    <div class="header-row">
+      <span class="date-main">${now.getMonth()+1}월 ${now.getDate()}일</span>
+      <span class="date-sub">(${DOW_KO[dowIdx]})</span>
+    </div>
+    <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
+  `;
+  el.appendChild(header);
+
+  if (today <= FINAL_EXAM_START) {
+    const [, exM, exD] = FINAL_EXAM_START.split('-').map(Number);
+    const examHtml = FINAL_EXAM_CLASSES.map(cls => `
+      <div class="exam-dday-item">
+        <span class="exam-dday-class">${cls}</span>
+        <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls)}</span>
+      </div>`).join('');
+    el.innerHTML += `
+      <div class="exam-dday-card">
+        <div class="exam-dday-title">기말고사(${exM}/${exD})까지 남은 역사 수업</div>
+        <div class="exam-dday-grid">${examHtml}</div>
+      </div>`;
+  }
+
+  const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
+  const hasAnyClass = periodList.some(p => schedule[p]?.class);
+
+  if (!hasAnyClass && (dowIdx === 0 || dowIdx === 6)) {
+    el.innerHTML += `<div class="empty-day">오늘은 주말이에요 🎉</div>`;
+    return;
+  }
+
+  const curP  = getCurrentPeriod();
+  const nextP = getNextPeriod(schedule);
+
+  if (curP && schedule[curP]?.class) {
+    const ev = getCalendarEvent(today, String(curP));
+    if (!ev) {
+      const { class: cls, subject } = schedule[curP];
+      const key     = `${cls}_${subject}`;
+      const current = (progress[key]?.current ?? 0) + 1;
+      const topic   = userData.curriculum[key]?.[current] || '';
+      el.innerHTML += `
+        <div class="banner banner-now">
+          <span class="banner-label">NOW</span>
+          <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-time">${formatPeriodTime(curP)}</span>
+        </div>`;
+    }
+  } else if (nextP && schedule[nextP]?.class) {
+    const ev = getCalendarEvent(today, String(nextP));
+    if (!ev) {
+      const { class: cls, subject } = schedule[nextP];
+      const key     = `${cls}_${subject}`;
+      const current = (progress[key]?.current ?? 0) + 1;
+      const topic   = userData.curriculum[key]?.[current] || '';
+      el.innerHTML += `
+        <div class="banner banner-next">
+          <span class="banner-label">NEXT</span>
+          <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-time">${formatPeriodTime(nextP)}</span>
+        </div>`;
+    }
+  }
+
+  const list = document.createElement('div');
+  list.className = 'period-list';
+
+  for (const p of periodList) {
+    const cell  = schedule[p];
+    const isCur = p === curP;
+    const ev    = getCalendarEvent(today, String(p));
+    const card  = document.createElement('div');
+
+    if (ev) {
+      card.className = `period-card event-card${isCur ? ' current' : ''}`;
+      card.innerHTML = `
+        ${isCur ? '<div class="current-dot"></div>' : ''}
+        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body">
+          <span class="event-badge badge-${ev.type}">${ev.label}</span>
+          <span class="empty-label"></span>
+        </div>
+      `;
+    } else if (cell?.class) {
+      const { class: cls, subject } = cell;
+      const key           = `${cls}_${subject}`;
+      const current       = (progress[key]?.current ?? 0) + 1; // 화면 표시(뱃지) = 다음 차시
+      const completedStep = progress[key]?.current ?? 0;        // 편집 카운터의 기준값 = 완료한 차시
+      const topic         = userData.curriculum[key]?.[current] || '';
+      const note          = userData.lessonNotes?.[key]?.[completedStep] || '';
+
+      card.className = `period-card has-class${isCur ? ' current' : ''}`;
+      card.dataset.key = key;
+      card.innerHTML = `
+        ${isCur ? '<div class="current-dot"></div>' : ''}
+        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body">
+          <div class="class-info">
+            <span class="class-badge">${cls}</span>
+            <span class="class-subject">${subject}</span>
+            <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
+            <span class="class-step" id="step-display-${p}">${current}차시</span>
+          </div>
+          ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
+          ${renderClassNoteBlock(key)}
+          <div class="step-editor" id="editor-${p}">
+            <div class="step-editor-label">완료한 차시</div>
+            <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
+            <span class="step-display" id="step-disp-${p}">${completedStep}</span>
+            <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
+            <span class="topic-label" id="topic-label-${p}">${completedStep + 1}차시 주제</span>
+            <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
+            <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
+            <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
+            <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
+          </div>
+        </div>
+        <button class="edit-btn" onclick="window.toggleEditor(${p})">✏️</button>
+      `;
+    } else {
+      card.className = 'period-card empty';
+      card.innerHTML = `
+        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body">
+          <span class="empty-label">공강</span>
+        </div>
+      `;
+    }
+    list.appendChild(card);
+  }
+  el.appendChild(list);
+}
+
+// ============================================================
+// 수정 UI
+// ============================================================
+window.toggleEditor = function(p) {
+  document.getElementById(`editor-${p}`)?.classList.toggle('open');
+};
+
+window.adjustStep = function(p, delta) {
+  const disp = document.getElementById(`step-disp-${p}`);
+  if (!disp) return;
+  const cur  = parseInt(disp.textContent) || 0;
+  const next = Math.max(0, cur + delta); // 완료 차시는 0부터 시작 가능 (0 = 아직 안 함)
+  disp.textContent = next;
+
+  let key = '';
+  document.querySelectorAll('.period-card').forEach(c => {
+    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
+  });
+
+  if (key) {
+    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next + 1] || '';
+    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    const topicLabel = document.getElementById(`topic-label-${p}`);
+    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
+    const noteLabel = document.getElementById(`note-label-${p}`);
+    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+  }
+};
+
+// 화면 숫자 = 완료한 차시. 더 이상 -1 계산 없음 — 보이는 숫자가 곧 저장값.
+window.saveStep = async function(p) {
+  const btn      = document.getElementById(`save-btn-${p}`);
+  const disp     = document.getElementById(`step-disp-${p}`);
+  const input    = document.getElementById(`topic-inp-${p}`);
+  const noteInp  = document.getElementById(`note-inp-${p}`);
+
+  let key = '';
+  document.querySelectorAll('.period-card').forEach(c => {
+    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
+  });
+  if (!key) return;
+
+  const currentToSave = parseInt(disp.textContent) || 0;
+  const displayStep    = currentToSave + 1; // 다음 차시 (뱃지 표시 / 주제 인덱스용)
+  const newTopic       = input.value.trim();
+  const newNote        = noteInp.value.trim();
+
+  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
+  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
+  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
+  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
+  const countChanged = currentToSave !== (prevEntry.current ?? 0);
+  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const updates = {};
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
+      current: currentToSave,
+      lastUpdated
+    };
+    if (newTopic) {
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
+    }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+
+    await update(ref(db), updates);
+
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = {
+      current: currentToSave,
+      lastUpdated
+    };
+    if (!userData.curriculum[key]) userData.curriculum[key] = {};
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
+
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][currentToSave] = newNote;
+    } else {
+      delete userData.lessonNotes[key][currentToSave];
+    }
+
+    document.getElementById(`topic-display-${p}`).textContent =
+      userData.curriculum[key][displayStep] || '주제 미설정';
+    document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
+
+    const noteDisplay = document.getElementById(`note-display-${p}`);
+    if (newNote) {
+      noteDisplay.textContent = `📝 ${newNote}`;
+      noteDisplay.style.display = '';
+    } else {
+      noteDisplay.textContent = '';
+      noteDisplay.style.display = 'none';
+    }
+
+    document.getElementById(`editor-${p}`).classList.remove('open');
+    showToast(`${key} 저장 완료`);
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+};
+
+
+// ============================================================
+// 주차별 탭
+// ============================================================
+function renderWeekly() {
+  const el = document.getElementById('tab-weekly');
+  if (!el) return;
+
+  let activeWeek = 0;
+
+  function renderWeekGrid(offsetWeeks) {
+    const dates      = getWeekDates(offsetWeeks);
+    const periods    = getPeriods();
+    const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
+    const today      = todayStr();
+    const yesterday  = addDaysStr(today, -1);
+    const progress   = semProgress();
+
+    let html = '<div class="week-grid"><table><thead><tr><th></th>';
+    dates.forEach((d, i) => {
+      const isToday = dateToStr(d) === today;
+      html += `<th class="${isToday ? 'today-col' : ''}">${DOW_KO[i+1]}<br><span class="th-date">${d.getMonth()+1}/${d.getDate()}</span></th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    for (const p of periodList) {
+      html += `<tr><td class="period-col">${p}</td>`;
+      dates.forEach((d, i) => {
+        const dayKey  = DOW_KEY[d.getDay()];
+        const cell    = userData.timetable?.schedule?.[dayKey]?.[p];
+        const isToday = dateToStr(d) === today;
+        const dateStr = dateToStr(d);
+        const ev      = getCalendarEvent(dateStr, String(p));
+
+        if (ev) {
+          html += `<td class="event-cell${isToday ? ' today-col' : ''}">
+            <span class="cell-badge badge-${ev.type}">${ev.label}</span>
+          </td>`;
+        } else if (cell?.class) {
+          const key     = `${cell.class}_${cell.subject}`;
+          const current = progress[key]?.current ?? 0;
+
+          let step;
+          if (offsetWeeks === 0) {
+            // 오늘 기준으로 과거/미래를 나눠 계산 (lastUpdated는 사용 안 함 — 셀 간 충돌 방지)
+            if (dateStr < today) {
+              const afterCount = countKeyLessonsBetween(cell.class, cell.subject, addDaysStr(dateStr, 1), yesterday);
+              step = current - afterCount;
+            } else {
+              const upToCount = countKeyLessonsBetween(cell.class, cell.subject, today, dateStr);
+              step = current + upToCount;
+            }
+          } else {
+            step = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
+          }
+
+          const topic = userData.curriculum[key]?.[step] || '';
+          html += `<td class="has-class${isToday ? ' today-col' : ''}">
+            <span class="cell-class">${cell.class}</span>
+            <span class="cell-subject">${cell.subject}</span>
+            ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
+            <span class="cell-step">${step}차시</span>
+          </td>`;
+        } else {
+          html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
+        }
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function fullHTML() {
+    const labels = ['이번 주', '다음 주', '다다음 주'];
+    let tabs = '<div class="week-tabs">';
+    labels.forEach((l, i) => {
+      tabs += `<button class="week-tab${i === activeWeek ? ' active' : ''}" onclick="window.weekSwitch(${i})">${l}</button>`;
+    });
+    tabs += '</div>';
+    return tabs + `<div id="week-content">${renderWeekGrid(activeWeek)}</div>`;
+  }
+
+  el.innerHTML = fullHTML();
+
+  window.weekSwitch = function(idx) {
+    activeWeek = idx;
+    document.querySelectorAll('.week-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+    document.getElementById('week-content').innerHTML = renderWeekGrid(idx);
+  };
+}
+
+// ============================================================
+// 진도표 탭
+// ============================================================
+function renderProgress() {
+  const el = document.getElementById('tab-progress');
+  if (!el) return;
+
+  const schedule  = userData.timetable?.schedule || {};
+  const progress  = semProgress();
+  const classSet  = new Map();
+
+  for (const daySchedule of Object.values(schedule)) {
+    for (const cell of Object.values(daySchedule)) {
+      if (cell?.class && cell?.subject) {
+        const key = `${cell.class}_${cell.subject}`;
+        classSet.set(key, { class: cell.class, subject: cell.subject });
+      }
+    }
+  }
+
+  if (!classSet.size) {
+    el.innerHTML = `<div class="empty-state">시간표를 먼저 설정해주세요<br><button class="btn-primary" onclick="window.switchTab('settings')">시간표 설정하러 가기</button></div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const [key, info] of classSet) {
+    if (!groups.has(info.subject)) groups.set(info.subject, []);
+    groups.get(info.subject).push({ key, ...info });
+  }
+
+  let html = '<div class="progress-grid">';
+
+  const subjectOrder = ['역사', '역사A', '역사B'];
+  const sortedGroups = [...groups.entries()].sort(
+    (a, b) => subjectOrder.indexOf(a[0]) - subjectOrder.indexOf(b[0])
+  );
+
+  let progIdx = 0;
+
+  for (const [subject, items] of sortedGroups) {
+    html += `
+      <div class="prog-group-header" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.arrow').classList.toggle('collapsed')">
+        <span class="prog-group-title">${subject}</span>
+        <div class="prog-group-line"></div>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="prog-group-body">`;
+
+    items.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }));
+
+    for (const item of items) {
+      const idx           = progIdx++;
+      const current       = (progress[item.key]?.current ?? 0) + 1; // 화면 표시(다음 차시)
+      const completedStep = progress[item.key]?.current ?? 0;        // 편집 카운터 기준값
+      const currTopicRaw  = userData.curriculum[item.key]?.[current]     || '';
+      const nextTopicRaw  = userData.curriculum[item.key]?.[current + 1] || '';
+      const afterTopicRaw = userData.curriculum[item.key]?.[current + 2] || '';
+      const currNote      = userData.lessonNotes?.[item.key]?.[completedStep] || '';
+
+      html += `
+        <div class="progress-card" data-key="${item.key}">
+          <div class="progress-header">
+            <span class="prog-badge">${item.class}</span>
+            <span class="prog-step">${current}차시</span>
+            <button class="edit-btn" onclick="window.toggleProgEditor(${idx})">✏️</button>
+          </div>
+          <div class="prog-dates">
+            <div class="prog-row current-row">
+              <span class="r-label">이번</span>
+              <span class="r-topic">${currTopicRaw || '주제 미설정'}</span>
+            </div>
+            <div class="prog-row note-row" id="prog-note-row-${idx}" style="${currNote ? '' : 'display:none'}">
+              <span class="r-label">메모</span>
+              <span class="r-topic" id="prog-note-display-${idx}">${currNote}</span>
+            </div>
+            <div class="prog-row next-row">
+              <span class="r-label">다음</span>
+              <span class="r-topic">${nextTopicRaw || '주제 미설정'}</span>
+            </div>
+            <div class="prog-row after-row">
+              <span class="r-label">다다음</span>
+              <span class="r-topic">${afterTopicRaw || '주제 미설정'}</span>
+            </div>
+          </div>
+          ${renderClassNoteBlock(item.key)}
+          <div class="step-editor" id="prog-editor-${idx}">
+            <div class="step-editor-label">완료한 차시</div>
+            <button class="step-btn" onclick="window.adjustProgStep(${idx}, -1)">−</button>
+            <span class="step-display" id="prog-step-disp-${idx}">${completedStep}</span>
+            <button class="step-btn" onclick="window.adjustProgStep(${idx}, +1)">+</button>
+            <span class="topic-label" id="prog-topic-label-${idx}">${completedStep + 1}차시 주제</span>
+            <input class="topic-input" id="prog-topic-inp-${idx}" value="${currTopicRaw.replace(/"/g,'&quot;')}" placeholder="수업 주제 입력" />
+            <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
+            <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
+            <button class="save-btn" id="prog-save-btn-${idx}" onclick="window.saveProgStep(${idx})">저장</button>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+window.toggleProgEditor = function(idx) {
+  document.getElementById(`prog-editor-${idx}`)?.classList.toggle('open');
+};
+
+window.adjustProgStep = function(idx, delta) {
+  const disp = document.getElementById(`prog-step-disp-${idx}`);
+  if (!disp) return;
+  const cur  = parseInt(disp.textContent) || 0;
+  const next = Math.max(0, cur + delta);
+  disp.textContent = next;
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+
+  if (key) {
+    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[next + 1] || '';
+    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    const topicLabel = document.getElementById(`prog-topic-label-${idx}`);
+    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
+    const noteLabel = document.getElementById(`prog-note-label-${idx}`);
+    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+  }
+};
+
+window.saveProgStep = async function(idx) {
+  const btn     = document.getElementById(`prog-save-btn-${idx}`);
+  const disp    = document.getElementById(`prog-step-disp-${idx}`);
+  const input   = document.getElementById(`prog-topic-inp-${idx}`);
+  const noteInp = document.getElementById(`prog-note-inp-${idx}`);
+
+  let key = '';
+  document.querySelectorAll('.progress-card').forEach(c => {
+    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+  });
+  if (!key) return;
+
+  const currentToSave = parseInt(disp.textContent) || 0;
+  const displayStep    = currentToSave + 1;
+  const newTopic       = input.value.trim();
+  const newNote        = noteInp.value.trim();
+
+  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
+  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
+  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
+  const countChanged = currentToSave !== (prevEntry.current ?? 0);
+  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중…';
+
+  try {
+    const updates = {};
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
+      current: currentToSave,
+      lastUpdated
+    };
+    if (newTopic) {
+      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
+    }
+    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+
+    await update(ref(db), updates);
+
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = {
+      current: currentToSave,
+      lastUpdated
+    };
+    if (!userData.curriculum[key]) userData.curriculum[key] = {};
+    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
+
+    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+    if (newNote) {
+      userData.lessonNotes[key][currentToSave] = newNote;
+    } else {
+      delete userData.lessonNotes[key][currentToSave];
+    }
+
+    showToast(`${key} 저장 완료`);
+    renderProgress();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+    btn.disabled    = false;
+    btn.textContent = '저장';
+  }
+};
+
+// ============================================================
+// 수업 주제 탭
+// ============================================================
+function renderSubject() {
+  const el = document.getElementById('tab-subject');
+  if (!el) return;
+
+  const groups = [
+    { label: '3학년',   subject: '역사',  classes: ['305','306','307','308'] },
+    { label: '2학년 A', subject: '역사A', classes: ['201 A','202 A','203 A'] },
+    { label: '2학년 B', subject: '역사B', classes: ['201 B','202 B','203 B','204 B'] },
+  ];
+
+  let html = `
+    <div class="subj-tab-btns">
+      ${groups.map((g, i) => `<button class="subj-tab-btn${i === 0 ? ' active' : ''}" onclick="window.subjTabSwitch(${i})">${g.label}</button>`).join('')}
+    </div>
+    <div class="subject-columns">`;
+
+  const progress = semProgress();
+
+  groups.forEach((group, gi) => {
+    const repKey     = `${group.classes[0]}_${group.subject}`;
+    const curriculum = userData.curriculum[repKey] || {};
+    const current    = (progress[repKey]?.current ?? 0) + 1;
+
+    const WINDOW   = 2;
+    const minStep  = Math.max(1, current - WINDOW);
+    const savedMax = Object.keys(curriculum).map(Number).reduce((a, b) => Math.max(a, b), 0);
+    const maxStep  = Math.max(current + WINDOW, savedMax);
+
+    const stepSet = new Set();
+    for (let s = minStep; s <= maxStep; s++) stepSet.add(s);
+    const visible = [...stepSet].sort((a,b) => a-b);
+
+    const encodedClasses = encodeURIComponent(JSON.stringify(group.classes));
+
+    html += `
+      <div class="subj-column${gi === 0 ? ' active' : ''}">
+        <div class="subj-col-header">${group.label}</div>
+        <table class="subj-table">
+          <thead><tr><th>차시</th><th>주제</th><th></th></tr></thead>
+          <tbody id="subj-tbody-${gi}">`;
+
+    visible.forEach(step => {
+      const topic     = curriculum[step] || '';
+      const isCurrent = step === current;
+      html += `
+            <tr data-step="${step}" class="${isCurrent ? 'subj-current-row' : ''}">
+              <td class="subj-step${isCurrent ? ' subj-step-current' : ''}">${isCurrent ? '▶ ' : ''}${step}</td>
+              <td><input class="subj-topic-input" data-gi="${gi}" data-step="${step}"
+                value="${topic.replace(/"/g,'&quot;')}" placeholder="주제 입력" /></td>
+              <td><button class="btn-del"
+                data-gi="${gi}"
+                data-step="${step}"
+                data-subject="${group.subject}"
+                data-classes="${encodedClasses}">✕</button></td>
+            </tr>`;
+    });
+
+    html += `
+          </tbody>
+        </table>
+        <div class="subj-actions">
+          <button class="btn-add-period" onclick="window.addSubjRow(${gi})">+ 차시 추가</button>
+          <button class="btn-primary subj-save-btn"
+            data-gi="${gi}"
+            data-subject="${group.subject}"
+            data-classes="${encodedClasses}">저장</button>
+        </div>
+      </div>`;
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+window.subjTabSwitch = function(idx) {
+  document.querySelectorAll('.subj-tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.querySelectorAll('.subj-column').forEach((c, i) => c.classList.toggle('active', i === idx));
+};
+
+window.addSubjRow = function(gi) {
+  const tbody    = document.getElementById(`subj-tbody-${gi}`);
+  const rows     = tbody.querySelectorAll('tr');
+  const lastStep = rows.length > 0
+    ? Math.max(...[...rows].map(r => Number(r.dataset.step) || 0))
+    : 0;
+  const newStep  = lastStep + 1;
+
+  const tr = document.createElement('tr');
+  tr.dataset.step = newStep;
+  tr.innerHTML = `
+    <td class="subj-step">${newStep}</td>
+    <td><input class="subj-topic-input" data-gi="${gi}" data-step="${newStep}" value="" placeholder="주제 입력" /></td>
+    <td><button class="btn-del" onclick="this.closest('tr').remove()">✕</button></td>`;
+  tbody.appendChild(tr);
+  tr.querySelector('input').focus();
+};
+
+window.deleteSubjRow = async function(gi, step, subject, classes) {
+  if (!confirm(`${step}차시를 삭제하시겠어요?`)) return;
+  try {
+    const dbUpdates = {};
+    classes.forEach(cls => {
+      const key = `${cls}_${subject}`;
+      dbUpdates[`users/${currentUser.uid}/curriculum/${key}/${step}`] = null;
+      if (userData.curriculum[key]) delete userData.curriculum[key][step];
+    });
+    await update(ref(db), dbUpdates);
+    showToast(`${step}차시 삭제 완료`);
+    renderSubject();
+  } catch(e) {
+    showToast('삭제 실패: ' + e.message, true);
+  }
+};
+
+window.saveSubject = async function(gi, subject, classes) {
+  const tbody  = document.getElementById(`subj-tbody-${gi}`);
+  const inputs = tbody.querySelectorAll('.subj-topic-input');
+  const newCurriculum = {};
+
+  inputs.forEach(input => {
+    const step  = Number(input.dataset.step);
+    const topic = input.value.trim();
+    if (step > 0) newCurriculum[step] = topic;
+  });
+
+  const btn = document.querySelector(`.subj-save-btn[data-gi="${gi}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중…'; }
+
+  try {
+    const dbUpdates = {};
+    classes.forEach(cls => {
+      const key = `${cls}_${subject}`;
+      dbUpdates[`users/${currentUser.uid}/curriculum/${key}`] = newCurriculum;
+      userData.curriculum[key] = { ...newCurriculum };
+    });
+    await update(ref(db), dbUpdates);
+    showToast(`${subject} 커리큘럼 저장 완료`);
+    renderSubject();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+  }
+};
+
+// ============================================================
+// 수업 주제 탭 이벤트 위임
+// ============================================================
+document.addEventListener('click', function(e) {
+  const saveBtn = e.target.closest('.subj-save-btn');
+  if (saveBtn) {
+    const gi      = Number(saveBtn.dataset.gi);
+    const subject = saveBtn.dataset.subject;
+    const classes = JSON.parse(decodeURIComponent(saveBtn.dataset.classes));
+    window.saveSubject(gi, subject, classes);
+    return;
+  }
+
+  const delBtn = e.target.closest('.btn-del[data-classes]');
+  if (delBtn) {
+    const gi      = Number(delBtn.dataset.gi);
+    const step    = Number(delBtn.dataset.step);
+    const subject = delBtn.dataset.subject;
+    const classes = JSON.parse(decodeURIComponent(delBtn.dataset.classes));
+    window.deleteSubjRow(gi, step, subject, classes);
+    return;
+  }
+
+  const cnBtn = e.target.closest('[data-classnote-action]');
+  if (cnBtn) {
+    const action = cnBtn.dataset.classnoteAction;
+    const key    = cnBtn.dataset.classnoteKey;
+    const wrap   = cnBtn.closest('.classnote-wrap');
+    if (!wrap) return;
+
+    if (action === 'edit') {
+      wrap.classList.add('editing');
+      wrap.querySelector('.classnote-input')?.focus();
+    } else if (action === 'cancel') {
+      const input = wrap.querySelector('.classnote-input');
+      if (input) input.value = userData.classNotes?.[key]?.text || '';
+      wrap.classList.remove('editing');
+    } else if (action === 'save') {
+      window.saveClassNote(key, wrap);
+    }
+    return;
+  }
+});
+
+// ============================================================
+// 설정 탭
+// ============================================================
+function renderSettings() {
+  const el = document.getElementById('tab-settings');
+  if (!el) return;
+
+  const isAdmin = userProfile?.role === 'admin';
+
+  el.innerHTML = `
+    <div class="settings-list">
+      <div class="settings-section">
+        <div class="settings-title">시간표</div>
+        <button class="settings-item" onclick="window.openTimetableEditor()">
+          <span>시간표 편집</span><span class="arrow-r">→</span>
+        </button>
+        <button class="settings-item" onclick="window.openPeriodsEditor()">
+          <span>교시 시간 설정</span><span class="arrow-r">→</span>
+        </button>
+        <button class="settings-item" onclick="window.openDataDiag()">
+          <span>데이터 진단 (반 이름 확인)</span><span class="arrow-r">→</span>
+        </button>
+      </div>
+      ${isAdmin ? `
+      <div class="settings-section">
+        <div class="settings-title">학교 공통</div>
+        <button class="settings-item" onclick="window.openCalendarEditor()">
+          <span>학사일정 관리</span><span class="arrow-r">→</span>
+        </button>
+      </div>` : ''}
+      <div class="settings-section">
+        <div class="settings-title">계정</div>
+        <button class="settings-item" onclick="window.copyInviteLink()">
+          <span>초대 링크 복사</span><span class="arrow-r">→</span>
+        </button>
+        <button class="settings-item danger" onclick="window.handleSignOut()">
+          <span>로그아웃</span>
+        </button>
+      </div>
+      <div class="settings-user">
+        <span>${userProfile?.name || currentUser?.displayName}</span>
+        <span class="role-badge">${isAdmin ? 'admin' : 'teacher'}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// 시간표 편집기
+// ============================================================
+window.openTimetableEditor = function() {
+  const periods    = getPeriods();
+  const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
+  const schedule   = userData.timetable?.schedule || {};
+  const days       = ['mon','tue','wed','thu','fri'];
+  const dayLabels  = ['월','화','수','목','금'];
+
+  let html = `
+    <div class="modal-overlay" id="modal-timetable">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>시간표 편집</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-timetable')">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint">반과 과목을 각 칸에 입력하세요. 예: <code>308 / 역사</code></p>
+          <div class="timetable-editor">
+            <table>
+              <thead><tr><th>교시</th>`;
+  dayLabels.forEach(d => { html += `<th>${d}</th>`; });
+  html += `</tr></thead><tbody>`;
+
+  for (const p of periodList) {
+    html += `<tr><td class="period-col-edit">${p}교시</td>`;
+    days.forEach(day => {
+      const cell = schedule[day]?.[p];
+      const val  = cell ? `${cell.class} / ${cell.subject}` : '';
+      html += `<td><input class="cell-input" data-period="${p}" data-day="${day}" value="${val}" placeholder="반 / 과목" /></td>`;
+    });
+    html += '</tr>';
+  }
+  html += `</tbody></table>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-timetable')">취소</button>
+          <button class="btn-primary" onclick="window.saveTimetable()">저장</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.saveTimetable = async function() {
+  const inputs   = document.querySelectorAll('.cell-input');
+  const schedule = {};
+  const progress = semProgress();
+
+  inputs.forEach(input => {
+    const p   = Number(input.dataset.period);
+    const day = input.dataset.day;
+    const val = input.value.trim();
+
+    if (!schedule[day]) schedule[day] = {};
+
+    if (val) {
+      const parts   = val.split('/').map(s => s.trim());
+      const cls     = parts[0] || '';
+      const subject = parts[1] || '';
+      if (cls && subject) {
+        schedule[day][p] = { class: cls, subject };
+        const key = `${cls}_${subject}`;
+        // 현재 학기에 없는 키면 0으로 초기화
+        // lastUpdated를 오늘이 아니라 어제로 잡아둔다 — 시간표를 추가한 날이
+        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 autoUpdateProgress가
+        // 그날을 "이미 처리됨"으로 보고 첫 수업을 영구히 못 세는 문제가 생김
+        if (!progress[key]) {
+          if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+          userData.progress[CURRENT_SEMESTER][key] = { current: 0, lastUpdated: addDaysStr(todayStr(), -1) };
+        }
+      }
+    }
+  });
+
+  try {
+    const dbUpdates = {};
+    dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
+    dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}`] = userData.progress[CURRENT_SEMESTER];
+    await update(ref(db), dbUpdates);
+    userData.timetable.schedule = schedule;
+
+    closeModal('modal-timetable');
+    showToast('시간표 저장 완료');
+    renderCurrentTab();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+};
+
+// ============================================================
+// 교시 시간 편집기
+// ============================================================
+window.openPeriodsEditor = function() {
+  const periods    = getPeriods();
+  const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
+
+  let html = `
+    <div class="modal-overlay" id="modal-periods">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2>교시 시간 설정</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-periods')">✕</button>
+        </div>
+        <div class="modal-body">
+          <table class="periods-table">
+            <thead><tr><th>교시</th><th>시작</th><th>종료</th><th></th></tr></thead>
+            <tbody>`;
+  for (const p of periodList) {
+    const t = periods[p];
+    html += `<tr data-period="${p}">
+      <td>${p}교시</td>
+      <td><input type="time" class="time-input" data-period="${p}" data-field="start" value="${t.start}" /></td>
+      <td><input type="time" class="time-input" data-period="${p}" data-field="end"   value="${t.end}"   /></td>
+      <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>
+    </tr>`;
+  }
+  html += `</tbody></table>
+          <button class="btn-add-period" onclick="window.addPeriodRow()">+ 교시 추가</button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-periods')">취소</button>
+          <button class="btn-primary"   onclick="window.savePeriods()">저장</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.savePeriods = async function() {
+  const inputs  = document.querySelectorAll('.time-input');
+  const periods = {};
+  inputs.forEach(input => {
+    const p     = Number(input.dataset.period);
+    const field = input.dataset.field;
+    if (!periods[p]) periods[p] = {};
+    periods[p][field] = input.value;
+  });
+
+  try {
+    await set(ref(db, `users/${currentUser.uid}/timetable/periods`), periods);
+    userData.timetable.periods = periods;
+    closeModal('modal-periods');
+    showToast('교시 시간 저장 완료');
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+};
+
+window.addPeriodRow = function() {
+  const tbody = document.querySelector('.periods-table tbody');
+  const rows  = tbody.querySelectorAll('tr');
+  const newP  = rows.length + 1;
+
+  let newStart = '00:00';
+  let newEnd   = '00:45';
+  if (rows.length > 0) {
+    const lastEnd  = rows[rows.length - 1].querySelector('[data-field="end"]')?.value || '00:00';
+    const [h, m]   = lastEnd.split(':').map(Number);
+    const startMin = h * 60 + m + 10;
+    const endMin   = startMin + 45;
+    newStart = `${String(Math.floor(startMin/60)).padStart(2,'0')}:${String(startMin%60).padStart(2,'0')}`;
+    newEnd   = `${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`;
+  }
+
+  const tr = document.createElement('tr');
+  tr.dataset.period = newP;
+  tr.innerHTML = `
+    <td>${newP}교시</td>
+    <td><input type="time" class="time-input" data-period="${newP}" data-field="start" value="${newStart}" /></td>
+    <td><input type="time" class="time-input" data-period="${newP}" data-field="end"   value="${newEnd}" /></td>
+    <td><button class="btn-del" onclick="this.closest('tr').remove(); window.reindexPeriods()">✕</button></td>`;
+  tbody.appendChild(tr);
+};
+
+window.reindexPeriods = function() {
+  const rows = document.querySelectorAll('.periods-table tbody tr');
+  rows.forEach((row, i) => {
+    const p = i + 1;
+    row.dataset.period = p;
+    row.cells[0].textContent = `${p}교시`;
+    row.querySelectorAll('.time-input').forEach(input => {
+      input.dataset.period = p;
+    });
+  });
+};
+
+// ============================================================
+// 데이터 진단 — 시간표 셀 문자열과 progress 키를 있는 그대로 대조
+// (반 이름 표기가 칸마다 미묘하게 달라서 진도가 갈라지는 문제 확인용)
+// ============================================================
+function visibleStr(str) {
+  // 공백류 문자를 눈에 보이는 기호로 바꿔서 렌더링 (공백/탭/전각공백 등 구분)
+  const escaped = escapeHtml(str);
+  return escaped
+    .replace(/ /g, '<span class="diag-space">␣</span>')
+    .replace(/　/g, '<span class="diag-space">⭞</span>')
+    .replace(/\t/g, '<span class="diag-space">→</span>');
+}
+
+window.openDataDiag = function() {
+  const schedule  = userData.timetable?.schedule || {};
+  const progress  = semProgress();
+  const dayLabels = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금' };
+
+  // 시간표에서 실제 쓰이고 있는 (반, 과목) 셀 전부 수집
+  const cells = [];
+  for (const [day, daySchedule] of Object.entries(schedule)) {
+    for (const [period, cell] of Object.entries(daySchedule)) {
+      if (cell?.class && cell?.subject) {
+        cells.push({ day, period: Number(period), class: cell.class, subject: cell.subject, key: `${cell.class}_${cell.subject}` });
+      }
+    }
+  }
+  cells.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }) || a.period - b.period);
+
+  const scheduleKeys = new Set(cells.map(c => c.key));
+  const progressKeys = new Set(Object.keys(progress));
+
+  const missingProgress = [...scheduleKeys].filter(k => !progressKeys.has(k)); // 시간표엔 있는데 progress엔 없음
+  const orphanProgress  = [...progressKeys].filter(k => !scheduleKeys.has(k)); // progress엔 있는데 지금 시간표엔 없음 (옛 표기 흔적일 수 있음)
+
+  let html = `
+    <div class="modal-overlay" id="modal-datadiag">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2>데이터 진단</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-datadiag')">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint">공백은 <code>␣</code>(반각) / <code>⭞</code>(전각) 기호로 표시돼. 같은 반인데 칸마다 문자열이 다르면 진도가 따로 카운트돼.</p>`;
+
+  if (missingProgress.length || orphanProgress.length) {
+    html += `<p class="modal-hint" style="color:#d33">⚠ 아래처럼 불일치가 있어:</p><ul style="margin:0 0 12px;padding-left:18px;font-size:13px;line-height:1.6">`;
+    missingProgress.forEach(k => {
+      html += `<li>시간표엔 <code>${visibleStr(k)}</code> 셀이 있는데 progress 기록이 없음 (진도 0으로 안 잡혀 있을 수 있음)</li>`;
+    });
+    orphanProgress.forEach(k => {
+      html += `<li>progress에 <code>${visibleStr(k)}</code> 기록이 남아있는데 지금 시간표엔 이 조합이 없음 (예전 표기 흔적일 가능성)</li>`;
+    });
+    html += `</ul>`;
+  } else {
+    html += `<p class="modal-hint">시간표 셀과 progress 키가 1:1로 일치해. 표기 문제는 아닌 걸로 보여.</p>`;
+  }
+
+  html += `
+          <table class="cal-table">
+            <thead><tr><th>요일</th><th>교시</th><th>반(문자열)</th><th>과목(문자열)</th><th>progress key</th><th>current</th><th>lastUpdated</th></tr></thead>
+            <tbody>`;
+  cells.forEach(c => {
+    const prog = progress[c.key];
+    html += `<tr>
+      <td>${dayLabels[c.day] || c.day}</td>
+      <td>${c.period}</td>
+      <td><code>${visibleStr(c.class)}</code></td>
+      <td><code>${visibleStr(c.subject)}</code></td>
+      <td><code>${visibleStr(c.key)}</code></td>
+      <td>${prog ? prog.current : '<span style="color:#d33">없음</span>'}</td>
+      <td>${prog ? (prog.lastUpdated || '') : ''}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-datadiag')">닫기</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+// ============================================================
+// 학사일정 편집기 (관리자)
+// ============================================================
+window.openCalendarEditor = function() {
+  const calendar = schoolData?.calendar || {};
+
+  // 같은 날짜+종류+텍스트인 항목들을 하나의 행으로 그룹핑
+  const groupMap = new Map(); // key: date||type||label -> { date, type, label, periods:[], isAll }
+  for (const [date, periods] of Object.entries(calendar)) {
+    for (const [period, ev] of Object.entries(periods)) {
+      const key = `${date}||${ev.type}||${ev.label}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, { date, type: ev.type, label: ev.label, periods: [], isAll: false });
+      }
+      const g = groupMap.get(key);
+      if (period === 'all') g.isAll = true;
+      else g.periods.push(Number(period));
+    }
+  }
+
+  const groups = [...groupMap.values()].sort((a,b) => b.date.localeCompare(a.date));
+
+  function renderRow(idx, g) {
+    const isAll = g.isAll;
+    const periods = g.periods || [];
+    return `
+    <tr id="cal-row-${idx}">
+      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
+      <td class="cal-allday-cell">
+        <div class="cal-period-group" data-idx="${idx}">
+          <label class="allday-toggle">
+            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+            <span>하루종일</span>
+          </label>
+          <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
+            ${[1,2,3,4,5,6,7].map(p => `
+              <label class="period-check-label">
+                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
+                ${p}
+              </label>`).join('')}
+          </div>
+        </div>
+      </td>
+      <td>
+        <select class="cal-select" data-idx="${idx}" data-field="type">
+          <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
+          <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
+          <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
+          <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
+          <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
+        </select>
+      </td>
+      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
+    </tr>`;
+  }
+
+  const rows = groups.map((g, i) => renderRow(i, g)).join('');
+
+  const html = `
+    <div class="modal-overlay" id="modal-calendar">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2>학사일정 관리</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-calendar')">✕</button>
+        </div>
+        <div class="modal-body">
+          <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
+          <table class="cal-table">
+            <thead><tr><th>날짜</th><th>교시</th><th>종류</th><th>표시</th><th></th></tr></thead>
+            <tbody id="cal-tbody">${rows}</tbody>
+          </table>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-calendar')">취소</button>
+          <button class="btn-primary"   onclick="window.saveCalendar()">저장</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.toggleAlldayCheck = function(checkbox) {
+  const group = checkbox.closest('.cal-period-group');
+  const checksDiv = group.querySelector('.cal-period-checks');
+  if (checkbox.checked) {
+    checksDiv.style.display = 'none';
+    checksDiv.querySelectorAll('.cal-period-check').forEach(c => c.checked = false);
+  } else {
+    checksDiv.style.display = '';
+  }
+};
+
+window.addCalRow = function() {
+  const tbody = document.getElementById('cal-tbody');
+  const idx   = Date.now();
+  tbody.insertAdjacentHTML('afterbegin', `
+    <tr id="cal-row-${idx}">
+      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="" placeholder="YYYY-MM-DD" /></td>
+      <td class="cal-allday-cell">
+        <div class="cal-period-group" data-idx="${idx}">
+          <label class="allday-toggle">
+            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
+            <span>하루종일</span>
+          </label>
+          <div class="cal-period-checks">
+            ${[1,2,3,4,5,6,7].map(p => `
+              <label class="period-check-label">
+                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" />
+                ${p}
+              </label>`).join('')}
+          </div>
+        </div>
+      </td>
+      <td>
+        <select class="cal-select" data-idx="${idx}" data-field="type">
+          <option value="holiday">휴업</option>
+          <option value="event">행사</option>
+          <option value="exam">시험</option>
+          <option value="club">동아리</option>
+          <option value="noclass">수업없음</option>
+        </select>
+      </td>
+      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="" placeholder="표시 텍스트" /></td>
+      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
+    </tr>`);
+
+  // 새 행이 잘 보이도록 스크롤
+  document.getElementById(`cal-row-${idx}`)?.scrollIntoView({ block: 'nearest' });
+};
+
+window.saveCalendar = async function() {
+  const rows     = document.querySelectorAll('#cal-tbody tr');
+  const calendar = {};
+
+  rows.forEach(row => {
+    const dateInput   = row.querySelector('[data-field="date"]');
+    const alldayCheck = row.querySelector('.cal-allday-check');
+    const typeSelect  = row.querySelector('[data-field="type"]');
+    const labelInput  = row.querySelector('[data-field="label"]');
+
+    const date = dateInput?.value.trim();
+    if (!date) return;
+
+    const type  = typeSelect?.value || 'event';
+    const label = labelInput?.value.trim() || '';
+    const isAll = alldayCheck?.checked;
+
+    if (!calendar[date]) calendar[date] = {};
+
+    if (isAll) {
+      calendar[date]['all'] = { type, label };
+    } else {
+      const checkedPeriods = [...row.querySelectorAll('.cal-period-check:checked')].map(c => c.value);
+      checkedPeriods.forEach(p => {
+        calendar[date][p] = { type, label };
+      });
+    }
+  });
+
+  try {
+    await set(ref(db, 'school/calendar'), calendar);
+    schoolData.calendar = calendar;
+    closeModal('modal-calendar');
+    showToast('학사일정 저장 완료');
+    renderCurrentTab();
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+};
+
+// ============================================================
+// 모달 닫기
+// ============================================================
+window.closeModal = function(id) {
+  document.getElementById(id)?.remove();
+};
+
+// ============================================================
+// 초대 링크
+// ============================================================
+window.copyInviteLink = function() {
+  const link = `${location.origin}${location.pathname}?invite=${currentUser.uid}`;
+  navigator.clipboard.writeText(link).then(() => showToast('초대 링크 복사 완료'));
+};
+
+function checkInviteParam() {
+  const params    = new URLSearchParams(location.search);
+  const invitedBy = params.get('invite');
+  if (invitedBy) {
+    sessionStorage.setItem('invitedBy', invitedBy);
+  }
+}
+
+// ============================================================
+// 인증
+// ============================================================
+window.handleSignIn = async function() {
+  try {
+    await signInWithPopup(auth, googleProvider);
+  } catch(e) {
+    console.error(e);
+  }
+};
+
+window.handleSignOut = async function() {
+  await signOut(auth);
+};
+
+window.switchTab = switchTab;
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUser = user;
+
+    const profileSnap = await get(ref(db, `users/${user.uid}/profile`));
+    if (!profileSnap.exists()) {
+      const invitedBy = sessionStorage.getItem('invitedBy');
+      const isAdmin   = user.email === ADMIN_EMAIL;
+      const profile   = {
+        name: user.displayName,
+        email: user.email,
+        role: isAdmin ? 'admin' : 'teacher',
+        ...(invitedBy ? { invitedBy } : {})
+      };
+      await set(ref(db, `users/${user.uid}/profile`), profile);
+      userProfile = profile;
+      sessionStorage.removeItem('invitedBy');
+    } else {
+      userProfile = profileSnap.val();
+    }
+
+    showApp();
+    await loadUserData();
+
+    if (!dateRolloverTimer) {
+      dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+    }
+  } else {
+    currentUser = null;
+    userProfile = null;
+    if (dateRolloverTimer) { clearInterval(dateRolloverTimer); dateRolloverTimer = null; }
+    showLogin();
+  }
+});
+
+// 탭이 백그라운드에 있다가 다시 보일 때 / 창에 포커스가 돌아올 때도 확인
+// (모바일 브라우저는 백그라운드에서 setInterval을 아예 멈춰버리는 경우가
+// 많아서, 5분 주기 타이머만 믿으면 며칠씩 안 열어본 경우를 못 잡음)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkDateRollover();
+});
+window.addEventListener('focus', checkDateRollover);
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-screen').style.display   = '';
+
+  const pipBtn = document.getElementById('pip-btn');
+  if (pipBtn && !('documentPictureInPicture' in window)) pipBtn.style.display = 'none';
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = '';
+  document.getElementById('app-screen').style.display   = 'none';
+}
+
+// ============================================================
+// 미니창(Document Picture-in-Picture) — 항상 위 + 투명도 조절
+// 다른 작업을 하면서 오늘 시간표를 겹쳐 볼 수 있도록 별도 창으로 띄운다.
+// 크로미움 기반 브라우저(웨일 포함)만 지원, 미지원 브라우저는 버튼 자체를 숨김.
+// ============================================================
+const PIP_CSS = `
+  html, body { margin:0; padding:0; height:100%; background:transparent; }
+  * { box-sizing:border-box; font-family:'Noto Sans KR', -apple-system, sans-serif; }
+  #pip-widget {
+    display:flex; flex-direction:column; height:100%;
+    background: rgba(15,17,23, var(--pip-alpha,0.55));
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    color:#fff; border-radius:12px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  #pip-head {
+    display:flex; align-items:center; justify-content:space-between;
+    gap:6px; padding:7px 9px; font-size:11px; font-weight:700;
+    background: rgba(0,0,0,.18);
+    border-bottom:1px solid rgba(255,255,255,.12); flex:0 0 auto;
+  }
+  #pip-date { opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  #pip-opacity { width:52px; accent-color:#52b788; flex-shrink:0; }
+  #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 7px 7px; font-size:11px; }
+  .pip-row { display:flex; gap:6px; padding:6px 3px; border-bottom:1px solid rgba(255,255,255,.08); align-items:flex-start; border-left:3px solid transparent; }
+  .pip-row:last-child { border-bottom:none; }
+  .pip-row.current { background:rgba(82,183,136,.22); border-left-color:#52b788; border-radius:0 6px 6px 0; }
+  .pip-p { flex:0 0 14px; font-weight:800; opacity:.8; font-size:10px; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:2px 5px; align-items:baseline; text-shadow:0 1px 2px rgba(0,0,0,.55); }
+  .pip-class { font-weight:800; color:#7fd8ac; }
+  .pip-topic { flex-basis:100%; opacity:.92; font-size:11px; }
+  .pip-note  { flex-basis:100%; font-size:10px; color:#ffd479; }
+  .pip-empty-cell, .pip-empty { opacity:.55; }
+  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.18); font-size:10px; }
+`;
+
+function pipRowsHtml() {
+  if (!userData) return `<div class="pip-empty">데이터를 불러오는 중…</div>`;
+
+  const now      = new Date();
+  const dowIdx   = now.getDay();
+  if (dowIdx === 0 || dowIdx === 6) return `<div class="pip-empty">오늘은 주말이에요 🎉</div>`;
+
+  const dayKey   = DOW_KEY[dowIdx];
+  const schedule = userData.timetable?.schedule?.[dayKey] || {};
+  const periods  = getPeriods();
+  const today    = todayStr();
+  const progress = semProgress();
+  const periodList = Object.keys(periods).map(Number).sort((a, b) => a - b);
+  const curP     = getCurrentPeriod();
+
+  if (!periodList.some(p => schedule[p]?.class)) return `<div class="pip-empty">오늘은 수업이 없어요</div>`;
+
+  return periodList.map(p => {
+    const cell  = schedule[p];
+    const ev    = getCalendarEvent(today, String(p));
+    const isCur = p === curP;
+    let body;
+
+    if (ev) {
+      body = `<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
+    } else if (cell?.class) {
+      const key     = `${cell.class}_${cell.subject}`;
+      const current = (progress[key]?.current ?? 0) + 1;
+      const topic   = userData.curriculum?.[key]?.[current] || '';
+      const note    = userData.classNotes?.[key]?.text || '';
+      body = `
+        <span class="pip-class">${escapeHtml(cell.class)}</span>
+        <span>${escapeHtml(cell.subject)}</span>
+        ${topic ? `<span class="pip-topic">${escapeHtml(topic)}</span>` : ''}
+        ${note  ? `<span class="pip-note">🗒 ${escapeHtml(note)}</span>` : ''}
+      `;
+    } else {
+      body = `<span class="pip-empty-cell">공강</span>`;
+    }
+
+    return `
+      <div class="pip-row${isCur ? ' current' : ''}">
+        <span class="pip-p">${p}</span>
+        <div class="pip-info">${body}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderPipWidget() {
+  if (!pipWindow) return;
+  const doc = pipWindow.document;
+  const now = new Date();
+
+  const dateEl = doc.getElementById('pip-date');
+  if (dateEl) {
+    dateEl.textContent = `${now.getMonth()+1}월 ${now.getDate()}일(${DOW_KO[now.getDay()]}) ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  }
+  const bodyEl = doc.getElementById('pip-body');
+  if (bodyEl) bodyEl.innerHTML = pipRowsHtml();
+}
+
+window.openPipWidget = async function() {
+  if (!('documentPictureInPicture' in window)) {
+    showToast('이 브라우저는 미니창 기능을 지원하지 않아요', true);
+    return;
+  }
+  if (pipWindow) {
+    pipWindow.focus();
+    return;
+  }
+
+  try {
+    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 210, height: 260 });
+  } catch (e) {
+    showToast('미니창을 열 수 없어요', true);
+    return;
+  }
+
+  const style = pipWindow.document.createElement('style');
+  style.textContent = PIP_CSS;
+  pipWindow.document.head.appendChild(style);
+
+  const savedAlpha = localStorage.getItem('pipAlpha') || '0.55';
+
+  pipWindow.document.body.innerHTML = `
+    <div id="pip-widget" style="--pip-alpha:${savedAlpha}">
+      <div id="pip-head">
+        <span id="pip-date"></span>
+        <input id="pip-opacity" type="range" min="0.1" max="0.95" step="0.05" value="${savedAlpha}" title="투명도" />
+      </div>
+      <div id="pip-body"></div>
+    </div>
+  `;
+
+  pipWindow.document.getElementById('pip-opacity').addEventListener('input', (e) => {
+    pipWindow.document.getElementById('pip-widget').style.setProperty('--pip-alpha', e.target.value);
+    localStorage.setItem('pipAlpha', e.target.value);
+  });
+
+  renderPipWidget();
+  pipRefreshTimer = setInterval(renderPipWidget, 30000);
+
+  pipWindow.addEventListener('pagehide', () => {
+    clearInterval(pipRefreshTimer);
+    pipRefreshTimer = null;
+    pipWindow = null;
+  });
+};
+
+// ============================================================
+// 토스트
+// ============================================================
+function showToast(msg, isErr = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = `toast show${isErr ? ' error' : ''}`;
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ============================================================
+// 초기화
+// ============================================================
+checkInviteParam();
