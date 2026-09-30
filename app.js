@@ -1523,6 +1523,41 @@ const TRANSITION_CALENDAR = [
   _ev('2027-01-08', 'event',   '졸업식',                       _P(1, 6)),
 ];
 
+function calRowHtml(idx, g) {
+  const isAll = g.isAll;
+  const periods = g.periods || [];
+  return `
+  <tr id="cal-row-${idx}">
+    <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
+    <td class="cal-allday-cell">
+      <div class="cal-period-group" data-idx="${idx}">
+        <label class="allday-toggle">
+          <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+          <span>하루종일</span>
+        </label>
+        <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
+          ${[1,2,3,4,5,6,7].map(p => `
+            <label class="period-check-label">
+              <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
+              ${p}
+            </label>`).join('')}
+        </div>
+      </div>
+    </td>
+    <td>
+      <select class="cal-select" data-idx="${idx}" data-field="type">
+        <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
+        <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
+        <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
+        <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
+        <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
+      </select>
+    </td>
+    <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+    <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
+  </tr>`;
+}
+
 // ============================================================
 // 학사일정 편집기 (관리자)
 // ============================================================
