@@ -1796,7 +1796,7 @@ function showLogin() {
 // ============================================================
 const PIP_CSS = `
   html, body { margin:0; padding:0; height:100%; background:transparent; }
-  * { box-sizing:border-box; font-family:'Noto Sans KR', -apple-system, sans-serif; }
+  * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, sans-serif; }
   #pip-widget {
     display:flex; flex-direction:column; height:100%;
     background: rgba(15,17,23, var(--pip-alpha,0.55));
