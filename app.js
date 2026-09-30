@@ -14,8 +14,8 @@ const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 const FINAL_EXAM_GROUPS = [
   { label: '3학년',   subject: '역사',  start: '2026-10-28', classes: ['305', '306', '307', '308'] },
-  { label: '2학년 A', subject: '역사A', start: '2026-10-14', classes: ['201 A', '202 A', '203 A'] },
-  { label: '2학년 B', subject: '역사B', start: '2026-10-14', classes: ['201 B', '202 B', '203 B', '204 B'] },
+  { label: '2학년 A', subject: '역사A', start: '2026-12-14', classes: ['201 A', '202 A', '203 A'] },
+  { label: '2학년 B', subject: '역사B', start: '2026-12-14', classes: ['201 B', '202 B', '203 B', '204 B'] },
 ];
 
 // ============================================================
