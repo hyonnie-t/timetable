@@ -449,19 +449,27 @@ function renderToday() {
   `;
   el.appendChild(header);
 
-  FINAL_EXAM_GROUPS.filter(g => today <= g.start).forEach(g => {
-    const [, exM, exD] = g.start.split('-').map(Number);
-    const examHtml = g.classes.map(cls => `
-      <div class="exam-dday-item">
-        <span class="exam-dday-class">${cls}</span>
-        <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g.subject, g.start)}</span>
-      </div>`).join('');
+  const examGroups = FINAL_EXAM_GROUPS.filter(g => today <= g.start);
+  if (examGroups.length) {
+    const rowsHtml = examGroups.map(g => {
+      const [, exM, exD] = g.start.split('-').map(Number);
+      const itemsHtml = g.classes.map(cls => `
+        <span class="exam-dday-item">
+          <span class="exam-dday-class">${cls.replace(' ', '')}</span>
+          <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g.subject, g.start)}</span>
+        </span>`).join('');
+      return `
+        <div class="exam-dday-row">
+          <div class="exam-dday-label">${g.label}<small>${exM}/${exD}</small></div>
+          <div class="exam-dday-items">${itemsHtml}</div>
+        </div>`;
+    }).join('');
     el.innerHTML += `
       <div class="exam-dday-card">
-        <div class="exam-dday-title">${g.label} 기말고사(${exM}/${exD})까지 남은 역사 수업</div>
-        <div class="exam-dday-grid">${examHtml}</div>
+        <div class="exam-dday-title">기말고사까지 남은 역사 수업</div>
+        ${rowsHtml}
       </div>`;
-  });
+  }
 
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
   const hasAnyClass = periodList.some(p => schedule[p]?.class);
