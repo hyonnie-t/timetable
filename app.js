@@ -1489,11 +1489,10 @@ window.openDataDiag = function() {
 // ============================================================
 // 3학년 전환기 시간표 (2026-11-02 ~ 2027-01-08)
 // - 3학년 역사 수업 교시(월3·화5·수1,2,4,6·금1,2)와 겹치는 일정만, 그 교시만 등록
-//   (2학년 수업이 있는 교시는 수업을 해야 하므로 넣지 않음. 성탄절·신정은 공휴일이라 하루종일)
+//   (2학년 수업이 있는 교시는 수업을 해야 하므로 넣지 않음. 성탄절·신정·재량휴업일은 전일 휴업이라 하루종일)
 // - 11/30~12/10 "졸업영상 제작 및 교과수업"은 교과수업이 가능한 기간이라 제외
 // - 원서접수·성적산출 기준일 같은 입시 일정은 수업 진행과 무관해 제외
 // ============================================================
-const TRANSITION_RANGE = ['2026-11-01', '2027-01-08'];
 const _P = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 const _ev = (date, type, label, periods) =>
   periods ? { date, type, label, periods, isAll: false } : { date, type, label, periods: [], isAll: true };
@@ -1508,7 +1507,7 @@ const TRANSITION_CALENDAR = [
   _ev('2026-11-18', 'event',   '장애이해교육',                 [1]),
   _ev('2026-11-18', 'event',   '학생도박예방교육',             [2]),
   _ev('2026-11-18', 'event',   '금연교육',                     [4]),
-  _ev('2026-11-20', 'holiday', '재량휴업일', [1, 2]),
+  _ev('2026-11-20', 'holiday', '재량휴업일'),
   // 12월
   _ev('2026-12-02', 'event',   '금융교육', [6]),
   _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', [1, 2]),
@@ -1629,15 +1628,19 @@ window.addCalRow = function(g) {
   document.getElementById(`cal-row-${idx}`)?.scrollIntoView({ block: 'nearest' });
 };
 
-// 3학년 전환기 시간표(11/2~1/8) 불러오기 — 그 기간의 기존 행은 지우고 새로 채운다. 저장 버튼을 눌러야 반영됨
+// 3학년 전환기 시간표(11/2~1/8) 불러오기 — 기존 행은 그대로 두고 없는 것만 추가한다. 저장 버튼을 눌러야 반영됨
 window.importTransitionCalendar = function() {
-  if (!confirm(`${TRANSITION_RANGE[0]} ~ ${TRANSITION_RANGE[1]} 사이의 기존 학사일정 행을 지우고 3학년 전환기 시간표로 채울까요?\n(저장 버튼을 누르기 전까지는 반영되지 않아요)`)) return;
+  const existing = new Set();
   document.querySelectorAll('#cal-tbody tr').forEach(row => {
     const d = row.querySelector('[data-field="date"]')?.value.trim();
-    if (d && d >= TRANSITION_RANGE[0] && d <= TRANSITION_RANGE[1]) row.remove();
+    const l = row.querySelector('[data-field="label"]')?.value.trim();
+    if (d) existing.add(`${d}||${l}`);
   });
-  [...TRANSITION_CALENDAR].reverse().forEach(g => window.addCalRow(g));
-  showToast(`전환기 일정 ${TRANSITION_CALENDAR.length}건 불러옴 — 확인 후 저장`);
+  const toAdd = TRANSITION_CALENDAR.filter(g => !existing.has(`${g.date}||${g.label}`));
+  [...toAdd].reverse().forEach(g => window.addCalRow(g));
+  showToast(toAdd.length
+    ? `전환기 일정 ${toAdd.length}건 추가 (기존 ${TRANSITION_CALENDAR.length - toAdd.length}건은 이미 있어 건너뜀) — 확인 후 저장`
+    : '이미 모두 들어있어요');
 };
 
 window.saveCalendar = async function() {
