@@ -1483,6 +1483,43 @@ window.openDataDiag = function() {
 };
 
 // ============================================================
+// 3학년 전환기 시간표 (2026-11-02 ~ 2027-01-08)
+// - 3학년 역사 수업 교시(월3·화5·수1,2,4,6·금1,2)와 겹치는 일정만 등록
+// - 11/30~12/10 "졸업영상 제작 및 교과수업"은 교과수업이 가능한 기간이라 제외
+// - 원서접수·성적산출 기준일 같은 입시 일정은 수업 진행과 무관해 제외
+// ============================================================
+const TRANSITION_RANGE = ['2026-11-01', '2027-01-08'];
+const _P = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const _ev = (date, type, label, periods) =>
+  periods ? { date, type, label, periods, isAll: false } : { date, type, label, periods: [], isAll: true };
+const TRANSITION_CALENDAR = [
+  // 11월
+  _ev('2026-11-02', 'event',   '특성화고 설명회(교내)',        _P(1, 6)),
+  _ev('2026-11-03', 'event',   'AI 교육(교내)',                [5]),
+  _ev('2026-11-04', 'event',   '목동 스케이트장(교외체험)',    _P(1, 6)),
+  _ev('2026-11-06', 'event',   '진로 체험의 날',               _P(1, 6)),
+  _ev('2026-11-09', 'event',   '오목대회(교내)',               _P(1, 4)),
+  _ev('2026-11-11', 'club',    '동아리',                       [5, 6]),
+  _ev('2026-11-18', 'event',   '장애이해교육',                 [1]),
+  _ev('2026-11-18', 'event',   '학생도박예방교육',             [2]),
+  _ev('2026-11-18', 'event',   '금연교육',                     [4]),
+  _ev('2026-11-20', 'holiday', '재량휴업일'),
+  // 12월
+  _ev('2026-12-02', 'event',   '금융교육',                     [5, 6]),
+  _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', _P(1, 6)),
+  _ev('2026-12-14', 'event',   '구기대회(교내)',               _P(1, 4)),
+  _ev('2026-12-16', 'event',   '구기대회(교내)',               _P(1, 4)),
+  _ev('2026-12-21', 'event',   '영화 관람(크리스마스 캐롤, 어벤저스)', _P(1, 6)),
+  _ev('2026-12-23', 'event',   '크리스마스 쿠키 만들기(교내)', _P(1, 4)),
+  _ev('2026-12-25', 'holiday', '성탄절'),
+  // 1월
+  _ev('2027-01-01', 'holiday', '신정'),
+  _ev('2027-01-04', 'event',   '약물오남용예방교육',           [3]),
+  _ev('2027-01-06', 'event',   '졸업식 꽃풍선 만들기(교내)',   _P(1, 4)),
+  _ev('2027-01-08', 'event',   '졸업식',                       _P(1, 6)),
+];
+
+// ============================================================
 // 학사일정 편집기 (관리자)
 // ============================================================
 window.openCalendarEditor = function() {
@@ -1504,42 +1541,7 @@ window.openCalendarEditor = function() {
 
   const groups = [...groupMap.values()].sort((a,b) => b.date.localeCompare(a.date));
 
-  function renderRow(idx, g) {
-    const isAll = g.isAll;
-    const periods = g.periods || [];
-    return `
-    <tr id="cal-row-${idx}">
-      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
-      <td class="cal-allday-cell">
-        <div class="cal-period-group" data-idx="${idx}">
-          <label class="allday-toggle">
-            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
-            <span>하루종일</span>
-          </label>
-          <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
-            ${[1,2,3,4,5,6,7].map(p => `
-              <label class="period-check-label">
-                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
-                ${p}
-              </label>`).join('')}
-          </div>
-        </div>
-      </td>
-      <td>
-        <select class="cal-select" data-idx="${idx}" data-field="type">
-          <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
-          <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
-          <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
-          <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
-          <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
-        </select>
-      </td>
-      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
-      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
-    </tr>`;
-  }
-
-  const rows = groups.map((g, i) => renderRow(i, g)).join('');
+  const rows = groups.map((g, i) => calRowHtml(i, g)).join('');
 
   const html = `
     <div class="modal-overlay" id="modal-calendar">
@@ -1550,6 +1552,7 @@ window.openCalendarEditor = function() {
         </div>
         <div class="modal-body">
           <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
+          <button class="btn-add-period" onclick="window.importTransitionCalendar()" style="margin-bottom:10px;margin-top:0">3학년 전환기 일정 불러오기</button>
           <table class="cal-table">
             <thead><tr><th>날짜</th><th>교시</th><th>종류</th><th>표시</th><th></th></tr></thead>
             <tbody id="cal-tbody">${rows}</tbody>
@@ -1576,42 +1579,25 @@ window.toggleAlldayCheck = function(checkbox) {
   }
 };
 
-window.addCalRow = function() {
+window.addCalRow = function(g) {
   const tbody = document.getElementById('cal-tbody');
-  const idx   = Date.now();
-  tbody.insertAdjacentHTML('afterbegin', `
-    <tr id="cal-row-${idx}">
-      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="" placeholder="YYYY-MM-DD" /></td>
-      <td class="cal-allday-cell">
-        <div class="cal-period-group" data-idx="${idx}">
-          <label class="allday-toggle">
-            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
-            <span>하루종일</span>
-          </label>
-          <div class="cal-period-checks">
-            ${[1,2,3,4,5,6,7].map(p => `
-              <label class="period-check-label">
-                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" />
-                ${p}
-              </label>`).join('')}
-          </div>
-        </div>
-      </td>
-      <td>
-        <select class="cal-select" data-idx="${idx}" data-field="type">
-          <option value="holiday">휴업</option>
-          <option value="event">행사</option>
-          <option value="exam">시험</option>
-          <option value="club">동아리</option>
-          <option value="noclass">수업없음</option>
-        </select>
-      </td>
-      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="" placeholder="표시 텍스트" /></td>
-      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
-    </tr>`);
+  const idx   = Date.now() + Math.floor(Math.random() * 1000);
+  tbody.insertAdjacentHTML('afterbegin',
+    calRowHtml(idx, g || { date: '', type: 'holiday', label: '', periods: [], isAll: false }));
 
   // 새 행이 잘 보이도록 스크롤
   document.getElementById(`cal-row-${idx}`)?.scrollIntoView({ block: 'nearest' });
+};
+
+// 3학년 전환기 시간표(11/2~1/8) 불러오기 — 그 기간의 기존 행은 지우고 새로 채운다. 저장 버튼을 눌러야 반영됨
+window.importTransitionCalendar = function() {
+  if (!confirm(`${TRANSITION_RANGE[0]} ~ ${TRANSITION_RANGE[1]} 사이의 기존 학사일정 행을 지우고 3학년 전환기 시간표로 채울까요?\n(저장 버튼을 누르기 전까지는 반영되지 않아요)`)) return;
+  document.querySelectorAll('#cal-tbody tr').forEach(row => {
+    const d = row.querySelector('[data-field="date"]')?.value.trim();
+    if (d && d >= TRANSITION_RANGE[0] && d <= TRANSITION_RANGE[1]) row.remove();
+  });
+  [...TRANSITION_CALENDAR].reverse().forEach(g => window.addCalRow(g));
+  showToast(`전환기 일정 ${TRANSITION_CALENDAR.length}건 불러옴 — 확인 후 저장`);
 };
 
 window.saveCalendar = async function() {
