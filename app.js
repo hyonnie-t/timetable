@@ -1496,7 +1496,8 @@ window.openDataDiag = function() {
 
 // ============================================================
 // 3학년 전환기 시간표 (2026-11-02 ~ 2027-01-08)
-// - 3학년 역사 수업 교시(월3·화5·수1,2,4,6·금1,2)와 겹치는 일정만 등록
+// - 3학년 역사 수업 교시(월3·화5·수1,2,4,6·금1,2)와 겹치는 일정만, 그 교시만 등록
+//   (2학년 수업이 있는 교시는 수업을 해야 하므로 넣지 않음. 성탄절·신정은 공휴일이라 하루종일)
 // - 11/30~12/10 "졸업영상 제작 및 교과수업"은 교과수업이 가능한 기간이라 제외
 // - 원서접수·성적산출 기준일 같은 입시 일정은 수업 진행과 무관해 제외
 // ============================================================
@@ -1506,30 +1507,65 @@ const _ev = (date, type, label, periods) =>
   periods ? { date, type, label, periods, isAll: false } : { date, type, label, periods: [], isAll: true };
 const TRANSITION_CALENDAR = [
   // 11월
-  _ev('2026-11-02', 'event',   '특성화고 설명회(교내)',        _P(1, 6)),
-  _ev('2026-11-03', 'event',   'AI 교육(교내)',                [5]),
-  _ev('2026-11-04', 'event',   '목동 스케이트장(교외체험)',    _P(1, 6)),
-  _ev('2026-11-06', 'event',   '진로 체험의 날',               _P(1, 6)),
-  _ev('2026-11-09', 'event',   '오목대회(교내)',               _P(1, 4)),
-  _ev('2026-11-11', 'club',    '동아리',                       [5, 6]),
+  _ev('2026-11-02', 'event',   '특성화고 설명회(교내)', [3]),
+  _ev('2026-11-03', 'event',   'AI 교육(교내)', [5]),
+  _ev('2026-11-04', 'event',   '목동 스케이트장(교외체험)', [1, 2, 4, 6]),
+  _ev('2026-11-06', 'event',   '진로 체험의 날', [1, 2]),
+  _ev('2026-11-09', 'event',   '오목대회(교내)', [3]),
+  _ev('2026-11-11', 'club',    '동아리', [6]),
   _ev('2026-11-18', 'event',   '장애이해교육',                 [1]),
   _ev('2026-11-18', 'event',   '학생도박예방교육',             [2]),
   _ev('2026-11-18', 'event',   '금연교육',                     [4]),
-  _ev('2026-11-20', 'holiday', '재량휴업일'),
+  _ev('2026-11-20', 'holiday', '재량휴업일', [1, 2]),
   // 12월
-  _ev('2026-12-02', 'event',   '금융교육',                     [5, 6]),
-  _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', _P(1, 6)),
-  _ev('2026-12-14', 'event',   '구기대회(교내)',               _P(1, 4)),
-  _ev('2026-12-16', 'event',   '구기대회(교내)',               _P(1, 4)),
-  _ev('2026-12-21', 'event',   '영화 관람(크리스마스 캐롤, 어벤저스)', _P(1, 6)),
-  _ev('2026-12-23', 'event',   '크리스마스 쿠키 만들기(교내)', _P(1, 4)),
+  _ev('2026-12-02', 'event',   '금융교육', [6]),
+  _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', [1, 2]),
+  _ev('2026-12-14', 'event',   '구기대회(교내)', [3]),
+  _ev('2026-12-16', 'event',   '구기대회(교내)', [1, 2, 4]),
+  _ev('2026-12-21', 'event',   '영화 관람(크리스마스 캐롤, 어벤저스)', [3]),
+  _ev('2026-12-23', 'event',   '크리스마스 쿠키 만들기(교내)', [1, 2, 4]),
   _ev('2026-12-25', 'holiday', '성탄절'),
   // 1월
   _ev('2027-01-01', 'holiday', '신정'),
-  _ev('2027-01-04', 'event',   '약물오남용예방교육',           [3]),
-  _ev('2027-01-06', 'event',   '졸업식 꽃풍선 만들기(교내)',   _P(1, 4)),
-  _ev('2027-01-08', 'event',   '졸업식',                       _P(1, 6)),
+  _ev('2027-01-04', 'event',   '약물오남용예방교육', [3]),
+  _ev('2027-01-06', 'event',   '졸업식 꽃풍선 만들기(교내)', [1, 2, 4]),
+  _ev('2027-01-08', 'event',   '졸업식', [1, 2]),
 ];
+
+function calRowHtml(idx, g) {
+  const isAll = g.isAll;
+  const periods = g.periods || [];
+  return `
+  <tr id="cal-row-${idx}">
+    <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
+    <td class="cal-allday-cell">
+      <div class="cal-period-group" data-idx="${idx}">
+        <label class="allday-toggle">
+          <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+          <span>하루종일</span>
+        </label>
+        <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
+          ${[1,2,3,4,5,6,7].map(p => `
+            <label class="period-check-label">
+              <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
+              ${p}
+            </label>`).join('')}
+        </div>
+      </div>
+    </td>
+    <td>
+      <select class="cal-select" data-idx="${idx}" data-field="type">
+        <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
+        <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
+        <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
+        <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
+        <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
+      </select>
+    </td>
+    <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+    <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
+  </tr>`;
+}
 
 // ============================================================
 // 학사일정 편집기 (관리자)
