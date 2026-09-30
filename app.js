@@ -12,10 +12,11 @@ const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
 const ADMIN_EMAIL = '0000.yhshin@gmail.com';
 const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
+// includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
-  { label: '3학년',   subject: '역사',  start: '2026-10-28', classes: ['305', '306', '307', '308'] },
-  { label: '2학년 A', subject: '역사A', start: '2026-12-14', classes: ['201 A', '202 A', '203 A'] },
-  { label: '2학년 B', subject: '역사B', start: '2026-12-14', classes: ['201 B', '202 B', '203 B', '204 B'] },
+  { label: '3학년',   subject: '역사',  start: '2026-10-28', includeStart: true,  classes: ['305', '306', '307', '308'] },
+  { label: '2학년 A', subject: '역사A', start: '2026-12-14', includeStart: false, classes: ['201 A', '202 A', '203 A'] },
+  { label: '2학년 B', subject: '역사B', start: '2026-12-14', includeStart: false, classes: ['201 B', '202 B', '203 B', '204 B'] },
 ];
 
 // ============================================================
@@ -155,9 +156,10 @@ function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
   return count;
 }
 
-// 기말고사 첫날까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
-function remainingLessonsUntilExam(cls, subject, examStart) {
-  return countKeyLessonsBetween(cls, subject, todayStr(), examStart);
+// 기말고사까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
+function remainingLessonsUntilExam(cls, g) {
+  const end = g.includeStart ? g.start : addDaysStr(g.start, -1);
+  return countKeyLessonsBetween(cls, g.subject, todayStr(), end);
 }
 
 // dateStr 기준으로 delta일 이동한 날짜 문자열
@@ -456,7 +458,7 @@ function renderToday() {
       const itemsHtml = g.classes.map(cls => `
         <span class="exam-dday-item">
           <span class="exam-dday-class">${cls.replace(' ', '')}</span>
-          <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g.subject, g.start)}</span>
+          <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g)}</span>
         </span>`).join('');
       return `
         <div class="exam-dday-row">
