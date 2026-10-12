@@ -32,6 +32,8 @@ let pipWindow      = null;
 let pipRefreshTimer = null;
 let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (앱을 며칠씩 안 새로고침해도 자동 진도 계산이 멈추지 않게)
 let dateRolloverTimer = null;
+let lastRefreshAt      = 0;     // 서버에서 마지막으로 데이터를 읽어온 시각 (여러 기기 동기화용)
+let refreshing         = false;
 
 // ============================================================
 // 유틸: 시간 → 분
@@ -329,29 +331,53 @@ async function loadUserData() {
 
   const pending = applyAutoProgress();
   lastKnownDateStr = todayStr();
+  lastRefreshAt    = Date.now();
   renderCurrentTab();
   persistProgress(pending);
 }
 
 // ============================================================
-// 날짜 넘어감 감지
+// 날짜 넘어감 감지 + 다른 기기 변경 반영
 // ============================================================
-// applyAutoProgress는 loadUserData가 호출될 때만 실행됨. 근데 앱을
-// 한번 열어놓고 며칠씩 새로고침을 안 하면(핸드폰 브라우저 탭이 그냥
-// 계속 떠 있는 경우) 자동 진도 카운트가 그 이후로 영원히 멈춘 채로
-// 화면만 계속 보여주는 문제가 있었음. 탭이 다시 보이거나 포커스를
-// 받을 때(백그라운드에 있다가 돌아올 때) 날짜가 바뀌었는지 확인해서
-// 바뀌었으면 진도를 다시 계산한다. 화면 갱신은 DB 저장보다 먼저 한다.
+// 폰과 PC처럼 여러 기기에서 열어두면 한쪽 메모리의 데이터가 낡은 채로 남는다.
+// 낡은 값을 기준으로 +1 계산해 저장하면 다른 기기에서 수동으로 고친 차시를
+// 덮어쓰므로, 탭이 다시 보이거나 포커스를 받을 때(최소 1분 간격) 서버에서
+// 최신 데이터를 다시 읽고, 진도 자동 계산·저장은 그 최신 데이터 기준으로만 한다.
+// 입력 중(편집기·모달·입력창)에는 화면이 다시 그려지며 입력이 날아가므로 건너뛴다.
+const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
+
+function isEditingNow() {
+  const a = document.activeElement;
+  return !!document.querySelector('.step-editor.open, .modal-overlay')
+    || !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+
+async function refreshFromServer() {
+  if (!currentUser || !userData || refreshing || isEditingNow()) return;
+  refreshing = true;
+  try {
+    await loadUserData();
+    if (pipWindow) renderPipWidget();
+  } catch (e) {
+    console.error('서버 데이터 새로고침 실패', e);
+  } finally {
+    refreshing = false;
+  }
+}
+
 async function checkDateRollover() {
   if (!currentUser || !userData) return;
   const cur = todayStr();
   if (lastKnownDateStr && cur !== lastKnownDateStr) {
     lastKnownDateStr = cur;
-    const pending = applyAutoProgress();   // 메모리 반영은 즉시
-    renderCurrentTab();                    // 화면을 먼저 갱신하고
+    // 날짜가 넘어갔으면 일단 메모리만 갱신해 화면부터 최신으로 보여준다.
+    // 저장은 아래 refreshFromServer가 서버 최신 데이터 기준으로 다시 계산해서 한다.
+    applyAutoProgress();
+    renderCurrentTab();
     if (pipWindow) renderPipWidget();
-    await persistProgress(pending);        // DB 저장은 그 뒤에 (느려도 화면은 이미 최신)
+    lastRefreshAt = 0;
   }
+  if (Date.now() - lastRefreshAt > REFRESH_MIN_INTERVAL_MS) await refreshFromServer();
 }
 
 // ============================================================
