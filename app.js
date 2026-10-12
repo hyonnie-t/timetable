@@ -287,6 +287,25 @@ async function persistProgress(dbUpdates) {
   }
 }
 
+// 숫자를 수동으로 고칠 때 찍을 lastUpdated.
+// 카드는 "완료 N차시 → 오늘 수업 = N+1"로 보여주고, 오늘 수업은 내일 자동으로 +1 된다.
+// 그런데 수업 전에 숫자를 고치면서 lastUpdated를 오늘로 찍으면 오늘 수업이
+// "이미 처리된 날"이 돼 영영 카운트되지 않고, 다음 수업에 같은 차시가 또 뜬다.
+// → 오늘 이 반 수업이 아직 안 끝났으면 어제로 찍어 오늘 수업이 내일 세어지게 하고,
+//   이미 끝났으면(저장한 숫자에 오늘 수업이 포함된 것) 오늘로 찍는다.
+function lastUpdatedForManualSave(key) {
+  const today    = todayStr();
+  const now      = new Date();
+  const nowMin   = now.getHours() * 60 + now.getMinutes();
+  const periods  = getPeriods();
+  const daySched = userData?.timetable?.schedule?.[DOW_KEY[now.getDay()]] || {};
+  const pending  = Object.entries(daySched).some(([p, cell]) =>
+    cell?.class && `${cell.class}_${cell.subject}` === key
+    && !getCalendarEvent(today, p)
+    && parseTimeToMin(periods[p]?.end) > nowMin);
+  return pending ? addDaysStr(today, -1) : today;
+}
+
 // ============================================================
 // 데이터 로드
 // ============================================================
@@ -654,7 +673,7 @@ window.saveStep = async function(p) {
   // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
@@ -955,7 +974,7 @@ window.saveProgStep = async function(idx) {
   // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
