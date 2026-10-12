@@ -211,8 +211,12 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
 // ============================================================
 // 진도 자동 계산 (어제까지만, 현재 학기 기준)
 // ============================================================
-async function autoUpdateProgress() {
-  if (!currentUser || !userData) return;
+// 계산과 메모리 반영은 동기로 끝내고, DB 저장은 persistProgress로 분리한다.
+// (저장 응답을 기다린 뒤에야 화면을 그리면, 폰이 막 깨어나 네트워크가 느릴 때
+//  며칠 전 화면이 그대로 남아 이미 한 수업이 오늘 차시로 보이던 문제가 있었음)
+// 반환값: DB에 쓸 변경분 (없으면 빈 객체)
+function applyAutoProgress() {
+  if (!currentUser || !userData) return {};
 
   const schedule = userData.timetable?.schedule || {};
   const progress = semProgress();
@@ -222,7 +226,7 @@ async function autoUpdateProgress() {
   const updates = {};
 
   const allKeys = Object.keys(progress);
-  if (!allKeys.length) return;
+  if (!allKeys.length) return {};
 
   let startDateStr = allKeys.reduce((acc, key) => {
     const d = progress[key]?.lastUpdated || today;
@@ -263,14 +267,23 @@ async function autoUpdateProgress() {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  if (Object.keys(updates).length > 0) {
-    const dbUpdates = {};
-    for (const [key, val] of Object.entries(updates)) {
-      dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
-      if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-      userData.progress[CURRENT_SEMESTER][key] = val;
-    }
+  const dbUpdates = {};
+  for (const [key, val] of Object.entries(updates)) {
+    dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = val;
+  }
+  return dbUpdates;
+}
+
+// 저장 실패해도 화면은 이미 최신이고, 다음 로드 때 같은 계산이 다시 돌아 복구된다
+async function persistProgress(dbUpdates) {
+  if (!dbUpdates || !Object.keys(dbUpdates).length) return;
+  try {
     await update(ref(db), dbUpdates);
+  } catch (e) {
+    console.error('진도 자동 저장 실패', e);
+    showToast('진도 자동 저장 실패 — 다음에 앱을 열 때 다시 시도해요', true);
   }
 }
 
@@ -295,28 +308,30 @@ async function loadUserData() {
   if (!userData.lessonNotes) userData.lessonNotes = {};
   if (!userData.classNotes)  userData.classNotes  = {};
 
-  await autoUpdateProgress();
+  const pending = applyAutoProgress();
   lastKnownDateStr = todayStr();
   renderCurrentTab();
+  persistProgress(pending);
 }
 
 // ============================================================
 // 날짜 넘어감 감지
 // ============================================================
-// autoUpdateProgress는 loadUserData가 호출될 때만 실행됨. 근데 앱을
+// applyAutoProgress는 loadUserData가 호출될 때만 실행됨. 근데 앱을
 // 한번 열어놓고 며칠씩 새로고침을 안 하면(핸드폰 브라우저 탭이 그냥
 // 계속 떠 있는 경우) 자동 진도 카운트가 그 이후로 영원히 멈춘 채로
 // 화면만 계속 보여주는 문제가 있었음. 탭이 다시 보이거나 포커스를
 // 받을 때(백그라운드에 있다가 돌아올 때) 날짜가 바뀌었는지 확인해서
-// 바뀌었으면 진도를 다시 계산한다.
+// 바뀌었으면 진도를 다시 계산한다. 화면 갱신은 DB 저장보다 먼저 한다.
 async function checkDateRollover() {
   if (!currentUser || !userData) return;
   const cur = todayStr();
   if (lastKnownDateStr && cur !== lastKnownDateStr) {
     lastKnownDateStr = cur;
-    await autoUpdateProgress();
-    renderCurrentTab();
+    const pending = applyAutoProgress();   // 메모리 반영은 즉시
+    renderCurrentTab();                    // 화면을 먼저 갱신하고
     if (pipWindow) renderPipWidget();
+    await persistProgress(pending);        // DB 저장은 그 뒤에 (느려도 화면은 이미 최신)
   }
 }
 
@@ -635,7 +650,7 @@ window.saveStep = async function(p) {
 
   // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
   // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
   // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
@@ -937,7 +952,7 @@ window.saveProgStep = async function(idx) {
 
   // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
   // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
   const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
@@ -1288,7 +1303,7 @@ window.saveTimetable = async function() {
         const key = `${cls}_${subject}`;
         // 현재 학기에 없는 키면 0으로 초기화
         // lastUpdated를 오늘이 아니라 어제로 잡아둔다 — 시간표를 추가한 날이
-        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 autoUpdateProgress가
+        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 applyAutoProgress가
         // 그날을 "이미 처리됨"으로 보고 첫 수업을 영구히 못 세는 문제가 생김
         if (!progress[key]) {
           if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
@@ -1775,6 +1790,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') checkDateRollover();
 });
 window.addEventListener('focus', checkDateRollover);
+// bfcache(뒤로가기/탭 복원)로 며칠 전 화면이 그대로 살아 돌아오는 경우, 네트워크가 다시 붙는 경우
+window.addEventListener('pageshow', checkDateRollover);
+window.addEventListener('online', checkDateRollover);
 
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
