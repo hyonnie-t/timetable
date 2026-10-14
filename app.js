@@ -11,6 +11,13 @@ const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
 const ADMIN_EMAIL = '0000.yhshin@gmail.com';
 const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
+// 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
+// includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
+const FINAL_EXAM_GROUPS = [
+  { label: '3학년',   subject: '역사',  start: '2026-10-28', includeStart: true,  classes: ['305', '306', '307', '308'] },
+  { label: '2학년 A', subject: '역사A', start: '2026-12-14', includeStart: false, classes: ['201 A', '202 A', '203 A'] },
+  { label: '2학년 B', subject: '역사B', start: '2026-12-14', includeStart: false, classes: ['201 B', '202 B', '203 B', '204 B'] },
+];
 
 // ============================================================
 // 상태
@@ -23,6 +30,10 @@ let currentTab   = 'today';
 let todayRefreshTimer = null;
 let pipWindow      = null;
 let pipRefreshTimer = null;
+let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (앱을 며칠씩 안 새로고침해도 자동 진도 계산이 멈추지 않게)
+let dateRolloverTimer = null;
+let lastRefreshAt      = 0;     // 서버에서 마지막으로 데이터를 읽어온 시각 (여러 기기 동기화용)
+let refreshing         = false;
 
 // ============================================================
 // 유틸: 시간 → 분
@@ -147,6 +158,12 @@ function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
   return count;
 }
 
+// 기말고사까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
+function remainingLessonsUntilExam(cls, g) {
+  const end = g.includeStart ? g.start : addDaysStr(g.start, -1);
+  return countKeyLessonsBetween(cls, g.subject, todayStr(), end);
+}
+
 // dateStr 기준으로 delta일 이동한 날짜 문자열
 function addDaysStr(dateStr, delta) {
   const d = new Date(dateStr);
@@ -196,8 +213,12 @@ function getOffsetUpToDate(cls, subject, targetDateStr) {
 // ============================================================
 // 진도 자동 계산 (어제까지만, 현재 학기 기준)
 // ============================================================
-async function autoUpdateProgress() {
-  if (!currentUser || !userData) return;
+// 계산과 메모리 반영은 동기로 끝내고, DB 저장은 persistProgress로 분리한다.
+// (저장 응답을 기다린 뒤에야 화면을 그리면, 폰이 막 깨어나 네트워크가 느릴 때
+//  며칠 전 화면이 그대로 남아 이미 한 수업이 오늘 차시로 보이던 문제가 있었음)
+// 반환값: DB에 쓸 변경분 (없으면 빈 객체)
+function applyAutoProgress() {
+  if (!currentUser || !userData) return {};
 
   const schedule = userData.timetable?.schedule || {};
   const progress = semProgress();
@@ -207,7 +228,7 @@ async function autoUpdateProgress() {
   const updates = {};
 
   const allKeys = Object.keys(progress);
-  if (!allKeys.length) return;
+  if (!allKeys.length) return {};
 
   let startDateStr = allKeys.reduce((acc, key) => {
     const d = progress[key]?.lastUpdated || today;
@@ -248,15 +269,163 @@ async function autoUpdateProgress() {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  if (Object.keys(updates).length > 0) {
-    const dbUpdates = {};
-    for (const [key, val] of Object.entries(updates)) {
-      dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
-      if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-      userData.progress[CURRENT_SEMESTER][key] = val;
-    }
-    await update(ref(db), dbUpdates);
+  const dbUpdates = {};
+  // 진단 이력: 어제 수업을 못 센 이유 (progress를 덮어쓰기 전에 기록해야 이전 값이 남는다)
+  try { diagnoseYesterday_(progress, schedule, updates, dbUpdates); } catch (e) { console.error(e); }
+  for (const [key, val] of Object.entries(updates)) {
+    const before = progress[key] || {};
+    addProgressLog_(dbUpdates, '자동', key, {
+      from: before.current ?? 0, to: val.current, luFrom: before.lastUpdated || '', luTo: val.lastUpdated
+    });
+    dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
+    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
+    userData.progress[CURRENT_SEMESTER][key] = val;
   }
+  return dbUpdates;
+}
+
+// 진도 이력(progressLog)은 본 저장과 분리해서 쓴다 — 이력 쓰기가 막히거나 실패해도
+// 진도·주제 저장이 같이 실패하면 안 되므로, 본 저장이 끝난 뒤 따로 시도하고 실패는 무시한다.
+async function updateWithLog_(updates) {
+  const main = {}, log = {};
+  for (const [k, v] of Object.entries(updates)) (k.includes('/progressLog/') ? log : main)[k] = v;
+  if (Object.keys(main).length) await update(ref(db), main);
+  if (Object.keys(log).length) {
+    try { await update(ref(db), log); }
+    catch (e) { console.warn('진도 이력 저장 실패 (DB 규칙 확인)', e); }
+  }
+}
+
+// 저장 실패해도 화면은 이미 최신이고, 다음 로드 때 같은 계산이 다시 돌아 복구된다
+async function persistProgress(dbUpdates) {
+  if (!dbUpdates || !Object.keys(dbUpdates).length) return;
+  try {
+    await updateWithLog_(dbUpdates);
+  } catch (e) {
+    console.error('진도 자동 저장 실패', e);
+    showToast('진도 자동 저장 실패 — 다음에 앱을 열 때 다시 시도해요', true);
+  }
+}
+
+// 숫자를 수동으로 고칠 때 찍을 lastUpdated.
+// 카드는 "완료 N차시 → 오늘 수업 = N+1"로 보여주고, 오늘 수업은 내일 자동으로 +1 된다.
+// 그런데 수업 전에 숫자를 고치면서 lastUpdated를 오늘로 찍으면 오늘 수업이
+// "이미 처리된 날"이 돼 영영 카운트되지 않고, 다음 수업에 같은 차시가 또 뜬다.
+// → 오늘 이 반 수업이 아직 안 끝났으면 어제로 찍어 오늘 수업이 내일 세어지게 하고,
+//   이미 끝났으면(저장한 숫자에 오늘 수업이 포함된 것) 오늘로 찍는다.
+function lastUpdatedForManualSave(key) {
+  const today    = todayStr();
+  const now      = new Date();
+  const nowMin   = now.getHours() * 60 + now.getMinutes();
+  const periods  = getPeriods();
+  const daySched = userData?.timetable?.schedule?.[DOW_KEY[now.getDay()]] || {};
+  const pending  = Object.entries(daySched).some(([p, cell]) =>
+    cell?.class && `${cell.class}_${cell.subject}` === key
+    && !getCalendarEvent(today, p)
+    && parseTimeToMin(periods[p]?.end) > nowMin);
+  return pending ? addDaysStr(today, -1) : today;
+}
+
+// ============================================================
+// 진도 변경 이력 (진단용) — 설정 > 데이터 진단 하단 표에서 확인
+// "차시가 안 넘어갔을 때" 누가·언제·어느 기기에서 숫자와 lastUpdated를 바꿨는지,
+// 어제 수업을 자동 집계에서 왜 못 셌는지를 남긴다. 진도 계산 자체에는 영향 없음.
+// 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
+// ============================================================
+const APP_BUILD = '2026-10-14-diag3';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const PROGRESS_LOG_MAX = 60;
+let lastDeviceBeatAt = 0;
+
+function deviceInfo() {
+  let id = 'noid';
+  try {
+    id = localStorage.getItem('ttDeviceId') || '';
+    if (!id) { id = Math.random().toString(36).slice(2, 6); localStorage.setItem('ttDeviceId', id); }
+  } catch (e) { id = 'noid'; }
+  const label = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? '폰' : 'PC';
+  return { id, label };
+}
+
+function nowStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${todayStr()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function semLog_() {
+  if (!userData.progressLog) userData.progressLog = {};
+  if (!userData.progressLog[CURRENT_SEMESTER]) userData.progressLog[CURRENT_SEMESTER] = {};
+  return userData.progressLog[CURRENT_SEMESTER];
+}
+
+// updates(멀티패스 update 객체)에 이력 한 줄을 얹고 메모리에도 넣는다. 실패해도 본 작업은 막지 않는다.
+function addProgressLog_(updates, src, key, f = {}, id) {
+  try {
+    const dev = deviceInfo();
+    const entry = {
+      t: nowStamp(), dev: `${dev.label}·${dev.id}`, build: APP_BUILD, src, key,
+      from: f.from ?? '', to: f.to ?? '', luFrom: f.luFrom || '', luTo: f.luTo || '', n: f.n || ''
+    };
+    const eid = id || `${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    updates[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${eid}`] = entry;
+    semLog_()[eid] = entry;
+  } catch (e) { console.error('진도 이력 기록 실패', e); }
+}
+
+// 어제 수업이 있었는데 이번 자동 집계에서 세지 못한 이유를 남긴다 (같은 날·교시·반은 한 번만)
+function diagnoseYesterday_(progress, schedule, counted, out) {
+  const y = addDaysStr(todayStr(), -1);
+  const daySchedule = schedule[DOW_KEY[new Date(y).getDay()]] || {};
+  const logs = semLog_();
+  for (const [periodStr, cell] of Object.entries(daySchedule)) {
+    if (!cell?.class || !cell?.subject) continue;
+    const key = `${cell.class}_${cell.subject}`;
+    const id  = `skip_${y}_${periodStr}_${key.replace(/[.$#\[\]\/\s]/g, '_')}`;
+    if (logs[id]) continue;
+    if ((counted[key]?.lastUpdated || '') >= y) continue; // 이번에 방금 센 반
+    const entry = progress[key];
+    let note = '';
+    if (!entry) note = '진도 기록(progress)이 없어 어제 수업을 세지 않음';
+    else {
+      const ev = getCalendarEvent(y, periodStr);
+      const lu = entry.lastUpdated || '';
+      if (ev) note = `학사일정 "${ev.label || ev.type || ''}"이(가) ${periodStr}교시에 있어 수업 없음으로 처리`;
+      else if (lu > y) note = `lastUpdated(${lu})가 어제보다 뒤라서 어제 수업을 세지 않음`;
+      else if (lu === y) {
+        const autoDone = Object.values(logs).some(e => e.src === '자동' && e.key === key && e.luTo === y);
+        if (autoDone) continue; // 정상: 자동 집계가 어제를 이미 센 상태
+        // 이 반의 이력이 아직 하나도 없으면 비교 기준이 없다(이력 기능 도입 직후·이력 정리 뒤) → 헛경고를 남기지 않는다
+        const hasBaseline = Object.values(logs).some(e => e.key === key && e.src !== '어제미집계');
+        if (!hasBaseline) continue;
+        note = `lastUpdated가 어제(${y})로 찍혀 있고 자동 집계 이력이 없음 → 수동 저장 등으로 어제가 처리된 것으로 간주`;
+      } else continue; // lastUpdated < 어제 → 위 루프에서 세어졌어야 하는 정상 경로
+    }
+    addProgressLog_(out, '어제미집계', key, { from: entry?.current ?? '', luFrom: entry?.lastUpdated || '', n: note }, id);
+  }
+}
+
+// 이력이 너무 쌓이지 않게 오래된 것부터 지운다 + 이 기기의 마지막 접속(빌드 포함)을 남긴다
+function maintainProgressLog_(out) {
+  try {
+    const logs = semLog_();
+    const ids = Object.keys(logs).filter(k => k !== '_dev');
+    if (ids.length > PROGRESS_LOG_MAX) {
+      ids.sort((a, b) => (logs[a].t || '').localeCompare(logs[b].t || ''))
+         .slice(0, ids.length - PROGRESS_LOG_MAX)
+         .forEach(id => {
+           out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${id}`] = null;
+           delete logs[id];
+         });
+    }
+    if (Date.now() - lastDeviceBeatAt > 5 * 60 * 1000) {
+      lastDeviceBeatAt = Date.now();
+      const dev = deviceInfo();
+      const beat = { label: dev.label, t: nowStamp(), build: APP_BUILD };
+      out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/_dev/${dev.id}`] = beat;
+      if (!logs._dev) logs._dev = {};
+      logs._dev[dev.id] = beat;
+    }
+  } catch (e) { console.error('진도 이력 정리 실패', e); }
 }
 
 // ============================================================
@@ -280,8 +449,104 @@ async function loadUserData() {
   if (!userData.lessonNotes) userData.lessonNotes = {};
   if (!userData.classNotes)  userData.classNotes  = {};
 
-  await autoUpdateProgress();
+  const pending = applyAutoProgress();
+  maintainProgressLog_(pending);
+  lastKnownDateStr = todayStr();
+  lastRefreshAt    = Date.now();
   renderCurrentTab();
+  persistProgress(pending);
+}
+
+// ============================================================
+// 날짜 넘어감 감지 + 다른 기기 변경 반영
+// ============================================================
+// 폰과 PC처럼 여러 기기에서 열어두면 한쪽 메모리의 데이터가 낡은 채로 남는다.
+// 낡은 값을 기준으로 +1 계산해 저장하면 다른 기기에서 수동으로 고친 차시를
+// 덮어쓰므로, 탭이 다시 보이거나 포커스를 받을 때(최소 1분 간격) 서버에서
+// 최신 데이터를 다시 읽고, 진도 자동 계산·저장은 그 최신 데이터 기준으로만 한다.
+// 입력 중(편집기·모달·입력창)에는 화면이 다시 그려지며 입력이 날아가므로 건너뛴다.
+const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
+
+function isEditingNow() {
+  const a = document.activeElement;
+  return !!document.querySelector('.step-editor.open, .modal-overlay')
+    || !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+
+async function refreshFromServer() {
+  if (!currentUser || !userData || refreshing || isEditingNow()) return;
+  refreshing = true;
+  try {
+    await loadUserData();
+    if (pipWindow) renderPipWidget();
+  } catch (e) {
+    console.error('서버 데이터 새로고침 실패', e);
+  } finally {
+    refreshing = false;
+  }
+}
+
+// ============================================================
+// 새 버전 자동 반영 — 홈 화면 앱·백그라운드 탭은 새로고침 없이 옛 app.js를 계속 쓴다
+// 이 페이지가 쓰는 app.js(브라우저 캐시본)와 서버의 최신 app.js 내용을 비교해서 다르면 새로고침한다.
+// 빌드 번호를 손으로 올릴 필요 없이 파일 내용 자체를 비교한다.
+// ============================================================
+let codeSigAtStart = null;   // 이 페이지가 시작될 때 쓰던 app.js의 서명
+let lastCodeCheckAt = 0;
+
+function textSig_(t) {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return `${t.length}:${h}`;
+}
+
+async function fetchCodeSig_(fresh) {
+  const res = await fetch('app.js', fresh ? { cache: 'no-store' } : undefined);
+  if (!res.ok) throw new Error('app.js ' + res.status);
+  return textSig_(await res.text());
+}
+
+function reloadForUpdate_() {
+  // 새로고침해도 같은 상태가 이어질 때 무한 반복하지 않게 60초에 한 번만
+  try {
+    const last = Number(sessionStorage.getItem('ttCodeReloadAt') || 0);
+    if (Date.now() - last < 60 * 1000) return;
+    if (isEditingNow()) return; // 입력 중이면 이번엔 건너뛰고 다음 확인 때
+    sessionStorage.setItem('ttCodeReloadAt', String(Date.now()));
+  } catch (e) { /* 저장소 막힌 환경이면 그냥 진행 */ }
+  console.info('새 버전을 받아 새로고침합니다');
+  location.reload();
+}
+
+async function checkCodeUpdate_() {
+  try {
+    if (Date.now() - lastCodeCheckAt < 5 * 60 * 1000) return;
+    lastCodeCheckAt = Date.now();
+    if (codeSigAtStart === null) {
+      // 첫 확인: 지금 쓰는 캐시본과 서버 최신본이 이미 다르면 바로 새로고침
+      const [cached, fresh] = await Promise.all([fetchCodeSig_(false), fetchCodeSig_(true)]);
+      codeSigAtStart = cached;
+      if (cached !== fresh) reloadForUpdate_();
+      return;
+    }
+    if (await fetchCodeSig_(true) !== codeSigAtStart) reloadForUpdate_();
+  } catch (e) { /* 오프라인 등은 조용히 넘어간다 */ }
+}
+
+async function checkDateRollover() {
+  checkCodeUpdate_(); // 로그인 전이어도 옛 코드는 새로고침한다 (기다리지 않음)
+  if (!currentUser || !userData) return;
+  const cur = todayStr();
+  if (lastKnownDateStr && cur !== lastKnownDateStr) {
+    lastKnownDateStr = cur;
+    // 날짜가 넘어갔으면 일단 메모리만 갱신해 화면부터 최신으로 보여준다.
+    // 저장은 아래 refreshFromServer가 서버 최신 데이터 기준으로 다시 계산해서 한다.
+    applyAutoProgress();
+    renderCurrentTab();
+    if (pipWindow) renderPipWidget();
+    lastRefreshAt = 0;
+  }
+  if (Date.now() - lastRefreshAt > REFRESH_MIN_INTERVAL_MS) await refreshFromServer();
 }
 
 // ============================================================
@@ -414,6 +679,28 @@ function renderToday() {
     <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
   `;
   el.appendChild(header);
+
+  const examGroups = FINAL_EXAM_GROUPS.filter(g => today <= g.start);
+  if (examGroups.length) {
+    const rowsHtml = examGroups.map(g => {
+      const [, exM, exD] = g.start.split('-').map(Number);
+      const itemsHtml = g.classes.map(cls => `
+        <span class="exam-dday-item">
+          <span class="exam-dday-class">${cls.replace(' ', '')}</span>
+          <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g)}</span>
+        </span>`).join('');
+      return `
+        <div class="exam-dday-row">
+          <div class="exam-dday-label">${g.label}<small>${exM}/${exD}</small></div>
+          <div class="exam-dday-items">${itemsHtml}</div>
+        </div>`;
+    }).join('');
+    el.innerHTML += `
+      <div class="exam-dday-card">
+        <div class="exam-dday-title">기말고사까지 남은 역사 수업</div>
+        ${rowsHtml}
+      </div>`;
+  }
 
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
   const hasAnyClass = periodList.some(p => schedule[p]?.class);
@@ -577,11 +864,11 @@ window.saveStep = async function(p) {
 
   // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
   // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
   // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
@@ -596,8 +883,14 @@ window.saveStep = async function(p) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
     updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+    if (countChanged) {
+      addProgressLog_(updates, '수동(오늘탭)', key, {
+        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
+        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
+      });
+    }
 
-    await update(ref(db), updates);
+    await updateWithLog_(updates);
 
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
@@ -879,10 +1172,10 @@ window.saveProgStep = async function(idx) {
 
   // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
   // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // autoUpdateProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
+  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
   const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
   const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? todayStr() : (prevEntry.lastUpdated || todayStr());
+  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
@@ -897,8 +1190,14 @@ window.saveProgStep = async function(idx) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
     updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+    if (countChanged) {
+      addProgressLog_(updates, '수동(진도탭)', key, {
+        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
+        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
+      });
+    }
 
-    await update(ref(db), updates);
+    await updateWithLog_(updates);
 
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
@@ -1230,7 +1529,7 @@ window.saveTimetable = async function() {
         const key = `${cls}_${subject}`;
         // 현재 학기에 없는 키면 0으로 초기화
         // lastUpdated를 오늘이 아니라 어제로 잡아둔다 — 시간표를 추가한 날이
-        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 autoUpdateProgress가
+        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 applyAutoProgress가
         // 그날을 "이미 처리됨"으로 보고 첫 수업을 영구히 못 세는 문제가 생김
         if (!progress[key]) {
           if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
@@ -1244,7 +1543,11 @@ window.saveTimetable = async function() {
     const dbUpdates = {};
     dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
     dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}`] = userData.progress[CURRENT_SEMESTER];
-    await update(ref(db), dbUpdates);
+    addProgressLog_(dbUpdates, '시간표저장', '(전체)', {
+      n: 'progress 전체를 이 기기 메모리 값으로 덮어씀: ' + Object.entries(userData.progress[CURRENT_SEMESTER] || {})
+        .map(([k, v]) => `${k}=${v.current}@${v.lastUpdated || ''}`).join(', ')
+    });
+    await updateWithLog_(dbUpdates);
     userData.timetable.schedule = schedule;
 
     closeModal('modal-timetable');
@@ -1427,7 +1730,35 @@ window.openDataDiag = function() {
       <td>${prog ? (prog.lastUpdated || '') : ''}</td>
     </tr>`;
   });
-  html += `</tbody></table>
+  html += `</tbody></table>`;
+
+  // 진도 변경 이력 — "차시가 안 넘어갔을 때" 원인 추적용
+  const semLog   = semLog_();
+  const devs     = semLog._dev || {};
+  const entries  = Object.entries(semLog).filter(([k]) => k !== '_dev').map(([, v]) => v)
+    .sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 40);
+  const me       = deviceInfo();
+  const devRows  = Object.entries(devs).sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
+    .map(([id, d]) => `<tr><td>${escapeHtml(d.label || '')}·${escapeHtml(id)}${id === me.id ? ' (이 기기)' : ''}</td><td>${escapeHtml(d.t || '')}</td><td>${escapeHtml(d.build || '')}</td></tr>`).join('');
+  const rowsHtml = entries.map(e => {
+    const cnt = (e.from !== '' || e.to !== '') ? `${e.from === '' ? '-' : e.from} → ${e.to === '' ? '-' : e.to}` : '';
+    const lu  = (e.luFrom || e.luTo) ? `${escapeHtml(e.luFrom || '-')} → ${escapeHtml(e.luTo || '-')}` : '';
+    return `<tr><td>${escapeHtml(e.t || '')}</td><td>${escapeHtml(e.dev || '')}</td><td>${escapeHtml(e.src || '')}</td>
+      <td><code>${visibleStr(e.key || '')}</code></td><td>${cnt}</td><td>${lu}</td><td>${escapeHtml(e.n || '')}</td></tr>`;
+  }).join('');
+  html += `
+          <h3 style="margin:18px 0 6px;font-size:14px">진도 변경 이력 <small style="font-weight:400">(최근 40건, 최신순 · 이 화면 빌드 ${escapeHtml(APP_BUILD)} · ${escapeHtml(me.label)}·${escapeHtml(me.id)})</small></h3>
+          <p class="modal-hint">차시가 안 넘어갔으면 어제~오늘 이 반의 줄을 봐. <b>자동</b>=어제 수업을 센 기록, <b>수동</b>=직접 고친 기록(메모에 수업 전/후 판단이 남아), <b>어제미집계</b>=어제 수업을 못 센 이유, <b>시간표저장</b>=진도 전체를 이 기기 값으로 덮어쓴 기록. 이 기능이 들어간 뒤의 일만 남아.</p>
+          <table class="cal-table">
+            <thead><tr><th>시각</th><th>기기</th><th>구분</th><th>반_과목</th><th>current</th><th>lastUpdated</th><th>메모</th></tr></thead>
+            <tbody>${rowsHtml || '<tr><td colspan="7">아직 이력이 없어</td></tr>'}</tbody>
+          </table>
+          <h3 style="margin:18px 0 6px;font-size:14px">기기별 마지막 접속</h3>
+          <p class="modal-hint">빌드가 기기마다 다르면 한쪽이 옛 app.js를 쓰고 있는 거야(캐시). 한 기기의 접속 시각이 오래됐으면 그 기기는 낡은 데이터를 들고 있을 수 있어.</p>
+          <table class="cal-table">
+            <thead><tr><th>기기</th><th>마지막 접속</th><th>빌드</th></tr></thead>
+            <tbody>${devRows || '<tr><td colspan="3">아직 기록 없음</td></tr>'}</tbody>
+          </table>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" onclick="window.closeModal('modal-datadiag')">닫기</button>
@@ -1437,6 +1768,78 @@ window.openDataDiag = function() {
 
   document.body.insertAdjacentHTML('beforeend', html);
 };
+
+// ============================================================
+// 3학년 전환기 시간표 (2026-11-02 ~ 2027-01-08)
+// - 3학년 역사 수업 교시(월3·화5·수1,2,4,6·금1,2)와 겹치는 일정만, 그 교시만 등록
+//   (2학년 수업이 있는 교시는 수업을 해야 하므로 넣지 않음. 성탄절·신정·재량휴업일은 전일 휴업이라 하루종일)
+// - 11/30~12/10 "졸업영상 제작 및 교과수업"은 교과수업이 가능한 기간이라 제외
+// - 원서접수·성적산출 기준일 같은 입시 일정은 수업 진행과 무관해 제외
+// ============================================================
+const _P = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const _ev = (date, type, label, periods) =>
+  periods ? { date, type, label, periods, isAll: false } : { date, type, label, periods: [], isAll: true };
+const TRANSITION_CALENDAR = [
+  // 11월
+  _ev('2026-11-02', 'event',   '특성화고 설명회(교내)', [3]),
+  _ev('2026-11-03', 'event',   'AI 교육(교내)', [5]),
+  _ev('2026-11-04', 'event',   '목동 스케이트장(교외체험)', [1, 2, 4, 6]),
+  _ev('2026-11-06', 'event',   '진로 체험의 날', [1, 2]),
+  _ev('2026-11-09', 'event',   '오목대회(교내)', [3]),
+  _ev('2026-11-11', 'club',    '동아리', [6]),
+  _ev('2026-11-18', 'event',   '장애이해교육',                 [1]),
+  _ev('2026-11-18', 'event',   '학생도박예방교육',             [2]),
+  _ev('2026-11-18', 'event',   '금연교육',                     [4]),
+  _ev('2026-11-20', 'holiday', '재량휴업일'),
+  // 12월
+  _ev('2026-12-02', 'event',   '금융교육', [6]),
+  _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', [1, 2]),
+  _ev('2026-12-14', 'event',   '구기대회(교내)', [3]),
+  _ev('2026-12-16', 'event',   '구기대회(교내)', [1, 2, 4]),
+  _ev('2026-12-21', 'event',   '영화 관람(크리스마스 캐롤, 어벤저스)', [3]),
+  _ev('2026-12-23', 'event',   '크리스마스 쿠키 만들기(교내)', [1, 2, 4]),
+  _ev('2026-12-25', 'holiday', '성탄절'),
+  // 1월
+  _ev('2027-01-01', 'holiday', '신정'),
+  _ev('2027-01-04', 'event',   '약물오남용예방교육', [3]),
+  _ev('2027-01-06', 'event',   '졸업식 꽃풍선 만들기(교내)', [1, 2, 4]),
+  _ev('2027-01-08', 'event',   '졸업식', [1, 2]),
+];
+
+function calRowHtml(idx, g) {
+  const isAll = g.isAll;
+  const periods = g.periods || [];
+  return `
+  <tr id="cal-row-${idx}">
+    <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
+    <td class="cal-allday-cell">
+      <div class="cal-period-group" data-idx="${idx}">
+        <label class="allday-toggle">
+          <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
+          <span>하루종일</span>
+        </label>
+        <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
+          ${[1,2,3,4,5,6,7].map(p => `
+            <label class="period-check-label">
+              <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
+              ${p}
+            </label>`).join('')}
+        </div>
+      </div>
+    </td>
+    <td>
+      <select class="cal-select" data-idx="${idx}" data-field="type">
+        <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
+        <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
+        <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
+        <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
+        <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
+      </select>
+    </td>
+    <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+    <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
+  </tr>`;
+}
 
 // ============================================================
 // 학사일정 편집기 (관리자)
@@ -1460,42 +1863,7 @@ window.openCalendarEditor = function() {
 
   const groups = [...groupMap.values()].sort((a,b) => b.date.localeCompare(a.date));
 
-  function renderRow(idx, g) {
-    const isAll = g.isAll;
-    const periods = g.periods || [];
-    return `
-    <tr id="cal-row-${idx}">
-      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
-      <td class="cal-allday-cell">
-        <div class="cal-period-group" data-idx="${idx}">
-          <label class="allday-toggle">
-            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
-            <span>하루종일</span>
-          </label>
-          <div class="cal-period-checks" style="${isAll ? 'display:none' : ''}">
-            ${[1,2,3,4,5,6,7].map(p => `
-              <label class="period-check-label">
-                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" ${periods.includes(p) ? 'checked' : ''} />
-                ${p}
-              </label>`).join('')}
-          </div>
-        </div>
-      </td>
-      <td>
-        <select class="cal-select" data-idx="${idx}" data-field="type">
-          <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
-          <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
-          <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
-          <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
-          <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
-        </select>
-      </td>
-      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
-      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
-    </tr>`;
-  }
-
-  const rows = groups.map((g, i) => renderRow(i, g)).join('');
+  const rows = groups.map((g, i) => calRowHtml(i, g)).join('');
 
   const html = `
     <div class="modal-overlay" id="modal-calendar">
@@ -1506,6 +1874,7 @@ window.openCalendarEditor = function() {
         </div>
         <div class="modal-body">
           <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
+          <button class="btn-add-period" onclick="window.importTransitionCalendar()" style="margin-bottom:10px;margin-top:0">3학년 전환기 일정 불러오기</button>
           <table class="cal-table">
             <thead><tr><th>날짜</th><th>교시</th><th>종류</th><th>표시</th><th></th></tr></thead>
             <tbody id="cal-tbody">${rows}</tbody>
@@ -1532,42 +1901,29 @@ window.toggleAlldayCheck = function(checkbox) {
   }
 };
 
-window.addCalRow = function() {
+window.addCalRow = function(g) {
   const tbody = document.getElementById('cal-tbody');
-  const idx   = Date.now();
-  tbody.insertAdjacentHTML('afterbegin', `
-    <tr id="cal-row-${idx}">
-      <td><input class="cal-input" data-idx="${idx}" data-field="date" value="" placeholder="YYYY-MM-DD" /></td>
-      <td class="cal-allday-cell">
-        <div class="cal-period-group" data-idx="${idx}">
-          <label class="allday-toggle">
-            <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" />
-            <span>하루종일</span>
-          </label>
-          <div class="cal-period-checks">
-            ${[1,2,3,4,5,6,7].map(p => `
-              <label class="period-check-label">
-                <input type="checkbox" class="cal-period-check" data-idx="${idx}" value="${p}" />
-                ${p}
-              </label>`).join('')}
-          </div>
-        </div>
-      </td>
-      <td>
-        <select class="cal-select" data-idx="${idx}" data-field="type">
-          <option value="holiday">휴업</option>
-          <option value="event">행사</option>
-          <option value="exam">시험</option>
-          <option value="club">동아리</option>
-          <option value="noclass">수업없음</option>
-        </select>
-      </td>
-      <td><input class="cal-input" data-idx="${idx}" data-field="label" value="" placeholder="표시 텍스트" /></td>
-      <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
-    </tr>`);
+  const idx   = Date.now() + Math.floor(Math.random() * 1000);
+  tbody.insertAdjacentHTML('afterbegin',
+    calRowHtml(idx, g || { date: '', type: 'holiday', label: '', periods: [], isAll: false }));
 
   // 새 행이 잘 보이도록 스크롤
   document.getElementById(`cal-row-${idx}`)?.scrollIntoView({ block: 'nearest' });
+};
+
+// 3학년 전환기 시간표(11/2~1/8) 불러오기 — 기존 행은 그대로 두고 없는 것만 추가한다. 저장 버튼을 눌러야 반영됨
+window.importTransitionCalendar = function() {
+  const existing = new Set();
+  document.querySelectorAll('#cal-tbody tr').forEach(row => {
+    const d = row.querySelector('[data-field="date"]')?.value.trim();
+    const l = row.querySelector('[data-field="label"]')?.value.trim();
+    if (d) existing.add(`${d}||${l}`);
+  });
+  const toAdd = TRANSITION_CALENDAR.filter(g => !existing.has(`${g.date}||${g.label}`));
+  [...toAdd].reverse().forEach(g => window.addCalRow(g));
+  showToast(toAdd.length
+    ? `전환기 일정 ${toAdd.length}건 추가 (기존 ${TRANSITION_CALENDAR.length - toAdd.length}건은 이미 있어 건너뜀) — 확인 후 저장`
+    : '이미 모두 들어있어요');
 };
 
 window.saveCalendar = async function() {
@@ -1673,12 +2029,28 @@ onAuthStateChanged(auth, async (user) => {
 
     showApp();
     await loadUserData();
+
+    if (!dateRolloverTimer) {
+      dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+    }
   } else {
     currentUser = null;
     userProfile = null;
+    if (dateRolloverTimer) { clearInterval(dateRolloverTimer); dateRolloverTimer = null; }
     showLogin();
   }
 });
+
+// 탭이 백그라운드에 있다가 다시 보일 때 / 창에 포커스가 돌아올 때도 확인
+// (모바일 브라우저는 백그라운드에서 setInterval을 아예 멈춰버리는 경우가
+// 많아서, 5분 주기 타이머만 믿으면 며칠씩 안 열어본 경우를 못 잡음)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkDateRollover();
+});
+window.addEventListener('focus', checkDateRollover);
+// bfcache(뒤로가기/탭 복원)로 며칠 전 화면이 그대로 살아 돌아오는 경우, 네트워크가 다시 붙는 경우
+window.addEventListener('pageshow', checkDateRollover);
+window.addEventListener('online', checkDateRollover);
 
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
@@ -1700,30 +2072,35 @@ function showLogin() {
 // ============================================================
 const PIP_CSS = `
   html, body { margin:0; padding:0; height:100%; background:transparent; }
-  * { box-sizing:border-box; font-family:'Noto Sans KR', -apple-system, sans-serif; }
+  * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, sans-serif; }
   #pip-widget {
     display:flex; flex-direction:column; height:100%;
-    background: rgba(20,22,26, var(--pip-alpha,0.55));
-    color:#fff; border-radius:10px; overflow:hidden;
+    background: rgba(15,17,23, var(--pip-alpha,0.55));
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    color:#fff; border-radius:12px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
   }
   #pip-head {
     display:flex; align-items:center; justify-content:space-between;
-    gap:8px; padding:8px 10px; font-size:12px; font-weight:600;
-    border-bottom:1px solid rgba(255,255,255,.15); flex:0 0 auto;
+    gap:6px; padding:7px 9px; font-size:11px; font-weight:700;
+    background: rgba(0,0,0,.18);
+    border-bottom:1px solid rgba(255,255,255,.12); flex:0 0 auto;
   }
-  #pip-date { opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #pip-opacity { width:64px; accent-color:#fff; }
-  #pip-body { flex:1 1 auto; overflow-y:auto; padding:4px 8px 8px; font-size:12px; }
-  .pip-row { display:flex; gap:8px; padding:6px 2px; border-bottom:1px solid rgba(255,255,255,.1); align-items:flex-start; }
+  #pip-date { opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  #pip-opacity { width:52px; accent-color:#52b788; flex-shrink:0; }
+  #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 7px 7px; font-size:11px; }
+  .pip-row { display:flex; gap:6px; padding:6px 3px; border-bottom:1px solid rgba(255,255,255,.08); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
-  .pip-row.current { background:rgba(255,255,255,.16); border-radius:6px; }
-  .pip-p { flex:0 0 16px; font-weight:700; opacity:.75; }
-  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:baseline; }
-  .pip-class { font-weight:700; }
-  .pip-topic, .pip-note { flex-basis:100%; opacity:.85; font-size:11px; }
-  .pip-note { color:#ffd479; }
-  .pip-empty-cell, .pip-empty { opacity:.5; }
-  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.2); font-size:11px; }
+  .pip-row.current { background:rgba(82,183,136,.22); border-left-color:#52b788; border-radius:0 6px 6px 0; }
+  .pip-p { flex:0 0 14px; font-weight:800; opacity:.8; font-size:10px; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:2px 5px; align-items:baseline; text-shadow:0 1px 2px rgba(0,0,0,.55); }
+  .pip-class { font-weight:800; color:#7fd8ac; }
+  .pip-topic { flex-basis:100%; opacity:.92; font-size:11px; }
+  .pip-note  { flex-basis:100%; font-size:10px; color:#ffd479; }
+  .pip-empty-cell, .pip-empty { opacity:.55; }
+  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.18); font-size:10px; }
 `;
 
 function pipRowsHtml() {
@@ -1798,7 +2175,7 @@ window.openPipWidget = async function() {
   }
 
   try {
-    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 300, height: 260 });
+    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 210, height: 260 });
   } catch (e) {
     showToast('미니창을 열 수 없어요', true);
     return;
@@ -1856,3 +2233,4 @@ if ('serviceWorker' in navigator) {
 }
 
 checkInviteParam();
+checkCodeUpdate_();
