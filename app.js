@@ -270,7 +270,13 @@ function applyAutoProgress() {
   }
 
   const dbUpdates = {};
+  // 진단 이력: 어제 수업을 못 센 이유 (progress를 덮어쓰기 전에 기록해야 이전 값이 남는다)
+  try { diagnoseYesterday_(progress, schedule, updates, dbUpdates); } catch (e) { console.error(e); }
   for (const [key, val] of Object.entries(updates)) {
+    const before = progress[key] || {};
+    addProgressLog_(dbUpdates, '자동', key, {
+      from: before.current ?? 0, to: val.current, luFrom: before.lastUpdated || '', luTo: val.lastUpdated
+    });
     dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = val;
@@ -278,11 +284,23 @@ function applyAutoProgress() {
   return dbUpdates;
 }
 
+// 진도 이력(progressLog)은 본 저장과 분리해서 쓴다 — 이력 쓰기가 막히거나 실패해도
+// 진도·주제 저장이 같이 실패하면 안 되므로, 본 저장이 끝난 뒤 따로 시도하고 실패는 무시한다.
+async function updateWithLog_(updates) {
+  const main = {}, log = {};
+  for (const [k, v] of Object.entries(updates)) (k.includes('/progressLog/') ? log : main)[k] = v;
+  if (Object.keys(main).length) await update(ref(db), main);
+  if (Object.keys(log).length) {
+    try { await update(ref(db), log); }
+    catch (e) { console.warn('진도 이력 저장 실패 (DB 규칙 확인)', e); }
+  }
+}
+
 // 저장 실패해도 화면은 이미 최신이고, 다음 로드 때 같은 계산이 다시 돌아 복구된다
 async function persistProgress(dbUpdates) {
   if (!dbUpdates || !Object.keys(dbUpdates).length) return;
   try {
-    await update(ref(db), dbUpdates);
+    await updateWithLog_(dbUpdates);
   } catch (e) {
     console.error('진도 자동 저장 실패', e);
     showToast('진도 자동 저장 실패 — 다음에 앱을 열 때 다시 시도해요', true);
@@ -309,6 +327,105 @@ function lastUpdatedForManualSave(key) {
 }
 
 // ============================================================
+// 진도 변경 이력 (진단용) — 설정 > 데이터 진단 하단 표에서 확인
+// "차시가 안 넘어갔을 때" 누가·언제·어느 기기에서 숫자와 lastUpdated를 바꿨는지,
+// 어제 수업을 자동 집계에서 왜 못 셌는지를 남긴다. 진도 계산 자체에는 영향 없음.
+// 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
+// ============================================================
+const APP_BUILD = '2026-10-14-diag';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const PROGRESS_LOG_MAX = 60;
+let lastDeviceBeatAt = 0;
+
+function deviceInfo() {
+  let id = 'noid';
+  try {
+    id = localStorage.getItem('ttDeviceId') || '';
+    if (!id) { id = Math.random().toString(36).slice(2, 6); localStorage.setItem('ttDeviceId', id); }
+  } catch (e) { id = 'noid'; }
+  const label = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? '폰' : 'PC';
+  return { id, label };
+}
+
+function nowStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${todayStr()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function semLog_() {
+  if (!userData.progressLog) userData.progressLog = {};
+  if (!userData.progressLog[CURRENT_SEMESTER]) userData.progressLog[CURRENT_SEMESTER] = {};
+  return userData.progressLog[CURRENT_SEMESTER];
+}
+
+// updates(멀티패스 update 객체)에 이력 한 줄을 얹고 메모리에도 넣는다. 실패해도 본 작업은 막지 않는다.
+function addProgressLog_(updates, src, key, f = {}, id) {
+  try {
+    const dev = deviceInfo();
+    const entry = {
+      t: nowStamp(), dev: `${dev.label}·${dev.id}`, build: APP_BUILD, src, key,
+      from: f.from ?? '', to: f.to ?? '', luFrom: f.luFrom || '', luTo: f.luTo || '', n: f.n || ''
+    };
+    const eid = id || `${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    updates[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${eid}`] = entry;
+    semLog_()[eid] = entry;
+  } catch (e) { console.error('진도 이력 기록 실패', e); }
+}
+
+// 어제 수업이 있었는데 이번 자동 집계에서 세지 못한 이유를 남긴다 (같은 날·교시·반은 한 번만)
+function diagnoseYesterday_(progress, schedule, counted, out) {
+  const y = addDaysStr(todayStr(), -1);
+  const daySchedule = schedule[DOW_KEY[new Date(y).getDay()]] || {};
+  const logs = semLog_();
+  for (const [periodStr, cell] of Object.entries(daySchedule)) {
+    if (!cell?.class || !cell?.subject) continue;
+    const key = `${cell.class}_${cell.subject}`;
+    const id  = `skip_${y}_${periodStr}_${key.replace(/[.$#\[\]\/\s]/g, '_')}`;
+    if (logs[id]) continue;
+    if ((counted[key]?.lastUpdated || '') >= y) continue; // 이번에 방금 센 반
+    const entry = progress[key];
+    let note = '';
+    if (!entry) note = '진도 기록(progress)이 없어 어제 수업을 세지 않음';
+    else {
+      const ev = getCalendarEvent(y, periodStr);
+      const lu = entry.lastUpdated || '';
+      if (ev) note = `학사일정 "${ev.label || ev.type || ''}"이(가) ${periodStr}교시에 있어 수업 없음으로 처리`;
+      else if (lu > y) note = `lastUpdated(${lu})가 어제보다 뒤라서 어제 수업을 세지 않음`;
+      else if (lu === y) {
+        const autoDone = Object.values(logs).some(e => e.src === '자동' && e.key === key && e.luTo === y);
+        if (autoDone) continue; // 정상: 자동 집계가 어제를 이미 센 상태
+        note = `lastUpdated가 어제(${y})로 찍혀 있고 자동 집계 이력이 없음 → 수동 저장 등으로 어제가 처리된 것으로 간주`;
+      } else continue; // lastUpdated < 어제 → 위 루프에서 세어졌어야 하는 정상 경로
+    }
+    addProgressLog_(out, '어제미집계', key, { from: entry?.current ?? '', luFrom: entry?.lastUpdated || '', n: note }, id);
+  }
+}
+
+// 이력이 너무 쌓이지 않게 오래된 것부터 지운다 + 이 기기의 마지막 접속(빌드 포함)을 남긴다
+function maintainProgressLog_(out) {
+  try {
+    const logs = semLog_();
+    const ids = Object.keys(logs).filter(k => k !== '_dev');
+    if (ids.length > PROGRESS_LOG_MAX) {
+      ids.sort((a, b) => (logs[a].t || '').localeCompare(logs[b].t || ''))
+         .slice(0, ids.length - PROGRESS_LOG_MAX)
+         .forEach(id => {
+           out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${id}`] = null;
+           delete logs[id];
+         });
+    }
+    if (Date.now() - lastDeviceBeatAt > 5 * 60 * 1000) {
+      lastDeviceBeatAt = Date.now();
+      const dev = deviceInfo();
+      const beat = { label: dev.label, t: nowStamp(), build: APP_BUILD };
+      out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/_dev/${dev.id}`] = beat;
+      if (!logs._dev) logs._dev = {};
+      logs._dev[dev.id] = beat;
+    }
+  } catch (e) { console.error('진도 이력 정리 실패', e); }
+}
+
+// ============================================================
 // 데이터 로드
 // ============================================================
 async function loadUserData() {
@@ -330,6 +447,7 @@ async function loadUserData() {
   if (!userData.classNotes)  userData.classNotes  = {};
 
   const pending = applyAutoProgress();
+  maintainProgressLog_(pending);
   lastKnownDateStr = todayStr();
   lastRefreshAt    = Date.now();
   renderCurrentTab();
@@ -714,8 +832,14 @@ window.saveStep = async function(p) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
     updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+    if (countChanged) {
+      addProgressLog_(updates, '수동(오늘탭)', key, {
+        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
+        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
+      });
+    }
 
-    await update(ref(db), updates);
+    await updateWithLog_(updates);
 
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
@@ -1015,8 +1139,14 @@ window.saveProgStep = async function(idx) {
       updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
     }
     updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
+    if (countChanged) {
+      addProgressLog_(updates, '수동(진도탭)', key, {
+        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
+        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
+      });
+    }
 
-    await update(ref(db), updates);
+    await updateWithLog_(updates);
 
     if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
     userData.progress[CURRENT_SEMESTER][key] = {
@@ -1362,7 +1492,11 @@ window.saveTimetable = async function() {
     const dbUpdates = {};
     dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
     dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}`] = userData.progress[CURRENT_SEMESTER];
-    await update(ref(db), dbUpdates);
+    addProgressLog_(dbUpdates, '시간표저장', '(전체)', {
+      n: 'progress 전체를 이 기기 메모리 값으로 덮어씀: ' + Object.entries(userData.progress[CURRENT_SEMESTER] || {})
+        .map(([k, v]) => `${k}=${v.current}@${v.lastUpdated || ''}`).join(', ')
+    });
+    await updateWithLog_(dbUpdates);
     userData.timetable.schedule = schedule;
 
     closeModal('modal-timetable');
@@ -1545,7 +1679,35 @@ window.openDataDiag = function() {
       <td>${prog ? (prog.lastUpdated || '') : ''}</td>
     </tr>`;
   });
-  html += `</tbody></table>
+  html += `</tbody></table>`;
+
+  // 진도 변경 이력 — "차시가 안 넘어갔을 때" 원인 추적용
+  const semLog   = semLog_();
+  const devs     = semLog._dev || {};
+  const entries  = Object.entries(semLog).filter(([k]) => k !== '_dev').map(([, v]) => v)
+    .sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 40);
+  const me       = deviceInfo();
+  const devRows  = Object.entries(devs).sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
+    .map(([id, d]) => `<tr><td>${escapeHtml(d.label || '')}·${escapeHtml(id)}${id === me.id ? ' (이 기기)' : ''}</td><td>${escapeHtml(d.t || '')}</td><td>${escapeHtml(d.build || '')}</td></tr>`).join('');
+  const rowsHtml = entries.map(e => {
+    const cnt = (e.from !== '' || e.to !== '') ? `${e.from === '' ? '-' : e.from} → ${e.to === '' ? '-' : e.to}` : '';
+    const lu  = (e.luFrom || e.luTo) ? `${escapeHtml(e.luFrom || '-')} → ${escapeHtml(e.luTo || '-')}` : '';
+    return `<tr><td>${escapeHtml(e.t || '')}</td><td>${escapeHtml(e.dev || '')}</td><td>${escapeHtml(e.src || '')}</td>
+      <td><code>${visibleStr(e.key || '')}</code></td><td>${cnt}</td><td>${lu}</td><td>${escapeHtml(e.n || '')}</td></tr>`;
+  }).join('');
+  html += `
+          <h3 style="margin:18px 0 6px;font-size:14px">진도 변경 이력 <small style="font-weight:400">(최근 40건, 최신순 · 이 화면 빌드 ${escapeHtml(APP_BUILD)} · ${escapeHtml(me.label)}·${escapeHtml(me.id)})</small></h3>
+          <p class="modal-hint">차시가 안 넘어갔으면 어제~오늘 이 반의 줄을 봐. <b>자동</b>=어제 수업을 센 기록, <b>수동</b>=직접 고친 기록(메모에 수업 전/후 판단이 남아), <b>어제미집계</b>=어제 수업을 못 센 이유, <b>시간표저장</b>=진도 전체를 이 기기 값으로 덮어쓴 기록. 이 기능이 들어간 뒤의 일만 남아.</p>
+          <table class="cal-table">
+            <thead><tr><th>시각</th><th>기기</th><th>구분</th><th>반_과목</th><th>current</th><th>lastUpdated</th><th>메모</th></tr></thead>
+            <tbody>${rowsHtml || '<tr><td colspan="7">아직 이력이 없어</td></tr>'}</tbody>
+          </table>
+          <h3 style="margin:18px 0 6px;font-size:14px">기기별 마지막 접속</h3>
+          <p class="modal-hint">빌드가 기기마다 다르면 한쪽이 옛 app.js를 쓰고 있는 거야(캐시). 한 기기의 접속 시각이 오래됐으면 그 기기는 낡은 데이터를 들고 있을 수 있어.</p>
+          <table class="cal-table">
+            <thead><tr><th>기기</th><th>마지막 접속</th><th>빌드</th></tr></thead>
+            <tbody>${devRows || '<tr><td colspan="3">아직 기록 없음</td></tr>'}</tbody>
+          </table>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" onclick="window.closeModal('modal-datadiag')">닫기</button>
