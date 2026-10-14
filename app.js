@@ -332,7 +332,7 @@ function lastUpdatedForManualSave(key) {
 // 어제 수업을 자동 집계에서 왜 못 셌는지를 남긴다. 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-14-diag';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-14-diag2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -394,6 +394,9 @@ function diagnoseYesterday_(progress, schedule, counted, out) {
       else if (lu === y) {
         const autoDone = Object.values(logs).some(e => e.src === '자동' && e.key === key && e.luTo === y);
         if (autoDone) continue; // 정상: 자동 집계가 어제를 이미 센 상태
+        // 이 반의 이력이 아직 하나도 없으면 비교 기준이 없다(이력 기능 도입 직후·이력 정리 뒤) → 헛경고를 남기지 않는다
+        const hasBaseline = Object.values(logs).some(e => e.key === key && e.src !== '어제미집계');
+        if (!hasBaseline) continue;
         note = `lastUpdated가 어제(${y})로 찍혀 있고 자동 집계 이력이 없음 → 수동 저장 등으로 어제가 처리된 것으로 간주`;
       } else continue; // lastUpdated < 어제 → 위 루프에서 세어졌어야 하는 정상 경로
     }
