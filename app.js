@@ -332,7 +332,7 @@ function lastUpdatedForManualSave(key) {
 // 어제 수업을 자동 집계에서 왜 못 셌는지를 남긴다. 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-14-diag2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-14-diag3';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -486,7 +486,55 @@ async function refreshFromServer() {
   }
 }
 
+// ============================================================
+// 새 버전 자동 반영 — 홈 화면 앱·백그라운드 탭은 새로고침 없이 옛 app.js를 계속 쓴다
+// 이 페이지가 쓰는 app.js(브라우저 캐시본)와 서버의 최신 app.js 내용을 비교해서 다르면 새로고침한다.
+// 빌드 번호를 손으로 올릴 필요 없이 파일 내용 자체를 비교한다.
+// ============================================================
+let codeSigAtStart = null;   // 이 페이지가 시작될 때 쓰던 app.js의 서명
+let lastCodeCheckAt = 0;
+
+function textSig_(t) {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return `${t.length}:${h}`;
+}
+
+async function fetchCodeSig_(fresh) {
+  const res = await fetch('app.js', fresh ? { cache: 'no-store' } : undefined);
+  if (!res.ok) throw new Error('app.js ' + res.status);
+  return textSig_(await res.text());
+}
+
+function reloadForUpdate_() {
+  // 새로고침해도 같은 상태가 이어질 때 무한 반복하지 않게 60초에 한 번만
+  try {
+    const last = Number(sessionStorage.getItem('ttCodeReloadAt') || 0);
+    if (Date.now() - last < 60 * 1000) return;
+    if (isEditingNow()) return; // 입력 중이면 이번엔 건너뛰고 다음 확인 때
+    sessionStorage.setItem('ttCodeReloadAt', String(Date.now()));
+  } catch (e) { /* 저장소 막힌 환경이면 그냥 진행 */ }
+  console.info('새 버전을 받아 새로고침합니다');
+  location.reload();
+}
+
+async function checkCodeUpdate_() {
+  try {
+    if (Date.now() - lastCodeCheckAt < 5 * 60 * 1000) return;
+    lastCodeCheckAt = Date.now();
+    if (codeSigAtStart === null) {
+      // 첫 확인: 지금 쓰는 캐시본과 서버 최신본이 이미 다르면 바로 새로고침
+      const [cached, fresh] = await Promise.all([fetchCodeSig_(false), fetchCodeSig_(true)]);
+      codeSigAtStart = cached;
+      if (cached !== fresh) reloadForUpdate_();
+      return;
+    }
+    if (await fetchCodeSig_(true) !== codeSigAtStart) reloadForUpdate_();
+  } catch (e) { /* 오프라인 등은 조용히 넘어간다 */ }
+}
+
 async function checkDateRollover() {
+  checkCodeUpdate_(); // 로그인 전이어도 옛 코드는 새로고침한다 (기다리지 않음)
   if (!currentUser || !userData) return;
   const cur = todayStr();
   if (lastKnownDateStr && cur !== lastKnownDateStr) {
@@ -2179,3 +2227,4 @@ function showToast(msg, isErr = false) {
 // 초기화
 // ============================================================
 checkInviteParam();
+checkCodeUpdate_();
