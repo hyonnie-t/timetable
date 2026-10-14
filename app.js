@@ -1849,4 +1849,10 @@ function showToast(msg, isErr = false) {
 // ============================================================
 // 초기화
 // ============================================================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+  });
+}
+
 checkInviteParam();
