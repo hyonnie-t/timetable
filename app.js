@@ -2075,32 +2075,39 @@ const PIP_CSS = `
   * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, sans-serif; }
   #pip-widget {
     display:flex; flex-direction:column; height:100%;
-    background: rgba(15,17,23, var(--pip-alpha,0.55));
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    color:#fff; border-radius:12px; overflow:hidden;
-    border:1px solid rgba(255,255,255,.14);
-    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    background: rgba(255,255,255, var(--pip-alpha,0.62));
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    color:#1a1a1a; border-radius:14px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.7);
+    box-shadow: 0 10px 28px rgba(0,0,0,.18);
   }
   #pip-head {
     display:flex; align-items:center; justify-content:space-between;
-    gap:6px; padding:7px 9px; font-size:11px; font-weight:700;
-    background: rgba(0,0,0,.18);
-    border-bottom:1px solid rgba(255,255,255,.12); flex:0 0 auto;
+    gap:6px; padding:8px 10px; flex:0 0 auto;
+    border-bottom:1px solid rgba(0,0,0,.08);
   }
-  #pip-date { opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.5); }
-  #pip-opacity { width:52px; accent-color:#52b788; flex-shrink:0; }
-  #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 7px 7px; font-size:11px; }
-  .pip-row { display:flex; gap:6px; padding:6px 3px; border-bottom:1px solid rgba(255,255,255,.08); align-items:flex-start; border-left:3px solid transparent; }
+  #pip-date {
+    font-family:'Space Mono', 'Courier New', monospace;
+    font-size:10px; font-weight:700; letter-spacing:.5px;
+    color:#2d6a4f; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #pip-opacity { width:50px; accent-color:#2d6a4f; flex-shrink:0; }
+  #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 8px 8px; font-size:12px; }
+  .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
-  .pip-row.current { background:rgba(82,183,136,.22); border-left-color:#52b788; border-radius:0 6px 6px 0; }
-  .pip-p { flex:0 0 14px; font-weight:800; opacity:.8; font-size:10px; }
-  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:2px 5px; align-items:baseline; text-shadow:0 1px 2px rgba(0,0,0,.55); }
-  .pip-class { font-weight:800; color:#7fd8ac; }
-  .pip-topic { flex-basis:100%; opacity:.92; font-size:11px; }
-  .pip-note  { flex-basis:100%; font-size:10px; color:#ffd479; }
-  .pip-empty-cell, .pip-empty { opacity:.55; }
-  .pip-badge { padding:1px 6px; border-radius:4px; background:rgba(255,255,255,.18); font-size:10px; }
+  .pip-row.current { background:rgba(45,106,79,.1); border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
+  .pip-p { flex:0 0 14px; font-family:'Space Mono', monospace; font-weight:700; font-size:10px; color:#aaa; padding-top:1px; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; }
+  .pip-class {
+    font-family:'Space Mono', monospace; font-weight:700; font-size:11px;
+    color:#2d6a4f; background:#e8f5ee; padding:1px 6px; border-radius:5px;
+  }
+  .pip-topic { flex-basis:100%; font-size:12px; font-weight:500; color:#1a1a1a; }
+  .pip-note  { flex-basis:100%; font-size:10.5px; color:#b5690b; }
+  .pip-empty-cell, .pip-empty { color:#aaa; font-size:11px; }
+  .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
 `;
 
 function pipRowsHtml() {
@@ -2185,7 +2192,7 @@ window.openPipWidget = async function() {
   style.textContent = PIP_CSS;
   pipWindow.document.head.appendChild(style);
 
-  const savedAlpha = localStorage.getItem('pipAlpha') || '0.55';
+  const savedAlpha = localStorage.getItem('pipAlpha') || '0.62';
 
   pipWindow.document.body.innerHTML = `
     <div id="pip-widget" style="--pip-alpha:${savedAlpha}">
