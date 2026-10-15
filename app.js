@@ -30,7 +30,7 @@ let currentTab   = 'today';
 let todayRefreshTimer = null;
 let pipWindow      = null;
 let pipRefreshTimer = null;
-let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (앱을 며칠씩 안 새로고침해도 자동 진도 계산이 멈추지 않게)
+let lastKnownDateStr  = null; // 날짜 넘어감 감지용 (자정을 넘기면 차시를 새 날짜 기준으로 다시 그리게)
 let dateRolloverTimer = null;
 let lastRefreshAt      = 0;     // 서버에서 마지막으로 데이터를 읽어온 시각 (여러 기기 동기화용)
 let refreshing         = false;
@@ -166,122 +166,90 @@ function remainingLessonsUntilExam(cls, g) {
 
 // dateStr 기준으로 delta일 이동한 날짜 문자열
 function addDaysStr(dateStr, delta) {
-  const d = new Date(dateStr);
-  d.setHours(0,0,0,0);
+  const d = parseDateStr_(dateStr); // new Date('YYYY-MM-DD')는 UTC 자정이라 시간대에 따라 하루 밀릴 수 있음
   d.setDate(d.getDate() + delta);
   return dateToStr(d);
 }
 
 // ============================================================
-// 특정 날짜(targetDateStr) 시점의 예상 차시 오프셋 계산
+// 진도 계산 — 저장하지 않고 매번 계산한다
 // ============================================================
-function getOffsetUpToDate(cls, subject, targetDateStr) {
-  const progressKey = `${cls}_${subject}`;
-  const progress    = semProgress();
-  const current      = progress[progressKey]?.current ?? 0;
+// DB의 progress[학기][반_과목] = { current, lastUpdated } 는 "기준점" 하나뿐이다.
+//   뜻: lastUpdated 날이 끝났을 때까지 current 차시를 마쳤다.
+// 어떤 수업이 몇 차시인지는 기준점 + 그 사이 시간표 수업 수(학사일정으로 빠진 교시 제외)로
+// 그때그때 계산한다. 그래서 날마다 +1 해서 저장하는 일이 없고,
+//   - 앱을 안 열어도, 여러 기기를 써도, 수업 전/후 어느 때 고쳐도 하루가 빠지거나 겹치지 않고
+//   - 학사일정을 나중에 고치면 지난 차시까지 저절로 맞춰진다.
+// 기준점은 사람이 차시를 직접 고칠 때와 시간표를 바꿀 때만 바뀐다.
+// (예전 앱이 쓰던 자동 +1 저장도 같은 뜻이라, 옛 데이터·옛 기기와 그대로 호환된다)
 
-  const now = new Date();
-  now.setHours(0,0,0,0);
-  const today = todayStr();
-  const dow = now.getDay();
-  const thisWeekSun = new Date(now);
-  thisWeekSun.setDate(now.getDate() + (dow === 0 ? 0 : 7 - dow));
-  const thisWeekSunStr = dateToStr(thisWeekSun);
-
-  // lastUpdated 대신 "오늘부터 이번 주 일요일까지" 를 anchor로 사용
-  // (정상 상황에서는 lastUpdated+1 === today라서 결과 동일, 오늘 수동편집 시에도 안전)
-  const remainThisWeek = countKeyLessonsBetween(cls, subject, today, thisWeekSunStr);
-  const baseAtEndOfWeek = current + remainThisWeek;
-
-  const targetDate = new Date(targetDateStr);
-  targetDate.setHours(0,0,0,0);
-
-  const nextWeekMon = new Date(thisWeekSun);
-  nextWeekMon.setDate(thisWeekSun.getDate() + 1);
-
-  const targetPrev = new Date(targetDate);
-  targetPrev.setDate(targetDate.getDate() - 1);
-
-  if (targetPrev < nextWeekMon) {
-    return baseAtEndOfWeek;
-  }
-
-  const offset = countKeyLessonsBetween(cls, subject, dateToStr(nextWeekMon), dateToStr(targetPrev));
-  return baseAtEndOfWeek + offset;
+function parseDateStr_(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
 }
 
-// ============================================================
-// 진도 자동 계산 (어제까지만, 현재 학기 기준)
-// ============================================================
-// 계산과 메모리 반영은 동기로 끝내고, DB 저장은 persistProgress로 분리한다.
-// (저장 응답을 기다린 뒤에야 화면을 그리면, 폰이 막 깨어나 네트워크가 느릴 때
-//  며칠 전 화면이 그대로 남아 이미 한 수업이 오늘 차시로 보이던 문제가 있었음)
-// 반환값: DB에 쓸 변경분 (없으면 빈 객체)
-function applyAutoProgress() {
-  if (!currentUser || !userData) return {};
+// dateStr에 key 수업이 실제로 있는 교시 번호들 (학사일정으로 빠진 교시 제외, 오름차순)
+function lessonPeriodsOn(key, dateStr) {
+  const daySchedule = userData?.timetable?.schedule?.[DOW_KEY[parseDateStr_(dateStr).getDay()]] || {};
+  return Object.entries(daySchedule)
+    .filter(([p, cell]) => cell?.class && `${cell.class}_${cell.subject}` === key && !getCalendarEvent(dateStr, p))
+    .map(([p]) => Number(p))
+    .sort((a, b) => a - b);
+}
 
-  const schedule = userData.timetable?.schedule || {};
-  const progress = semProgress();
-  const now      = new Date();
-  const today    = todayStr();
+// fromStr~toStr(둘 다 포함) 사이 key 수업 수
+function countLessons(key, fromStr, toStr) {
+  let count = 0;
+  for (let d = fromStr; d <= toStr; d = addDaysStr(d, 1)) count += lessonPeriodsOn(key, d).length;
+  return count;
+}
 
-  const updates = {};
+// dateStr 날이 시작되기 전까지 마친 차시 수
+function doneBefore(key, dateStr) {
+  const entry = semProgress()[key];
+  if (!entry) return 0;
+  const done = entry.current ?? 0;
+  const lu   = entry.lastUpdated || addDaysStr(todayStr(), -1);
+  return dateStr > lu
+    ? done + countLessons(key, addDaysStr(lu, 1), addDaysStr(dateStr, -1))
+    : done - countLessons(key, dateStr, lu);
+}
 
-  const allKeys = Object.keys(progress);
-  if (!allKeys.length) return {};
+// dateStr p교시 수업이 몇 차시인지
+function lessonStep(key, dateStr, p) {
+  const earlier = lessonPeriodsOn(key, dateStr).filter(q => q < Number(p)).length;
+  return doneBefore(key, dateStr) + earlier + 1;
+}
 
-  let startDateStr = allKeys.reduce((acc, key) => {
-    const d = progress[key]?.lastUpdated || today;
-    return d < acc ? d : acc;
-  }, today);
+// "dateStr p교시 수업 = step차시"가 되게 하는 기준점
+function anchorForLesson(key, dateStr, p, step) {
+  const earlier = lessonPeriodsOn(key, dateStr).filter(q => q < Number(p)).length;
+  return { current: step - 1 - earlier, lastUpdated: addDaysStr(dateStr, -1) };
+}
 
-  const cursor = new Date(startDateStr);
-
-  while (cursor <= now) {
-    const dateStr = dateToStr(cursor);
-
-    if (dateStr === today) {
-      cursor.setDate(cursor.getDate() + 1);
-      continue;
-    }
-
-    const dayKey      = DOW_KEY[cursor.getDay()];
-    const daySchedule = schedule[dayKey] || {};
-
-    for (const [periodStr, cell] of Object.entries(daySchedule)) {
-      if (!cell?.class || !cell?.subject) continue;
-      const progressKey = `${cell.class}_${cell.subject}`;
-      if (!progress[progressKey]) continue;
-
-      const lastUpdated = progress[progressKey]?.lastUpdated || startDateStr;
-      if (dateStr <= lastUpdated) continue;
-
-      const ev = getCalendarEvent(dateStr, periodStr);
-      if (ev) continue;
-
-      const cur = updates[progressKey]?.current ?? progress[progressKey]?.current ?? 0;
-      updates[progressKey] = {
-        current: cur + 1,
-        lastUpdated: dateStr
-      };
-    }
-
-    cursor.setDate(cursor.getDate() + 1);
+// 아직 안 끝난 가장 가까운 key 수업 (지금 진행 중인 수업 포함). 없으면 null
+function nextLesson(key) {
+  const today   = todayStr();
+  const now     = new Date();
+  const nowMin  = now.getHours() * 60 + now.getMinutes();
+  const periods = getPeriods();
+  for (let i = 0, d = today; i < 120; i++, d = addDaysStr(d, 1)) {
+    const ps = lessonPeriodsOn(key, d).filter(p => d !== today || parseTimeToMin(periods[p]?.end) > nowMin);
+    if (ps.length) return { date: d, p: ps[0] };
   }
+  return null;
+}
 
-  const dbUpdates = {};
-  // 진단 이력: 어제 수업을 못 센 이유 (progress를 덮어쓰기 전에 기록해야 이전 값이 남는다)
-  try { diagnoseYesterday_(progress, schedule, updates, dbUpdates); } catch (e) { console.error(e); }
-  for (const [key, val] of Object.entries(updates)) {
-    const before = progress[key] || {};
-    addProgressLog_(dbUpdates, '자동', key, {
-      from: before.current ?? 0, to: val.current, luFrom: before.lastUpdated || '', luTo: val.lastUpdated
-    });
-    dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = val;
-    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-    userData.progress[CURRENT_SEMESTER][key] = val;
-  }
-  return dbUpdates;
+// 지금 기준 "다음 수업" 차시 (진도표·수업 주제 탭 표시용)
+function nextStep(key) {
+  const n = nextLesson(key);
+  return n ? lessonStep(key, n.date, n.p) : doneBefore(key, todayStr()) + 1;
+}
+
+function lessonLabel(n) {
+  if (!n) return '';
+  const d = parseDateStr_(n.date);
+  return `${n.date === todayStr() ? '오늘' : `${d.getMonth() + 1}/${d.getDate()}(${DOW_KO[d.getDay()]})`} ${n.p}교시`;
 }
 
 // 진도 이력(progressLog)은 본 저장과 분리해서 쓴다 — 이력 쓰기가 막히거나 실패해도
@@ -296,43 +264,13 @@ async function updateWithLog_(updates) {
   }
 }
 
-// 저장 실패해도 화면은 이미 최신이고, 다음 로드 때 같은 계산이 다시 돌아 복구된다
-async function persistProgress(dbUpdates) {
-  if (!dbUpdates || !Object.keys(dbUpdates).length) return;
-  try {
-    await updateWithLog_(dbUpdates);
-  } catch (e) {
-    console.error('진도 자동 저장 실패', e);
-    showToast('진도 자동 저장 실패 — 다음에 앱을 열 때 다시 시도해요', true);
-  }
-}
-
-// 숫자를 수동으로 고칠 때 찍을 lastUpdated.
-// 카드는 "완료 N차시 → 오늘 수업 = N+1"로 보여주고, 오늘 수업은 내일 자동으로 +1 된다.
-// 그런데 수업 전에 숫자를 고치면서 lastUpdated를 오늘로 찍으면 오늘 수업이
-// "이미 처리된 날"이 돼 영영 카운트되지 않고, 다음 수업에 같은 차시가 또 뜬다.
-// → 오늘 이 반 수업이 아직 안 끝났으면 어제로 찍어 오늘 수업이 내일 세어지게 하고,
-//   이미 끝났으면(저장한 숫자에 오늘 수업이 포함된 것) 오늘로 찍는다.
-function lastUpdatedForManualSave(key) {
-  const today    = todayStr();
-  const now      = new Date();
-  const nowMin   = now.getHours() * 60 + now.getMinutes();
-  const periods  = getPeriods();
-  const daySched = userData?.timetable?.schedule?.[DOW_KEY[now.getDay()]] || {};
-  const pending  = Object.entries(daySched).some(([p, cell]) =>
-    cell?.class && `${cell.class}_${cell.subject}` === key
-    && !getCalendarEvent(today, p)
-    && parseTimeToMin(periods[p]?.end) > nowMin);
-  return pending ? addDaysStr(today, -1) : today;
-}
-
 // ============================================================
 // 진도 변경 이력 (진단용) — 설정 > 데이터 진단 하단 표에서 확인
-// "차시가 안 넘어갔을 때" 누가·언제·어느 기기에서 숫자와 lastUpdated를 바꿨는지,
-// 어제 수업을 자동 집계에서 왜 못 셌는지를 남긴다. 진도 계산 자체에는 영향 없음.
+// 누가·언제·어느 기기에서 진도 기준점(current·lastUpdated)을 바꿨는지 남긴다.
+// 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-14-diag3';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-15-derived1';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -370,38 +308,6 @@ function addProgressLog_(updates, src, key, f = {}, id) {
     updates[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${eid}`] = entry;
     semLog_()[eid] = entry;
   } catch (e) { console.error('진도 이력 기록 실패', e); }
-}
-
-// 어제 수업이 있었는데 이번 자동 집계에서 세지 못한 이유를 남긴다 (같은 날·교시·반은 한 번만)
-function diagnoseYesterday_(progress, schedule, counted, out) {
-  const y = addDaysStr(todayStr(), -1);
-  const daySchedule = schedule[DOW_KEY[new Date(y).getDay()]] || {};
-  const logs = semLog_();
-  for (const [periodStr, cell] of Object.entries(daySchedule)) {
-    if (!cell?.class || !cell?.subject) continue;
-    const key = `${cell.class}_${cell.subject}`;
-    const id  = `skip_${y}_${periodStr}_${key.replace(/[.$#\[\]\/\s]/g, '_')}`;
-    if (logs[id]) continue;
-    if ((counted[key]?.lastUpdated || '') >= y) continue; // 이번에 방금 센 반
-    const entry = progress[key];
-    let note = '';
-    if (!entry) note = '진도 기록(progress)이 없어 어제 수업을 세지 않음';
-    else {
-      const ev = getCalendarEvent(y, periodStr);
-      const lu = entry.lastUpdated || '';
-      if (ev) note = `학사일정 "${ev.label || ev.type || ''}"이(가) ${periodStr}교시에 있어 수업 없음으로 처리`;
-      else if (lu > y) note = `lastUpdated(${lu})가 어제보다 뒤라서 어제 수업을 세지 않음`;
-      else if (lu === y) {
-        const autoDone = Object.values(logs).some(e => e.src === '자동' && e.key === key && e.luTo === y);
-        if (autoDone) continue; // 정상: 자동 집계가 어제를 이미 센 상태
-        // 이 반의 이력이 아직 하나도 없으면 비교 기준이 없다(이력 기능 도입 직후·이력 정리 뒤) → 헛경고를 남기지 않는다
-        const hasBaseline = Object.values(logs).some(e => e.key === key && e.src !== '어제미집계');
-        if (!hasBaseline) continue;
-        note = `lastUpdated가 어제(${y})로 찍혀 있고 자동 집계 이력이 없음 → 수동 저장 등으로 어제가 처리된 것으로 간주`;
-      } else continue; // lastUpdated < 어제 → 위 루프에서 세어졌어야 하는 정상 경로
-    }
-    addProgressLog_(out, '어제미집계', key, { from: entry?.current ?? '', luFrom: entry?.lastUpdated || '', n: note }, id);
-  }
 }
 
 // 이력이 너무 쌓이지 않게 오래된 것부터 지운다 + 이 기기의 마지막 접속(빌드 포함)을 남긴다
@@ -449,12 +355,13 @@ async function loadUserData() {
   if (!userData.lessonNotes) userData.lessonNotes = {};
   if (!userData.classNotes)  userData.classNotes  = {};
 
-  const pending = applyAutoProgress();
-  maintainProgressLog_(pending);
+  // 진도는 화면을 그릴 때 계산하므로 여기서 저장할 것이 없다 (기기 접속 기록·이력 정리만)
+  const logUpdates = {};
+  maintainProgressLog_(logUpdates);
   lastKnownDateStr = todayStr();
   lastRefreshAt    = Date.now();
   renderCurrentTab();
-  persistProgress(pending);
+  if (Object.keys(logUpdates).length) updateWithLog_(logUpdates).catch(e => console.warn('이력 저장 실패', e));
 }
 
 // ============================================================
@@ -463,7 +370,7 @@ async function loadUserData() {
 // 폰과 PC처럼 여러 기기에서 열어두면 한쪽 메모리의 데이터가 낡은 채로 남는다.
 // 낡은 값을 기준으로 +1 계산해 저장하면 다른 기기에서 수동으로 고친 차시를
 // 덮어쓰므로, 탭이 다시 보이거나 포커스를 받을 때(최소 1분 간격) 서버에서
-// 최신 데이터를 다시 읽고, 진도 자동 계산·저장은 그 최신 데이터 기준으로만 한다.
+// 최신 데이터를 다시 읽는다. (진도는 자동 저장하지 않으므로 다른 기기 값을 덮어쓸 일은 없다)
 // 입력 중(편집기·모달·입력창)에는 화면이 다시 그려지며 입력이 날아가므로 건너뛴다.
 const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
 
@@ -539,9 +446,7 @@ async function checkDateRollover() {
   const cur = todayStr();
   if (lastKnownDateStr && cur !== lastKnownDateStr) {
     lastKnownDateStr = cur;
-    // 날짜가 넘어갔으면 일단 메모리만 갱신해 화면부터 최신으로 보여준다.
-    // 저장은 아래 refreshFromServer가 서버 최신 데이터 기준으로 다시 계산해서 한다.
-    applyAutoProgress();
+    // 날짜가 넘어가면 다시 그리기만 하면 차시가 새 날짜 기준으로 계산된다
     renderCurrentTab();
     if (pipWindow) renderPipWidget();
     lastRefreshAt = 0;
@@ -664,7 +569,6 @@ function renderToday() {
   const schedule = userData.timetable?.schedule?.[dayKey] || {};
   const periods  = getPeriods();
   const today    = todayStr();
-  const progress = semProgress();
 
   el.innerHTML = '';
 
@@ -718,7 +622,7 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[curP];
       const key     = `${cls}_${subject}`;
-      const current = (progress[key]?.current ?? 0) + 1;
+      const current = lessonStep(key, today, curP);
       const topic   = userData.curriculum[key]?.[current] || '';
       el.innerHTML += `
         <div class="banner banner-now">
@@ -732,7 +636,7 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[nextP];
       const key     = `${cls}_${subject}`;
-      const current = (progress[key]?.current ?? 0) + 1;
+      const current = lessonStep(key, today, nextP);
       const topic   = userData.curriculum[key]?.[current] || '';
       el.innerHTML += `
         <div class="banner banner-next">
@@ -766,8 +670,8 @@ function renderToday() {
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
       const key           = `${cls}_${subject}`;
-      const current       = (progress[key]?.current ?? 0) + 1; // 화면 표시(뱃지) = 다음 차시
-      const completedStep = progress[key]?.current ?? 0;        // 편집 카운터의 기준값 = 완료한 차시
+      const current       = lessonStep(key, today, p);          // 이 수업의 차시
+      const completedStep = current - 1;                        // 메모는 직전 차시(어디까지 나갔는지)
       const topic         = userData.curriculum[key]?.[current] || '';
       const note          = userData.lessonNotes?.[key]?.[completedStep] || '';
 
@@ -787,11 +691,11 @@ function renderToday() {
           ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
           ${renderClassNoteBlock(key)}
           <div class="step-editor" id="editor-${p}">
-            <div class="step-editor-label">완료한 차시</div>
+            <div class="step-editor-label">이 수업(${p}교시)은 몇 차시?</div>
             <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
-            <span class="step-display" id="step-disp-${p}">${completedStep}</span>
+            <span class="step-display" id="step-disp-${p}">${current}</span>
             <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
-            <span class="topic-label" id="topic-label-${p}">${completedStep + 1}차시 주제</span>
+            <span class="topic-label" id="topic-label-${p}">${current}차시 주제</span>
             <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
             <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
@@ -825,9 +729,9 @@ window.toggleEditor = function(p) {
 window.adjustStep = function(p, delta) {
   const disp = document.getElementById(`step-disp-${p}`);
   if (!disp) return;
-  const cur  = parseInt(disp.textContent) || 0;
-  const next = Math.max(0, cur + delta); // 완료 차시는 0부터 시작 가능 (0 = 아직 안 함)
-  disp.textContent = next;
+  const cur  = parseInt(disp.textContent) || 1;
+  const step = Math.max(1, cur + delta); // 이 수업의 차시 (1차시부터)
+  disp.textContent = step;
 
   let key = '';
   document.querySelectorAll('.period-card').forEach(c => {
@@ -835,16 +739,46 @@ window.adjustStep = function(p, delta) {
   });
 
   if (key) {
-    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[next + 1] || '';
-    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    document.getElementById(`topic-inp-${p}`).value = userData.curriculum[key]?.[step] || '';
+    document.getElementById(`note-inp-${p}`).value  = userData.lessonNotes?.[key]?.[step - 1] || '';
     const topicLabel = document.getElementById(`topic-label-${p}`);
-    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
+    if (topicLabel) topicLabel.textContent = `${step}차시 주제`;
     const noteLabel = document.getElementById(`note-label-${p}`);
-    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+    if (noteLabel) noteLabel.textContent = `${step - 1}차시 메모`;
   }
 };
 
-// 화면 숫자 = 완료한 차시. 더 이상 -1 계산 없음 — 보이는 숫자가 곧 저장값.
+// 차시·주제·메모 저장 (오늘 탭·진도표 탭 공통)
+// lesson = {date, p}: "그 수업 = step차시"로 기준점을 옮긴다. 수업 전에 고치든 후에 고치든 뜻이 같다.
+// 차시 숫자를 안 바꿨으면 기준점은 건드리지 않고 주제·메모만 저장한다.
+async function saveLessonEdit_(key, lesson, step, newTopic, newNote, src) {
+  const prevStep = lessonStep(key, lesson.date, lesson.p);
+  const stepChanged = step !== prevStep;
+  const updates = {};
+  let anchor = null;
+  if (stepChanged) {
+    const before = semProgress()[key] || {};
+    anchor = anchorForLesson(key, lesson.date, lesson.p, step);
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = anchor;
+    addProgressLog_(updates, src, key, {
+      from: before.current ?? '', to: anchor.current, luFrom: before.lastUpdated || '', luTo: anchor.lastUpdated,
+      n: `${lessonLabel(lesson)} 수업을 ${prevStep}차시 → ${step}차시로 고침`
+    });
+  }
+  if (newTopic) updates[`users/${currentUser.uid}/curriculum/${key}/${step}`] = newTopic;
+  updates[`users/${currentUser.uid}/lessonNotes/${key}/${step - 1}`] = newNote || null;
+
+  await updateWithLog_(updates);
+
+  if (anchor) userData.progress[CURRENT_SEMESTER][key] = anchor;
+  if (!userData.curriculum[key]) userData.curriculum[key] = {};
+  if (newTopic) userData.curriculum[key][step] = newTopic;
+  if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
+  if (newNote) userData.lessonNotes[key][step - 1] = newNote;
+  else delete userData.lessonNotes[key][step - 1];
+}
+
+// 화면 숫자 = 이 수업(오늘 p교시)의 차시
 window.saveStep = async function(p) {
   const btn      = document.getElementById(`save-btn-${p}`);
   const disp     = document.getElementById(`step-disp-${p}`);
@@ -857,74 +791,17 @@ window.saveStep = async function(p) {
   });
   if (!key) return;
 
-  const currentToSave = parseInt(disp.textContent) || 0;
-  const displayStep    = currentToSave + 1; // 다음 차시 (뱃지 표시 / 주제 인덱스용)
-  const newTopic       = input.value.trim();
-  const newNote        = noteInp.value.trim();
-
-  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
-  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
-  // (예: 수업 전에 주제만 미리 입력해두고 저장한 경우)
-  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
-  const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
-
   btn.disabled    = true;
   btn.textContent = '저장 중…';
 
   try {
-    const updates = {};
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
-      current: currentToSave,
-      lastUpdated
-    };
-    if (newTopic) {
-      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
-    }
-    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
-    if (countChanged) {
-      addProgressLog_(updates, '수동(오늘탭)', key, {
-        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
-        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
-      });
-    }
-
-    await updateWithLog_(updates);
-
-    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-    userData.progress[CURRENT_SEMESTER][key] = {
-      current: currentToSave,
-      lastUpdated
-    };
-    if (!userData.curriculum[key]) userData.curriculum[key] = {};
-    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
-
-    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
-    if (newNote) {
-      userData.lessonNotes[key][currentToSave] = newNote;
-    } else {
-      delete userData.lessonNotes[key][currentToSave];
-    }
-
-    document.getElementById(`topic-display-${p}`).textContent =
-      userData.curriculum[key][displayStep] || '주제 미설정';
-    document.getElementById(`step-display-${p}`).textContent  = `${displayStep}차시`;
-
-    const noteDisplay = document.getElementById(`note-display-${p}`);
-    if (newNote) {
-      noteDisplay.textContent = `📝 ${newNote}`;
-      noteDisplay.style.display = '';
-    } else {
-      noteDisplay.textContent = '';
-      noteDisplay.style.display = 'none';
-    }
-
-    document.getElementById(`editor-${p}`).classList.remove('open');
+    const step = Math.max(1, parseInt(disp.textContent) || 1);
+    await saveLessonEdit_(key, { date: todayStr(), p }, step, input.value.trim(), noteInp.value.trim(), '수동(오늘탭)');
     showToast(`${key} 저장 완료`);
+    renderCurrentTab(); // 같은 반의 다른 교시·배너도 새 기준으로 다시 계산
+    if (pipWindow) renderPipWidget();
   } catch(e) {
     showToast('저장 실패: ' + e.message, true);
-  } finally {
     btn.disabled    = false;
     btn.textContent = '저장';
   }
@@ -945,8 +822,6 @@ function renderWeekly() {
     const periods    = getPeriods();
     const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
     const today      = todayStr();
-    const yesterday  = addDaysStr(today, -1);
-    const progress   = semProgress();
 
     let html = '<div class="week-grid"><table><thead><tr><th></th>';
     dates.forEach((d, i) => {
@@ -969,22 +844,8 @@ function renderWeekly() {
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
-          const key     = `${cell.class}_${cell.subject}`;
-          const current = progress[key]?.current ?? 0;
-
-          let step;
-          if (offsetWeeks === 0) {
-            // 오늘 기준으로 과거/미래를 나눠 계산 (lastUpdated는 사용 안 함 — 셀 간 충돌 방지)
-            if (dateStr < today) {
-              const afterCount = countKeyLessonsBetween(cell.class, cell.subject, addDaysStr(dateStr, 1), yesterday);
-              step = current - afterCount;
-            } else {
-              const upToCount = countKeyLessonsBetween(cell.class, cell.subject, today, dateStr);
-              step = current + upToCount;
-            }
-          } else {
-            step = getOffsetUpToDate(cell.class, cell.subject, dateStr) + 1;
-          }
+          const key   = `${cell.class}_${cell.subject}`;
+          const step  = lessonStep(key, dateStr, p);
 
           const topic = userData.curriculum[key]?.[step] || '';
           html += `<td class="has-class${isToday ? ' today-col' : ''}">
@@ -1030,7 +891,6 @@ function renderProgress() {
   if (!el) return;
 
   const schedule  = userData.timetable?.schedule || {};
-  const progress  = semProgress();
   const classSet  = new Map();
 
   for (const daySchedule of Object.values(schedule)) {
@@ -1075,18 +935,21 @@ function renderProgress() {
 
     for (const item of items) {
       const idx           = progIdx++;
-      const current       = (progress[item.key]?.current ?? 0) + 1; // 화면 표시(다음 차시)
-      const completedStep = progress[item.key]?.current ?? 0;        // 편집 카운터 기준값
+      const lesson        = nextLesson(item.key) || { date: todayStr(), p: 0 }; // 아직 안 끝난 가장 가까운 수업
+      const current       = lessonStep(item.key, lesson.date, lesson.p);
+      const completedStep = current - 1;
+      const whenLabel     = lesson.p ? lessonLabel(lesson) : '';
       const currTopicRaw  = userData.curriculum[item.key]?.[current]     || '';
       const nextTopicRaw  = userData.curriculum[item.key]?.[current + 1] || '';
       const afterTopicRaw = userData.curriculum[item.key]?.[current + 2] || '';
       const currNote      = userData.lessonNotes?.[item.key]?.[completedStep] || '';
 
       html += `
-        <div class="progress-card" data-key="${item.key}">
+        <div class="progress-card" data-key="${item.key}" data-date="${lesson.date}" data-p="${lesson.p}">
           <div class="progress-header">
             <span class="prog-badge">${item.class}</span>
             <span class="prog-step">${current}차시</span>
+            ${whenLabel ? `<span class="prog-when" style="font-size:12px;opacity:.6">${whenLabel}</span>` : ''}
             <button class="edit-btn" onclick="window.toggleProgEditor(${idx})">✏️</button>
           </div>
           <div class="prog-dates">
@@ -1109,11 +972,11 @@ function renderProgress() {
           </div>
           ${renderClassNoteBlock(item.key)}
           <div class="step-editor" id="prog-editor-${idx}">
-            <div class="step-editor-label">완료한 차시</div>
+            <div class="step-editor-label">${whenLabel ? `다음 수업(${whenLabel})은 몇 차시?` : '다음 수업은 몇 차시?'}</div>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, -1)">−</button>
-            <span class="step-display" id="prog-step-disp-${idx}">${completedStep}</span>
+            <span class="step-display" id="prog-step-disp-${idx}">${current}</span>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, +1)">+</button>
-            <span class="topic-label" id="prog-topic-label-${idx}">${completedStep + 1}차시 주제</span>
+            <span class="topic-label" id="prog-topic-label-${idx}">${current}차시 주제</span>
             <input class="topic-input" id="prog-topic-inp-${idx}" value="${currTopicRaw.replace(/"/g,'&quot;')}" placeholder="수업 주제 입력" />
             <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
@@ -1134,9 +997,9 @@ window.toggleProgEditor = function(idx) {
 window.adjustProgStep = function(idx, delta) {
   const disp = document.getElementById(`prog-step-disp-${idx}`);
   if (!disp) return;
-  const cur  = parseInt(disp.textContent) || 0;
-  const next = Math.max(0, cur + delta);
-  disp.textContent = next;
+  const cur  = parseInt(disp.textContent) || 1;
+  const step = Math.max(1, cur + delta);
+  disp.textContent = step;
 
   let key = '';
   document.querySelectorAll('.progress-card').forEach(c => {
@@ -1144,12 +1007,12 @@ window.adjustProgStep = function(idx, delta) {
   });
 
   if (key) {
-    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[next + 1] || '';
-    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[next] || '';
+    document.getElementById(`prog-topic-inp-${idx}`).value = userData.curriculum[key]?.[step] || '';
+    document.getElementById(`prog-note-inp-${idx}`).value  = userData.lessonNotes?.[key]?.[step - 1] || '';
     const topicLabel = document.getElementById(`prog-topic-label-${idx}`);
-    if (topicLabel) topicLabel.textContent = `${next + 1}차시 주제`;
+    if (topicLabel) topicLabel.textContent = `${step}차시 주제`;
     const noteLabel = document.getElementById(`prog-note-label-${idx}`);
-    if (noteLabel) noteLabel.textContent = `${next}차시 메모`;
+    if (noteLabel) noteLabel.textContent = `${step - 1}차시 메모`;
   }
 };
 
@@ -1159,61 +1022,20 @@ window.saveProgStep = async function(idx) {
   const input   = document.getElementById(`prog-topic-inp-${idx}`);
   const noteInp = document.getElementById(`prog-note-inp-${idx}`);
 
-  let key = '';
+  let card = null;
   document.querySelectorAll('.progress-card').forEach(c => {
-    if (c.querySelector(`#prog-editor-${idx}`)) key = c.dataset.key;
+    if (c.querySelector(`#prog-editor-${idx}`)) card = c;
   });
-  if (!key) return;
-
-  const currentToSave = parseInt(disp.textContent) || 0;
-  const displayStep    = currentToSave + 1;
-  const newTopic       = input.value.trim();
-  const newNote        = noteInp.value.trim();
-
-  // 완료한 차시 숫자를 실제로 바꾼 게 아니라 주제/메모만 손댄 저장이면
-  // lastUpdated를 오늘로 찍지 않는다 — 안 그러면 그날 실제 수업이 나중에
-  // applyAutoProgress로 자동 카운트될 기회를 이 저장이 미리 없애버림
-  const prevEntry    = userData.progress[CURRENT_SEMESTER]?.[key] || {};
-  const countChanged = currentToSave !== (prevEntry.current ?? 0);
-  const lastUpdated  = countChanged ? lastUpdatedForManualSave(key) : (prevEntry.lastUpdated || todayStr());
+  if (!card) return;
+  const key    = card.dataset.key;
+  const lesson = { date: card.dataset.date, p: Number(card.dataset.p) || 0 };
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
 
   try {
-    const updates = {};
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = {
-      current: currentToSave,
-      lastUpdated
-    };
-    if (newTopic) {
-      updates[`users/${currentUser.uid}/curriculum/${key}/${displayStep}`] = newTopic;
-    }
-    updates[`users/${currentUser.uid}/lessonNotes/${key}/${currentToSave}`] = newNote || null;
-    if (countChanged) {
-      addProgressLog_(updates, '수동(진도탭)', key, {
-        from: prevEntry.current ?? 0, to: currentToSave, luFrom: prevEntry.lastUpdated || '', luTo: lastUpdated,
-        n: lastUpdated === todayStr() ? '오늘 수업이 끝난 것으로 판단 → 저장한 숫자에 오늘 수업이 포함됐다고 봄' : '오늘 수업 전으로 판단 → 오늘 수업은 내일 센다'
-      });
-    }
-
-    await updateWithLog_(updates);
-
-    if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-    userData.progress[CURRENT_SEMESTER][key] = {
-      current: currentToSave,
-      lastUpdated
-    };
-    if (!userData.curriculum[key]) userData.curriculum[key] = {};
-    if (newTopic) userData.curriculum[key][displayStep] = newTopic;
-
-    if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
-    if (newNote) {
-      userData.lessonNotes[key][currentToSave] = newNote;
-    } else {
-      delete userData.lessonNotes[key][currentToSave];
-    }
-
+    const step = Math.max(1, parseInt(disp.textContent) || 1);
+    await saveLessonEdit_(key, lesson, step, input.value.trim(), noteInp.value.trim(), '수동(진도탭)');
     showToast(`${key} 저장 완료`);
     renderProgress();
   } catch(e) {
@@ -1242,12 +1064,10 @@ function renderSubject() {
     </div>
     <div class="subject-columns">`;
 
-  const progress = semProgress();
-
   groups.forEach((group, gi) => {
     const repKey     = `${group.classes[0]}_${group.subject}`;
     const curriculum = userData.curriculum[repKey] || {};
-    const current    = (progress[repKey]?.current ?? 0) + 1;
+    const current    = nextStep(repKey);
 
     const WINDOW   = 2;
     const minStep  = Math.max(1, current - WINDOW);
@@ -1512,6 +1332,15 @@ window.saveTimetable = async function() {
   const inputs   = document.querySelectorAll('.cell-input');
   const schedule = {};
   const progress = semProgress();
+  const yesterday = addDaysStr(todayStr(), -1);
+
+  // 차시는 시간표로 계산하므로, 시간표를 바꾸면 지난 수업까지 다시 계산돼 차시가 틀어진다.
+  // → 바꾸기 전에 지금(옛 시간표) 기준으로 "어제까지 마친 차시"를 기준점으로 고정해 두고,
+  //   새 시간표는 오늘부터만 적용되게 한다.
+  const anchors = {};
+  for (const key of Object.keys(progress)) {
+    anchors[key] = { current: doneBefore(key, todayStr()), lastUpdated: yesterday };
+  }
 
   inputs.forEach(input => {
     const p   = Number(input.dataset.period);
@@ -1527,14 +1356,8 @@ window.saveTimetable = async function() {
       if (cls && subject) {
         schedule[day][p] = { class: cls, subject };
         const key = `${cls}_${subject}`;
-        // 현재 학기에 없는 키면 0으로 초기화
-        // lastUpdated를 오늘이 아니라 어제로 잡아둔다 — 시간표를 추가한 날이
-        // 하필 그 반 첫 수업일과 겹치면, 오늘로 찍는 순간 applyAutoProgress가
-        // 그날을 "이미 처리됨"으로 보고 첫 수업을 영구히 못 세는 문제가 생김
-        if (!progress[key]) {
-          if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-          userData.progress[CURRENT_SEMESTER][key] = { current: 0, lastUpdated: addDaysStr(todayStr(), -1) };
-        }
+        // 새 반은 "어제까지 0차시" → 오늘 이후 첫 수업이 1차시
+        if (!anchors[key]) anchors[key] = { current: 0, lastUpdated: yesterday };
       }
     }
   });
@@ -1542,13 +1365,16 @@ window.saveTimetable = async function() {
   try {
     const dbUpdates = {};
     dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
-    dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}`] = userData.progress[CURRENT_SEMESTER];
+    for (const [key, a] of Object.entries(anchors)) {
+      dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = a;
+    }
     addProgressLog_(dbUpdates, '시간표저장', '(전체)', {
-      n: 'progress 전체를 이 기기 메모리 값으로 덮어씀: ' + Object.entries(userData.progress[CURRENT_SEMESTER] || {})
-        .map(([k, v]) => `${k}=${v.current}@${v.lastUpdated || ''}`).join(', ')
+      n: '옛 시간표 기준 어제까지 마친 차시로 기준점 고정: ' + Object.entries(anchors)
+        .map(([k, v]) => `${k}=${v.current}`).join(', ')
     });
     await updateWithLog_(dbUpdates);
     userData.timetable.schedule = schedule;
+    Object.assign(userData.progress[CURRENT_SEMESTER], anchors);
 
     closeModal('modal-timetable');
     showToast('시간표 저장 완료');
@@ -1716,7 +1542,7 @@ window.openDataDiag = function() {
 
   html += `
           <table class="cal-table">
-            <thead><tr><th>요일</th><th>교시</th><th>반(문자열)</th><th>과목(문자열)</th><th>progress key</th><th>current</th><th>lastUpdated</th></tr></thead>
+            <thead><tr><th>요일</th><th>교시</th><th>반(문자열)</th><th>과목(문자열)</th><th>progress key</th><th>기준점 current</th><th>기준점 lastUpdated</th><th>다음 수업 차시</th></tr></thead>
             <tbody>`;
   cells.forEach(c => {
     const prog = progress[c.key];
@@ -1728,6 +1554,7 @@ window.openDataDiag = function() {
       <td><code>${visibleStr(c.key)}</code></td>
       <td>${prog ? prog.current : '<span style="color:#d33">없음</span>'}</td>
       <td>${prog ? (prog.lastUpdated || '') : ''}</td>
+      <td>${nextStep(c.key)}</td>
     </tr>`;
   });
   html += `</tbody></table>`;
@@ -1748,7 +1575,7 @@ window.openDataDiag = function() {
   }).join('');
   html += `
           <h3 style="margin:18px 0 6px;font-size:14px">진도 변경 이력 <small style="font-weight:400">(최근 40건, 최신순 · 이 화면 빌드 ${escapeHtml(APP_BUILD)} · ${escapeHtml(me.label)}·${escapeHtml(me.id)})</small></h3>
-          <p class="modal-hint">차시가 안 넘어갔으면 어제~오늘 이 반의 줄을 봐. <b>자동</b>=어제 수업을 센 기록, <b>수동</b>=직접 고친 기록(메모에 수업 전/후 판단이 남아), <b>어제미집계</b>=어제 수업을 못 센 이유, <b>시간표저장</b>=진도 전체를 이 기기 값으로 덮어쓴 기록. 이 기능이 들어간 뒤의 일만 남아.</p>
+          <p class="modal-hint">차시는 기준점(current·lastUpdated) + 그 뒤 시간표 수업 수로 매번 계산해. 기준점이 바뀌는 건 <b>수동</b>(직접 고침)과 <b>시간표저장</b>뿐이야. <b>자동</b>·<b>어제미집계</b>는 예전 방식(2026-10-15 이전) 기록이야.</p>
           <table class="cal-table">
             <thead><tr><th>시각</th><th>기기</th><th>구분</th><th>반_과목</th><th>current</th><th>lastUpdated</th><th>메모</th></tr></thead>
             <tbody>${rowsHtml || '<tr><td colspan="7">아직 이력이 없어</td></tr>'}</tbody>
@@ -2121,7 +1948,6 @@ function pipRowsHtml() {
   const schedule = userData.timetable?.schedule?.[dayKey] || {};
   const periods  = getPeriods();
   const today    = todayStr();
-  const progress = semProgress();
   const periodList = Object.keys(periods).map(Number).sort((a, b) => a - b);
   const curP     = getCurrentPeriod();
 
@@ -2137,7 +1963,7 @@ function pipRowsHtml() {
       body = `<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
     } else if (cell?.class) {
       const key     = `${cell.class}_${cell.subject}`;
-      const current = (progress[key]?.current ?? 0) + 1;
+      const current = lessonStep(key, today, p);
       const topic   = userData.curriculum?.[key]?.[current] || '';
       const note    = userData.classNotes?.[key]?.text || '';
       body = `
