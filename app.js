@@ -1893,18 +1893,18 @@ function showLogin() {
 }
 
 // ============================================================
-// 미니창(Document Picture-in-Picture) — 항상 위 + 투명도 조절
+// 미니창(Document Picture-in-Picture) — 항상 위 + 밝기 조절
 // 다른 작업을 하면서 오늘 시간표를 겹쳐 볼 수 있도록 별도 창으로 띄운다.
 // 크로미움 기반 브라우저(웨일 포함)만 지원, 미지원 브라우저는 버튼 자체를 숨김.
+// PiP 창은 OS 입장에서 불투명한 별도 창이라 웹 코드로 창 투명도를 바꿀 수 없다.
+// 그래서 슬라이더는 투명도가 아니라 배경 밝기(회색 ↔ 흰색)를 조절한다.
 // ============================================================
 const PIP_CSS = `
   html, body { margin:0; padding:0; height:100%; background:transparent; }
   * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, sans-serif; }
   #pip-widget {
     display:flex; flex-direction:column; height:100%;
-    background: rgba(255,255,255, var(--pip-alpha,0.62));
-    backdrop-filter: blur(16px) saturate(160%);
-    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    background: var(--pip-bg, #f4f4f4);
     color:#1a1a1a; border-radius:14px; overflow:hidden;
     border:1px solid rgba(255,255,255,.7);
     box-shadow: 0 10px 28px rgba(0,0,0,.18);
@@ -1936,6 +1936,13 @@ const PIP_CSS = `
   .pip-empty-cell, .pip-empty { color:#aaa; font-size:11px; }
   .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
 `;
+
+// 슬라이더 값(0.1~0.95) → 배경 회색~흰색
+function pipBgFromLevel(v) {
+  const t = Math.min(1, Math.max(0, (parseFloat(v) - 0.1) / 0.85));
+  const c = Math.round(205 + 50 * t);
+  return `rgb(${c},${c},${c})`;
+}
 
 function pipRowsHtml() {
   if (!userData) return `<div class="pip-empty">데이터를 불러오는 중…</div>`;
@@ -2021,17 +2028,17 @@ window.openPipWidget = async function() {
   const savedAlpha = localStorage.getItem('pipAlpha') || '0.62';
 
   pipWindow.document.body.innerHTML = `
-    <div id="pip-widget" style="--pip-alpha:${savedAlpha}">
+    <div id="pip-widget" style="--pip-bg:${pipBgFromLevel(savedAlpha)}">
       <div id="pip-head">
         <span id="pip-date"></span>
-        <input id="pip-opacity" type="range" min="0.1" max="0.95" step="0.05" value="${savedAlpha}" title="투명도" />
+        <input id="pip-opacity" type="range" min="0.1" max="0.95" step="0.05" value="${savedAlpha}" title="밝기" />
       </div>
       <div id="pip-body"></div>
     </div>
   `;
 
   pipWindow.document.getElementById('pip-opacity').addEventListener('input', (e) => {
-    pipWindow.document.getElementById('pip-widget').style.setProperty('--pip-alpha', e.target.value);
+    pipWindow.document.getElementById('pip-widget').style.setProperty('--pip-bg', pipBgFromLevel(e.target.value));
     localStorage.setItem('pipAlpha', e.target.value);
   });
 
