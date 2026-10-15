@@ -130,6 +130,14 @@ function formatPeriodTime(p) {
 // ============================================================
 // 학사일정 헬퍼
 // ============================================================
+// 그날 하루만 바꾼 시간표(dayOverrides/날짜) 가 있으면 그것을, 없으면 요일별 기본 시간표를 쓴다.
+// 진도 계산·오늘 탭·미니창이 모두 이 함수를 거치므로 카드 위치를 바꿔도 차시가 어긋나지 않는다.
+function daySchedule(dateStr) {
+  return userData?.dayOverrides?.[dateStr]
+      || userData?.timetable?.schedule?.[DOW_KEY[parseDateStr_(dateStr).getDay()]]
+      || {};
+}
+
 function getCalendarEvent(dateStr, periodStr) {
   const dayEvents = schoolData?.calendar?.[dateStr] || {};
   return dayEvents[periodStr] || dayEvents['all'] || null;
@@ -145,9 +153,7 @@ function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
   toDate.setHours(0,0,0,0);
   while (cursor <= toDate) {
     const dateStr     = dateToStr(cursor);
-    const dayKey      = DOW_KEY[cursor.getDay()];
-    const daySchedule = userData?.timetable?.schedule?.[dayKey] || {};
-    for (const [periodStr, cell] of Object.entries(daySchedule)) {
+    for (const [periodStr, cell] of Object.entries(daySchedule(dateStr))) {
       if (cell?.class === cls && cell?.subject === subject) {
         const ev = getCalendarEvent(dateStr, periodStr);
         if (!ev) count++;
@@ -190,8 +196,7 @@ function parseDateStr_(dateStr) {
 
 // dateStr에 key 수업이 실제로 있는 교시 번호들 (학사일정으로 빠진 교시 제외, 오름차순)
 function lessonPeriodsOn(key, dateStr) {
-  const daySchedule = userData?.timetable?.schedule?.[DOW_KEY[parseDateStr_(dateStr).getDay()]] || {};
-  return Object.entries(daySchedule)
+  return Object.entries(daySchedule(dateStr))
     .filter(([p, cell]) => cell?.class && `${cell.class}_${cell.subject}` === key && !getCalendarEvent(dateStr, p))
     .map(([p]) => Number(p))
     .sort((a, b) => a - b);
@@ -270,7 +275,7 @@ async function updateWithLog_(updates) {
 // 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-15-derived1';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-15-dayswap1';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -566,9 +571,10 @@ function renderToday() {
   const now      = new Date();
   const dowIdx   = now.getDay();
   const dayKey   = DOW_KEY[dowIdx];
-  const schedule = userData.timetable?.schedule?.[dayKey] || {};
   const periods  = getPeriods();
   const today    = todayStr();
+  const schedule = daySchedule(today);
+  const changed  = !!userData.dayOverrides?.[today];
 
   el.innerHTML = '';
 
@@ -675,7 +681,7 @@ function renderToday() {
       const topic         = userData.curriculum[key]?.[current] || '';
       const note          = userData.lessonNotes?.[key]?.[completedStep] || '';
 
-      card.className = `period-card has-class${isCur ? ' current' : ''}`;
+      card.className = `period-card has-class${isCur ? ' current' : ''}${swapCls(p)}`;
       card.dataset.key = key;
       card.innerHTML = `
         ${isCur ? '<div class="current-dot"></div>' : ''}
@@ -703,21 +709,78 @@ function renderToday() {
           </div>
         </div>
         <button class="edit-btn" onclick="window.toggleEditor(${p})">✏️</button>
+        ${swapBtn(p)}
       `;
     } else {
-      card.className = 'period-card empty';
+      card.className = `period-card empty${swapCls(p)}`;
       card.innerHTML = `
         <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
         </div>
+        ${swapBtn(p)}
       `;
     }
     list.appendChild(card);
   }
   el.appendChild(list);
+
+  const bar = document.createElement('div');
+  bar.className = 'swap-bar';
+  bar.innerHTML = swapFrom !== null
+    ? `<span>${swapFrom}교시와 바꿀 교시의 ⇅를 누르세요</span><button onclick="window.tapSwap(${swapFrom})">취소</button>`
+    : changed
+      ? `<span>🔀 오늘만 순서를 바꿨어요</span><button onclick="window.resetDaySwap()">원래대로</button>`
+      : `<span>오늘만 바꾸려면 카드의 ⇅를 눌러 두 교시를 고르세요</span>`;
+  header.after(bar);
 }
+
+// ============================================================
+// 오늘만 교시 바꾸기 — dayOverrides/{날짜} 에 그날 시간표 전체를 저장 (다음 날엔 자동으로 기본 시간표)
+// ============================================================
+let swapFrom = null;
+function swapCls(p) { return swapFrom === p ? ' swap-from' : swapFrom !== null ? ' swap-target' : ''; }
+function swapBtn(p) {
+  return `<button class="edit-btn swap-btn" onclick="window.tapSwap(${p})" title="오늘만 교시 바꾸기">⇅</button>`;
+}
+
+window.tapSwap = async function(p) {
+  if (swapFrom === null) { swapFrom = p; renderToday(); return; }
+  const a = swapFrom;
+  swapFrom = null;
+  if (a === p) { renderToday(); return; }
+  const today = todayStr();
+  const base  = daySchedule(today);
+  const snap  = {};
+  for (const q of Object.keys(getPeriods())) {
+    snap[q] = { class: base[q]?.class || '', subject: base[q]?.subject || '' };
+  }
+  [snap[a], snap[p]] = [snap[p], snap[a]];
+  try {
+    await set(ref(db, `users/${currentUser.uid}/dayOverrides/${today}`), snap);
+    if (!userData.dayOverrides) userData.dayOverrides = {};
+    userData.dayOverrides[today] = snap;
+    showToast(`${a}교시 ↔ ${p}교시 (오늘만)`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
+
+window.resetDaySwap = async function() {
+  const today = todayStr();
+  try {
+    await set(ref(db, `users/${currentUser.uid}/dayOverrides/${today}`), null);
+    if (userData.dayOverrides) delete userData.dayOverrides[today];
+    showToast('원래 시간표로 되돌렸어요');
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
 
 // ============================================================
 // 수정 UI
@@ -834,9 +897,9 @@ function renderWeekly() {
       html += `<tr><td class="period-col">${p}</td>`;
       dates.forEach((d, i) => {
         const dayKey  = DOW_KEY[d.getDay()];
-        const cell    = userData.timetable?.schedule?.[dayKey]?.[p];
-        const isToday = dateToStr(d) === today;
         const dateStr = dateToStr(d);
+        const cell    = daySchedule(dateStr)[p];
+        const isToday = dateStr === today;
         const ev      = getCalendarEvent(dateStr, String(p));
 
         if (ev) {
@@ -1949,10 +2012,9 @@ function pipRowsHtml() {
   const dowIdx   = now.getDay();
   if (dowIdx === 0 || dowIdx === 6) return `<div class="pip-empty">오늘은 주말이에요 🎉</div>`;
 
-  const dayKey   = DOW_KEY[dowIdx];
-  const schedule = userData.timetable?.schedule?.[dayKey] || {};
   const periods  = getPeriods();
   const today    = todayStr();
+  const schedule = daySchedule(today);
   const periodList = Object.keys(periods).map(Number).sort((a, b) => a - b);
   const curP     = getCurrentPeriod();
 

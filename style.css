@@ -1404,3 +1404,16 @@ html { -webkit-text-size-adjust: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 오늘만 교시 바꾸기 */
+.swap-btn { font-weight: 700; opacity: .5; }
+.swap-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 12px; color: var(--text3); margin: 0 0 10px; padding: 0 2px;
+}
+.swap-bar button {
+  border: 1px solid var(--border, #ccc); background: none; color: inherit;
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.period-card.swap-from   { outline: 2px solid #4f8cff; }
+.period-card.swap-target { outline: 2px dashed #4f8cff88; }
