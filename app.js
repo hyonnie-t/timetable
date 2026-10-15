@@ -1893,56 +1893,54 @@ function showLogin() {
 }
 
 // ============================================================
-// 미니창(Document Picture-in-Picture) — 항상 위 + 밝기 조절
+// 미니창(Document Picture-in-Picture) — 항상 위에 띄우는 오늘 시간표
 // 다른 작업을 하면서 오늘 시간표를 겹쳐 볼 수 있도록 별도 창으로 띄운다.
 // 크로미움 기반 브라우저(웨일 포함)만 지원, 미지원 브라우저는 버튼 자체를 숨김.
 // PiP 창은 OS 입장에서 불투명한 별도 창이라 웹 코드로 창 투명도를 바꿀 수 없다.
-// 그래서 슬라이더는 투명도가 아니라 배경 밝기(회색 ↔ 흰색)를 조절한다.
+// 대신 '간단히' 보기로 지금·다음 교시만 남겨 창을 작게 쓸 수 있게 한다.
 // ============================================================
+// PiP 창은 별도 document 라 style.css 의 @import 폰트가 적용되지 않는다 → 따로 불러온다
+const PIP_FONT_URL = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap';
+const PIP_HEIGHT   = { full: 280, compact: 150 };
+
 const PIP_CSS = `
-  html, body { margin:0; padding:0; height:100%; background:transparent; }
-  * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', -apple-system, sans-serif; }
-  #pip-widget {
-    display:flex; flex-direction:column; height:100%;
-    background: var(--pip-bg, #f4f4f4);
-    color:#1a1a1a; border-radius:14px; overflow:hidden;
-    border:1px solid rgba(255,255,255,.7);
-    box-shadow: 0 10px 28px rgba(0,0,0,.18);
-  }
+  html, body { margin:0; padding:0; height:100%; background:#fff; }
+  * { box-sizing:border-box; font-family:'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif; }
+  #pip-widget { display:flex; flex-direction:column; height:100%; background:#fff; color:#1a1a1a; }
   #pip-head {
     display:flex; align-items:center; justify-content:space-between;
-    gap:6px; padding:8px 10px; flex:0 0 auto;
-    border-bottom:1px solid rgba(0,0,0,.08);
+    gap:6px; padding:7px 10px; flex:0 0 auto;
+    border-bottom:1px solid #e8e6e0;
   }
   #pip-date {
-    font-family:'Space Mono', 'Courier New', monospace;
-    font-size:10px; font-weight:700; letter-spacing:.5px;
-    color:#2d6a4f; text-transform:uppercase;
+    font-size:11px; font-weight:700; color:#2d6a4f;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  #pip-opacity { width:50px; accent-color:#2d6a4f; flex-shrink:0; }
+  #pip-date .pip-time { font-family:'Space Mono', monospace; margin-left:4px; }
+  #pip-mode {
+    flex-shrink:0; padding:2px 8px; border-radius:6px; cursor:pointer;
+    border:1px solid #e8e6e0; background:#fff; color:#666; font-size:10.5px;
+  }
+  #pip-mode:hover { color:#2d6a4f; border-color:#2d6a4f; }
   #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 8px 8px; font-size:12px; }
   .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
-  .pip-row.current { background:rgba(45,106,79,.1); border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
-  .pip-p { flex:0 0 14px; font-family:'Space Mono', monospace; font-weight:700; font-size:10px; color:#aaa; padding-top:1px; }
+  .pip-row.current { background:#f0faf4; border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
+  .pip-p { flex:0 0 14px; font-family:'Space Mono', monospace; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
   .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; }
   .pip-class {
-    font-family:'Space Mono', monospace; font-weight:700; font-size:11px;
+    font-family:'Space Mono', 'Noto Sans KR', monospace; font-weight:700; font-size:11px;
     color:#2d6a4f; background:#e8f5ee; padding:1px 6px; border-radius:5px;
   }
   .pip-topic { flex-basis:100%; font-size:12px; font-weight:500; color:#1a1a1a; }
   .pip-note  { flex-basis:100%; font-size:10.5px; color:#b5690b; }
-  .pip-empty-cell, .pip-empty { color:#aaa; font-size:11px; }
+  .pip-empty-cell, .pip-empty { color:#999; font-size:11px; }
+  .pip-empty { padding:8px 4px; }
   .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
 `;
 
-// 슬라이더 값(0.1~0.95) → 배경 회색~흰색
-function pipBgFromLevel(v) {
-  const t = Math.min(1, Math.max(0, (parseFloat(v) - 0.1) / 0.85));
-  const c = Math.round(205 + 50 * t);
-  return `rgb(${c},${c},${c})`;
-}
+let pipCompact     = localStorage.getItem('pipCompact') === '1';
+let pipScrolledFor = null; // 마지막으로 자동 스크롤한 교시 — 30초 갱신마다 스크롤을 뺏지 않도록
 
 function pipRowsHtml() {
   if (!userData) return `<div class="pip-empty">데이터를 불러오는 중…</div>`;
@@ -1960,7 +1958,19 @@ function pipRowsHtml() {
 
   if (!periodList.some(p => schedule[p]?.class)) return `<div class="pip-empty">오늘은 수업이 없어요</div>`;
 
-  return periodList.map(p => {
+  // 지금 교시, 쉬는 시간이면 다음 교시
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const focusP = curP ?? periodList.find(p => parseTimeToMin(periods[p].start) > nowMin) ?? null;
+
+  let shown = periodList;
+  if (pipCompact) {
+    if (focusP === null) return `<div class="pip-empty">오늘 수업이 모두 끝났어요</div>`;
+    const hasLesson = p => schedule[p]?.class || getCalendarEvent(today, String(p));
+    const nextP = periodList.find(p => p > focusP && hasLesson(p));
+    shown = nextP === undefined ? [focusP] : [focusP, nextP];
+  }
+
+  return shown.map(p => {
     const cell  = schedule[p];
     const ev    = getCalendarEvent(today, String(p));
     const isCur = p === curP;
@@ -1984,7 +1994,7 @@ function pipRowsHtml() {
     }
 
     return `
-      <div class="pip-row${isCur ? ' current' : ''}">
+      <div class="pip-row${isCur ? ' current' : ''}${p === focusP ? ' focus' : ''}" data-p="${p}">
         <span class="pip-p">${p}</span>
         <div class="pip-info">${body}</div>
       </div>`;
@@ -1998,10 +2008,31 @@ function renderPipWidget() {
 
   const dateEl = doc.getElementById('pip-date');
   if (dateEl) {
-    dateEl.textContent = `${now.getMonth()+1}월 ${now.getDate()}일(${DOW_KO[now.getDay()]}) ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    dateEl.innerHTML = `${now.getMonth()+1}월 ${now.getDate()}일(${DOW_KO[now.getDay()]})<span class="pip-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}</span>`;
   }
   const bodyEl = doc.getElementById('pip-body');
-  if (bodyEl) bodyEl.innerHTML = pipRowsHtml();
+  if (bodyEl) {
+    bodyEl.innerHTML = pipRowsHtml();
+    // 지금(또는 다음) 교시가 바뀌었을 때만 그 줄이 보이게 스크롤
+    const focusRow = bodyEl.querySelector('.pip-row.focus');
+    const focusP   = focusRow?.dataset.p ?? null;
+    if (focusRow && focusP !== pipScrolledFor) focusRow.scrollIntoView({ block: 'center' });
+    pipScrolledFor = focusP;
+  }
+}
+
+function setPipCompact(on) {
+  pipCompact = on;
+  localStorage.setItem('pipCompact', on ? '1' : '0');
+
+  const btn = pipWindow.document.getElementById('pip-mode');
+  btn.textContent = on ? '전체' : '간단히';
+  btn.title       = on ? '오늘 전체 교시 보기' : '지금·다음 교시만 보기';
+
+  pipScrolledFor = null;
+  renderPipWidget();
+  // 창 크기 변경은 사용자 클릭 안에서만 허용된다. 너비는 사용자가 맞춘 그대로 둔다.
+  try { pipWindow.resizeBy(0, PIP_HEIGHT[on ? 'compact' : 'full'] - pipWindow.innerHeight); } catch (e) {}
 }
 
 window.openPipWidget = async function() {
@@ -2015,34 +2046,37 @@ window.openPipWidget = async function() {
   }
 
   try {
-    pipWindow = await window.documentPictureInPicture.requestWindow({ width: 210, height: 260 });
+    pipWindow = await window.documentPictureInPicture.requestWindow({
+      width: 220, height: PIP_HEIGHT[pipCompact ? 'compact' : 'full'],
+    });
   } catch (e) {
     showToast('미니창을 열 수 없어요', true);
     return;
   }
 
-  const style = pipWindow.document.createElement('style');
+  const doc  = pipWindow.document;
+  const font = doc.createElement('link');
+  font.rel  = 'stylesheet';
+  font.href = PIP_FONT_URL;
+  doc.head.appendChild(font);
+
+  const style = doc.createElement('style');
   style.textContent = PIP_CSS;
-  pipWindow.document.head.appendChild(style);
+  doc.head.appendChild(style);
 
-  const savedAlpha = localStorage.getItem('pipAlpha') || '0.62';
-
-  pipWindow.document.body.innerHTML = `
-    <div id="pip-widget" style="--pip-bg:${pipBgFromLevel(savedAlpha)}">
+  doc.body.innerHTML = `
+    <div id="pip-widget">
       <div id="pip-head">
         <span id="pip-date"></span>
-        <input id="pip-opacity" type="range" min="0.1" max="0.95" step="0.05" value="${savedAlpha}" title="밝기" />
+        <button id="pip-mode" type="button"></button>
       </div>
       <div id="pip-body"></div>
     </div>
   `;
+  doc.getElementById('pip-mode').addEventListener('click', () => setPipCompact(!pipCompact));
 
-  pipWindow.document.getElementById('pip-opacity').addEventListener('input', (e) => {
-    pipWindow.document.getElementById('pip-widget').style.setProperty('--pip-bg', pipBgFromLevel(e.target.value));
-    localStorage.setItem('pipAlpha', e.target.value);
-  });
-
-  renderPipWidget();
+  pipScrolledFor = null;
+  setPipCompact(pipCompact);
   pipRefreshTimer = setInterval(renderPipWidget, 30000);
 
   pipWindow.addEventListener('pagehide', () => {
