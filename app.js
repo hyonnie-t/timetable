@@ -275,7 +275,7 @@ async function updateWithLog_(updates) {
 // 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-15-dayswap4';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-15-dayswap5';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -733,7 +733,7 @@ function renderToday() {
     : changed
       ? `<span>🔀 오늘만 순서를 바꿨어요</span><button onclick="window.resetDaySwap()">원래대로</button>`
       : `<span>오늘만 바꾸려면 카드의 ⇅를 다른 카드로 끌어다 놓으세요</span>`;
-  header.after(bar);
+  el.insertBefore(bar, list); // (header는 위에서 innerHTML += 로 다시 만들어져 연결이 끊겨 있으므로 list 기준)
 }
 
 // ============================================================
