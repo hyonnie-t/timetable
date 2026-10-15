@@ -275,7 +275,7 @@ async function updateWithLog_(updates) {
 // 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-15-dayswap2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-15-dayswap4';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -742,8 +742,49 @@ function renderToday() {
 let swapFrom = null;
 function swapCls(p) { return swapFrom === p ? ' swap-from' : swapFrom !== null ? ' swap-target' : ''; }
 function swapBtn(p) {
-  return `<button class="edit-btn swap-btn" onclick="window.tapSwap(${p})" title="오늘만 교시 바꾸기">⇅</button>`;
+  return `<button class="edit-btn swap-btn" data-swap-p="${p}" title="끌어서 옮기기 (또는 눌러서 선택)">⇅</button>`;
 }
+
+// ⇅ 손잡이를 끌어 다른 카드 위에 놓으면 바뀐다. 거의 안 움직이고 놓으면 "누르기" 선택으로 처리.
+// pointer 이벤트라 마우스·터치 모두 된다.
+(function setupSwapDrag() {
+  let drag = null;
+  const cardAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('#tab-today .period-card');
+  const clearMarks = () => document.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+  const cardP = c => c?.querySelector('[data-swap-p]')?.dataset.swapP;
+
+  document.addEventListener('pointerdown', e => {
+    const btn = e.target.closest?.('.swap-btn');
+    if (!btn) return;
+    drag = { p: Number(btn.dataset.swapP), x: e.clientX, y: e.clientY, moved: false, card: btn.closest('.period-card') };
+    try { btn.setPointerCapture?.(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  });
+  document.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+    drag.moved = true;
+    drag.card?.classList.add('dragging');
+    clearMarks();
+    const over = cardAt(e.clientX, e.clientY);
+    if (over && over !== drag.card) over.classList.add('drag-over');
+  });
+  document.addEventListener('pointerup', e => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    clearMarks();
+    d.card?.classList.remove('dragging');
+    if (!d.moved) { window.tapSwap(d.p); return; }
+    const to = Number(cardP(cardAt(e.clientX, e.clientY)));
+    if (to && to !== d.p) { swapFrom = d.p; window.tapSwap(to); }
+  });
+  // 끄는 동안 화면이 같이 스크롤되거나 길게 눌러 메뉴가 뜨는 것을 막는다 (폰 대비)
+  document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
+  document.addEventListener('contextmenu', e => { if (e.target.closest?.('.swap-btn')) e.preventDefault(); });
+  document.addEventListener('pointercancel', () => {
+    drag?.card?.classList.remove('dragging'); drag = null; clearMarks();
+  });
+})();
 
 window.tapSwap = async function(p) {
   if (swapFrom === null) { swapFrom = p; renderToday(); return; }
