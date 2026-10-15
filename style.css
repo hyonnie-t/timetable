@@ -1420,3 +1420,4 @@ html { -webkit-text-size-adjust: 100%; }
 .swap-btn { touch-action: none; cursor: grab; user-select: none; }
 .period-card.dragging  { opacity: .6; transform: scale(.98); }
 .period-card.drag-over { outline: 2px solid #4f8cff; background: #4f8cff14; }
+.swap-btn { -webkit-touch-callout: none; -webkit-user-select: none; min-width: 48px; min-height: 48px; }
