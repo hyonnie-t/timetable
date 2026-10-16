@@ -11,6 +11,8 @@ const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
 const ADMIN_EMAIL = '0000.yhshin@gmail.com';
 const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
+// 반별 수업 장부에 펼칠 기간 — 학기 바뀔 때 여기만 수정
+const SEMESTER_RANGE = { start: '2026-08-18', end: '2027-01-08' };
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
@@ -143,31 +145,17 @@ function getCalendarEvent(dateStr, periodStr) {
   return dayEvents[periodStr] || dayEvents['all'] || null;
 }
 
-// cls/subject 수업이 fromStr~toStr(둘 다 포함) 사이에 학사일정 이벤트 없이 몇 번 있는지 카운트
-function countKeyLessonsBetween(cls, subject, fromStr, toStr) {
-  if (fromStr > toStr) return 0;
-  let count = 0;
-  const cursor = new Date(fromStr);
-  const toDate = new Date(toStr);
-  cursor.setHours(0,0,0,0);
-  toDate.setHours(0,0,0,0);
-  while (cursor <= toDate) {
-    const dateStr     = dateToStr(cursor);
-    for (const [periodStr, cell] of Object.entries(daySchedule(dateStr))) {
-      if (cell?.class === cls && cell?.subject === subject) {
-        const ev = getCalendarEvent(dateStr, periodStr);
-        if (!ev) count++;
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
+// 특별 수업(자습·다른 내용 등 진도에 안 들어가는 수업) — specialLessons/{날짜}/{교시} = { key, label }
+// key가 그날 그 교시 수업과 같을 때만 효력이 있다 (나중에 시간표가 바뀌어도 엉뚱한 반에 붙지 않게)
+function getSpecialLesson(dateStr, p, key) {
+  const sp = userData?.specialLessons?.[dateStr]?.[p];
+  return sp && sp.key === key ? sp : null;
 }
 
 // 기말고사까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
 function remainingLessonsUntilExam(cls, g) {
   const end = g.includeStart ? g.start : addDaysStr(g.start, -1);
-  return countKeyLessonsBetween(cls, g.subject, todayStr(), end);
+  return countLessons(`${cls}_${g.subject}`, todayStr(), end);
 }
 
 // dateStr 기준으로 delta일 이동한 날짜 문자열
@@ -182,7 +170,7 @@ function addDaysStr(dateStr, delta) {
 // ============================================================
 // DB의 progress[학기][반_과목] = { current, lastUpdated } 는 "기준점" 하나뿐이다.
 //   뜻: lastUpdated 날이 끝났을 때까지 current 차시를 마쳤다.
-// 어떤 수업이 몇 차시인지는 기준점 + 그 사이 시간표 수업 수(학사일정으로 빠진 교시 제외)로
+// 어떤 수업이 몇 차시인지는 기준점 + 그 사이 시간표 수업 수(학사일정으로 빠진 교시·특별 수업 제외)로
 // 그때그때 계산한다. 그래서 날마다 +1 해서 저장하는 일이 없고,
 //   - 앱을 안 열어도, 여러 기기를 써도, 수업 전/후 어느 때 고쳐도 하루가 빠지거나 겹치지 않고
 //   - 학사일정을 나중에 고치면 지난 차시까지 저절로 맞춰진다.
@@ -194,10 +182,11 @@ function parseDateStr_(dateStr) {
   return new Date(y, m - 1, d);
 }
 
-// dateStr에 key 수업이 실제로 있는 교시 번호들 (학사일정으로 빠진 교시 제외, 오름차순)
+// dateStr에 key 수업이 실제로 있는 교시 번호들 (학사일정으로 빠진 교시·특별 수업 제외, 오름차순)
 function lessonPeriodsOn(key, dateStr) {
   return Object.entries(daySchedule(dateStr))
-    .filter(([p, cell]) => cell?.class && `${cell.class}_${cell.subject}` === key && !getCalendarEvent(dateStr, p))
+    .filter(([p, cell]) => cell?.class && `${cell.class}_${cell.subject}` === key
+      && !getCalendarEvent(dateStr, p) && !getSpecialLesson(dateStr, p, key))
     .map(([p]) => Number(p))
     .sort((a, b) => a - b);
 }
@@ -257,6 +246,16 @@ function lessonLabel(n) {
   return `${n.date === todayStr() ? '오늘' : `${d.getMonth() + 1}/${d.getDate()}(${DOW_KO[d.getDay()]})`} ${n.p}교시`;
 }
 
+// 시간표 칸 하나(그날 p교시 수업)를 화면에 그릴 때 필요한 정보
+// 특별 수업이면 차시를 세지 않으므로 step·topic이 없다
+function lessonCellInfo(dateStr, p, cell) {
+  const key     = `${cell.class}_${cell.subject}`;
+  const special = getSpecialLesson(dateStr, p, key);
+  if (special) return { key, special, step: null, topic: '' };
+  const step = lessonStep(key, dateStr, p);
+  return { key, special: null, step, topic: userData.curriculum?.[key]?.[step] || '' };
+}
+
 // 진도 이력(progressLog)은 본 저장과 분리해서 쓴다 — 이력 쓰기가 막히거나 실패해도
 // 진도·주제 저장이 같이 실패하면 안 되므로, 본 저장이 끝난 뒤 따로 시도하고 실패는 무시한다.
 async function updateWithLog_(updates) {
@@ -275,7 +274,7 @@ async function updateWithLog_(updates) {
 // 진도 계산 자체에는 영향 없음.
 // 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
 // ============================================================
-const APP_BUILD = '2026-10-15-dayswap5';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-16-ledger1';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const PROGRESS_LOG_MAX = 60;
 let lastDeviceBeatAt = 0;
 
@@ -359,6 +358,7 @@ async function loadUserData() {
   if (!userData.curriculum)  userData.curriculum  = {};
   if (!userData.lessonNotes) userData.lessonNotes = {};
   if (!userData.classNotes)  userData.classNotes  = {};
+  if (!userData.specialLessons) userData.specialLessons = {};
 
   // 진도는 화면을 그릴 때 계산하므로 여기서 저장할 것이 없다 (기기 접속 기록·이력 정리만)
   const logUpdates = {};
@@ -627,9 +627,8 @@ function renderToday() {
     const ev = getCalendarEvent(today, String(curP));
     if (!ev) {
       const { class: cls, subject } = schedule[curP];
-      const key     = `${cls}_${subject}`;
-      const current = lessonStep(key, today, curP);
-      const topic   = userData.curriculum[key]?.[current] || '';
+      const info  = lessonCellInfo(today, curP, schedule[curP]);
+      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : info.topic;
       el.innerHTML += `
         <div class="banner banner-now">
           <span class="banner-label">NOW</span>
@@ -641,9 +640,8 @@ function renderToday() {
     const ev = getCalendarEvent(today, String(nextP));
     if (!ev) {
       const { class: cls, subject } = schedule[nextP];
-      const key     = `${cls}_${subject}`;
-      const current = lessonStep(key, today, nextP);
-      const topic   = userData.curriculum[key]?.[current] || '';
+      const info  = lessonCellInfo(today, nextP, schedule[nextP]);
+      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : info.topic;
       el.innerHTML += `
         <div class="banner banner-next">
           <span class="banner-label">NEXT</span>
@@ -672,6 +670,31 @@ function renderToday() {
           <span class="event-badge badge-${ev.type}">${ev.label}</span>
           <span class="empty-label"></span>
         </div>
+      `;
+    } else if (cell?.class && getSpecialLesson(today, p, `${cell.class}_${cell.subject}`)) {
+      const { class: cls, subject } = cell;
+      const key = `${cls}_${subject}`;
+      const sp  = getSpecialLesson(today, p, key);
+      card.className = `period-card has-class special-card${isCur ? ' current' : ''}${swapCls(p)}`;
+      card.dataset.key = key;
+      card.innerHTML = `
+        ${isCur ? '<div class="current-dot"></div>' : ''}
+        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body">
+          <div class="class-info">
+            <span class="class-badge">${cls}</span>
+            <span class="class-subject">${subject}</span>
+            <span class="special-badge">특별 · ${escapeHtml(sp.label)}</span>
+          </div>
+          ${renderClassNoteBlock(key)}
+          <div class="step-editor" id="editor-${p}">
+            <div class="step-editor-label">진도에 안 들어가는 수업으로 표시돼 있어</div>
+            <button class="special-undo-btn" onclick="window.unmarkSpecialToday(${p})">정규 수업으로 되돌리기</button>
+          </div>
+        </div>
+        <button class="edit-btn" onclick="window.toggleEditor(${p})">✏️</button>
+        ${swapBtn(p)}
       `;
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
@@ -706,6 +729,11 @@ function renderToday() {
             <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
             <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
+            <div class="special-row">
+              <span class="special-row-label">진도 대신 다른 걸 했으면</span>
+              <input class="special-input" id="special-inp-${p}" value="자습" placeholder="자습, 영상 시청 등" />
+              <button class="special-mark-btn" onclick="window.markSpecialToday(${p})">특별 수업으로</button>
+            </div>
           </div>
         </div>
         <button class="edit-btn" onclick="window.toggleEditor(${p})">✏️</button>
@@ -913,6 +941,81 @@ window.saveStep = async function(p) {
 
 
 // ============================================================
+// 특별 수업 — 자습·다른 내용 등 정규 진도에 안 들어가는 수업
+// specialLessons/{날짜}/{교시} = { key, label }
+// ============================================================
+// 표시하면 그 뒤 정규 수업 차시가 하나씩 당겨지고, 앞 수업 차시는 그대로다. 해제는 반대.
+// 기준점 날(lastUpdated)까지의 수업은 기준점 차시에 이미 들어가 있으므로 기준점도 ±1 해야 이 뜻이 유지된다.
+// label === null 이면 해제.
+async function setSpecialLesson_(key, dateStr, p, label, src) {
+  const on         = label !== null;
+  const wasSpecial = !!getSpecialLesson(dateStr, p, key);
+  const updates    = {};
+  updates[`users/${currentUser.uid}/specialLessons/${dateStr}/${p}`] = on ? { key, label } : null;
+
+  const before = semProgress()[key];
+  const lu     = before?.lastUpdated || addDaysStr(todayStr(), -1); // doneBefore와 같은 기본값
+  let anchor   = null;
+  if (before && wasSpecial !== on && dateStr <= lu) {
+    anchor = { current: (before.current ?? 0) + (on ? -1 : 1), lastUpdated: lu };
+    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = anchor;
+  }
+  addProgressLog_(updates, src, key, {
+    from: anchor ? (before.current ?? '') : '', to: anchor ? anchor.current : '',
+    luFrom: anchor ? (before.lastUpdated || '') : '', luTo: anchor ? anchor.lastUpdated : '',
+    n: on ? `${lessonLabel({ date: dateStr, p })} 수업을 특별 수업(${label})으로 표시`
+          : `${lessonLabel({ date: dateStr, p })} 수업을 정규 수업으로 되돌림`
+  });
+
+  await updateWithLog_(updates);
+
+  if (anchor) userData.progress[CURRENT_SEMESTER][key] = anchor;
+  const sl = userData.specialLessons;
+  if (on) {
+    if (!sl[dateStr]) sl[dateStr] = {};
+    sl[dateStr][p] = { key, label };
+  } else if (sl[dateStr]) {
+    delete sl[dateStr][p];
+    if (!Object.keys(sl[dateStr]).length) delete sl[dateStr];
+  }
+}
+
+function cardKeyAt_(p) {
+  let key = '';
+  document.querySelectorAll('#tab-today .period-card').forEach(c => {
+    if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
+  });
+  return key;
+}
+
+window.markSpecialToday = async function(p) {
+  const key   = cardKeyAt_(p);
+  const label = document.getElementById(`special-inp-${p}`)?.value.trim() || '자습';
+  if (!key) return;
+  try {
+    await setSpecialLesson_(key, todayStr(), p, label, '특별수업(오늘탭)');
+    showToast(`${p}교시를 특별 수업(${label})으로 표시했어요`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
+
+window.unmarkSpecialToday = async function(p) {
+  const key = cardKeyAt_(p);
+  if (!key) return;
+  try {
+    await setSpecialLesson_(key, todayStr(), p, null, '특별수업해제(오늘탭)');
+    showToast(`${p}교시를 정규 수업으로 되돌렸어요`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
+
+// ============================================================
 // 주차별 탭
 // ============================================================
 function renderWeekly() {
@@ -948,15 +1051,13 @@ function renderWeekly() {
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
-          const key   = `${cell.class}_${cell.subject}`;
-          const step  = lessonStep(key, dateStr, p);
-
-          const topic = userData.curriculum[key]?.[step] || '';
-          html += `<td class="has-class${isToday ? ' today-col' : ''}">
+          const { special, step, topic } = lessonCellInfo(dateStr, p, cell);
+          html += `<td class="has-class${special ? ' special-cell' : ''}${isToday ? ' today-col' : ''}">
             <span class="cell-class">${cell.class}</span>
             <span class="cell-subject">${cell.subject}</span>
+            ${special ? `<span class="special-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}
             ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
-            <span class="cell-step">${step}차시</span>
+            ${special ? '' : `<span class="cell-step">${step}차시</span>`}
           </td>`;
         } else {
           html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
@@ -1054,6 +1155,7 @@ function renderProgress() {
             <span class="prog-badge">${item.class}</span>
             <span class="prog-step">${current}차시</span>
             ${whenLabel ? `<span class="prog-when" style="font-size:12px;opacity:.6">${whenLabel}</span>` : ''}
+            <button class="ledger-btn" onclick="window.openLedger('${escapeHtml(item.key)}')" title="반별 수업 장부">📒 장부</button>
             <button class="edit-btn" onclick="window.toggleProgEditor(${idx})">✏️</button>
           </div>
           <div class="prog-dates">
@@ -1093,6 +1195,166 @@ function renderProgress() {
   html += '</div>';
   el.innerHTML = html;
 }
+
+// ============================================================
+// 반별 수업 장부 — 학기 전체 수업을 날짜순으로 펼쳐 차시 계산 결과를 보여 준다
+// 저장값 없이 진도 계산 함수(doneBefore·lessonPeriodsOn)를 그대로 써서 그린다.
+// 여기서 할 수 있는 수정은 특별 수업 표시/해제뿐이다.
+// ============================================================
+function scheduleKeys_() {
+  const keys = new Set();
+  for (const day of Object.values(userData.timetable?.schedule || {})) {
+    for (const cell of Object.values(day || {})) {
+      if (cell?.class && cell?.subject) keys.add(`${cell.class}_${cell.subject}`);
+    }
+  }
+  return [...keys].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+// 학기 기간의 key 수업 전부: { date, p, ev(학사일정), sp(특별 수업), step(정규 수업 차시) }
+function ledgerRows_(key) {
+  const rows = [];
+  let done = doneBefore(key, SEMESTER_RANGE.start); // 날마다 그날 정규 수업 수만큼 늘려 가면 doneBefore와 같다
+  for (let d = SEMESTER_RANGE.start; d <= SEMESTER_RANGE.end; d = addDaysStr(d, 1)) {
+    const sched = daySchedule(d);
+    const ps = Object.keys(sched).map(Number)
+      .filter(p => sched[p]?.class && `${sched[p].class}_${sched[p].subject}` === key)
+      .sort((a, b) => a - b);
+    for (const p of ps) {
+      const ev = getCalendarEvent(d, String(p));
+      const sp = ev ? null : getSpecialLesson(d, p, key);
+      rows.push({ date: d, p, ev, sp, step: ev || sp ? null : ++done });
+    }
+  }
+  return rows;
+}
+
+let ledgerEditAt = null; // 특별 수업 이름을 입력 중인 줄 'date|p'
+
+window.openLedger = function(key) {
+  const prevBody = document.querySelector('#modal-ledger .modal-body');
+  const keepScroll = prevBody && prevBody.dataset.key === key ? prevBody.scrollTop : null;
+  document.getElementById('modal-ledger')?.remove();
+
+  const rows    = ledgerRows_(key);
+  const today   = todayStr();
+  const nowMin  = new Date().getHours() * 60 + new Date().getMinutes();
+  const periods = getPeriods();
+  const isPast  = r => r.date < today || (r.date === today && parseTimeToMin(periods[r.p]?.end) <= nowMin);
+  const nextRow = rows.find(r => !isPast(r) && !r.ev && !r.sp);
+
+  const cnt = { reg: 0, sp: 0, ev: 0, done: 0 };
+  rows.forEach(r => {
+    if (r.ev) cnt.ev++; else if (r.sp) cnt.sp++; else { cnt.reg++; if (isPast(r)) cnt.done = r.step; }
+  });
+
+  const [cls, subject] = key.split('_');
+  const options = scheduleKeys_().map(k =>
+    `<option value="${escapeHtml(k)}"${k === key ? ' selected' : ''}>${escapeHtml(k.replace('_', ' '))}</option>`).join('');
+
+  const body = rows.map(r => {
+    const d     = parseDateStr_(r.date);
+    const id    = `${r.date}|${r.p}`;
+    const cls_  = ['ledger-row', isPast(r) ? 'past' : '', r.date === today ? 'today' : '', r === nextRow ? 'next' : '',
+                   r.ev ? 'is-event' : '', r.sp ? 'is-special' : ''].filter(Boolean).join(' ');
+    let content, action = '';
+    if (r.ev) {
+      content = `<span class="cell-badge badge-${r.ev.type}">${escapeHtml(r.ev.label)}</span>`;
+    } else if (r.sp) {
+      content = `<span class="special-badge">특별 · ${escapeHtml(r.sp.label)}</span>`;
+      action  = `<button class="ledger-act" data-ledger-unmark="${id}">되돌리기</button>`;
+    } else {
+      const topic = userData.curriculum?.[key]?.[r.step] || '';
+      content = topic ? escapeHtml(topic) : '<span class="ledger-none">주제 미설정</span>';
+      action  = `<button class="ledger-act" data-ledger-mark="${id}">특별</button>`;
+    }
+    let html = `<tr class="${cls_}" data-ledger-id="${id}">
+      <td class="ledger-date">${d.getMonth() + 1}/${d.getDate()} <small>${DOW_KO[d.getDay()]}</small></td>
+      <td class="ledger-p">${r.p}</td>
+      <td class="ledger-step">${r.step ?? '–'}</td>
+      <td class="ledger-content">${content}</td>
+      <td class="ledger-action">${action}</td>
+    </tr>`;
+    if (ledgerEditAt === id) {
+      html += `<tr class="ledger-edit-row"><td colspan="5">
+        <div class="ledger-edit">
+          <span>진도 대신 한 것</span>
+          <input class="special-input" id="ledger-special-inp" value="자습" placeholder="자습, 영상 시청 등" />
+          <button class="special-mark-btn" data-ledger-save="${id}">특별 수업으로</button>
+          <button class="ledger-act" data-ledger-cancel="1">취소</button>
+        </div>
+        <div class="ledger-edit-hint">이 수업은 차시를 세지 않고, 뒤 수업 차시가 하나씩 당겨져.</div>
+      </td></tr>`;
+    }
+    return html;
+  }).join('');
+
+  const html = `
+    <div class="modal-overlay${prevBody ? ' no-anim' : ''}" id="modal-ledger">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2>수업 장부</h2>
+          <select class="ledger-select" onchange="window.openLedger(this.value)">${options}</select>
+          <button class="modal-close" onclick="window.closeLedger()">✕</button>
+        </div>
+        <div class="modal-body" data-key="${escapeHtml(key)}">
+          <p class="modal-hint">${escapeHtml(cls)} ${escapeHtml(subject)} · ${SEMESTER_RANGE.start} ~ ${SEMESTER_RANGE.end}<br>
+            정규 ${cnt.reg}회(지금까지 ${cnt.done}차시) · 특별 ${cnt.sp}회 · 휴업 ${cnt.ev}회.
+            차시는 저장된 값이 아니라 학사일정·시간표·특별 수업으로 매번 계산한 결과야.</p>
+          ${rows.length ? `<table class="ledger-table">
+            <thead><tr><th>날짜</th><th>교시</th><th>차시</th><th>내용</th><th></th></tr></thead>
+            <tbody>${body}</tbody>
+          </table>` : '<div class="empty-state">이 기간에 수업이 없어요</div>'}
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  const modalBody = document.querySelector('#modal-ledger .modal-body');
+  if (keepScroll !== null) modalBody.scrollTop = keepScroll;
+  else {
+    const target = modalBody.querySelector('.ledger-row.next') || modalBody.querySelector('.ledger-row.today');
+    target?.scrollIntoView({ block: 'center' });
+  }
+  document.getElementById('ledger-special-inp')?.select();
+};
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  if (e.target.id === 'ledger-special-inp') document.querySelector('#modal-ledger [data-ledger-save]')?.click();
+  const m = e.target.id?.match?.(/^special-inp-(\d+)$/);
+  if (m) window.markSpecialToday(Number(m[1]));
+});
+
+window.closeLedger = function() {
+  ledgerEditAt = null;
+  closeModal('modal-ledger');
+  renderCurrentTab(); // 장부에서 특별 수업을 바꿨으면 다른 화면도 새 차시로
+  if (pipWindow) renderPipWidget();
+};
+
+document.addEventListener('click', async e => {
+  const t = e.target.closest?.('#modal-ledger [data-ledger-mark], #modal-ledger [data-ledger-unmark], #modal-ledger [data-ledger-save], #modal-ledger [data-ledger-cancel]');
+  if (!t) return;
+  const key = document.querySelector('#modal-ledger .modal-body')?.dataset.key;
+  if (!key) return;
+
+  if (t.dataset.ledgerMark)   { ledgerEditAt = t.dataset.ledgerMark; window.openLedger(key); return; }
+  if (t.dataset.ledgerCancel) { ledgerEditAt = null; window.openLedger(key); return; }
+
+  const id    = t.dataset.ledgerSave || t.dataset.ledgerUnmark;
+  const [date, p] = id.split('|');
+  const label = t.dataset.ledgerSave ? (document.getElementById('ledger-special-inp')?.value.trim() || '자습') : null;
+  t.disabled = true;
+  try {
+    await setSpecialLesson_(key, date, Number(p), label, label ? '특별수업(장부)' : '특별수업해제(장부)');
+    showToast(label ? `특별 수업(${label})으로 표시했어요` : '정규 수업으로 되돌렸어요');
+  } catch (err) {
+    showToast('저장 실패: ' + err.message, true);
+  }
+  ledgerEditAt = null;
+  window.openLedger(key);
+});
 
 window.toggleProgEditor = function(idx) {
   document.getElementById(`prog-editor-${idx}`)?.classList.toggle('open');
@@ -2082,13 +2344,12 @@ function pipRowsHtml() {
     if (ev) {
       body = `<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
     } else if (cell?.class) {
-      const key     = `${cell.class}_${cell.subject}`;
-      const current = lessonStep(key, today, p);
-      const topic   = userData.curriculum?.[key]?.[current] || '';
+      const { key, special, topic } = lessonCellInfo(today, p, cell);
       const note    = userData.classNotes?.[key]?.text || '';
       body = `
         <span class="pip-class">${escapeHtml(cell.class)}</span>
         <span>${escapeHtml(cell.subject)}</span>
+        ${special ? `<span class="pip-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}
         ${topic ? `<span class="pip-topic">${escapeHtml(topic)}</span>` : ''}
         ${note  ? `<span class="pip-note">🗒 ${escapeHtml(note)}</span>` : ''}
       `;

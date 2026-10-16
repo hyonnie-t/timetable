@@ -1421,3 +1421,90 @@ html { -webkit-text-size-adjust: 100%; }
 .period-card.dragging  { opacity: .6; transform: scale(.98); }
 .period-card.drag-over { outline: 2px solid #4f8cff; background: #4f8cff14; }
 .swap-btn { -webkit-touch-callout: none; -webkit-user-select: none; min-width: 48px; min-height: 48px; }
+
+/* ============================================================
+   특별 수업 (진도에 안 들어가는 수업)
+   ============================================================ */
+.special-badge {
+  display: inline-block;
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 5px;
+  background: #fff8db; color: #8a6d00;
+}
+.special-card .class-badge { opacity: .7; }
+
+.special-row {
+  flex-basis: 100%;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 4px; padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.special-row-label { font-size: 12px; color: var(--text2); }
+.special-input {
+  flex: 1 1 120px; min-width: 0;
+  padding: 6px 8px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.special-mark-btn, .special-undo-btn {
+  padding: 6px 10px; font-size: 12px; font-weight: 600;
+  border-radius: 6px; cursor: pointer;
+  border: 1px solid #e6cf6a; background: #fff8db; color: #8a6d00;
+}
+.special-undo-btn { border-color: var(--border); background: var(--surface); color: var(--text2); }
+
+/* ============================================================
+   반별 수업 장부
+   ============================================================ */
+.ledger-btn {
+  margin-left: auto;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12px; padding: 3px 8px; cursor: pointer; color: var(--text2);
+}
+.ledger-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.ledger-select {
+  margin-left: auto; margin-right: 8px;
+  padding: 4px 8px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+}
+
+.ledger-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ledger-table th {
+  position: sticky; top: -16px; background: var(--surface);
+  padding: 8px 6px; font-size: 11px; font-weight: 700; text-align: left;
+  border-bottom: 2px solid var(--border); color: var(--text2);
+}
+.ledger-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.ledger-date  { white-space: nowrap; font-family: 'Space Mono', monospace; font-size: 12px; }
+.ledger-date small { font-family: var(--font); color: var(--text3); }
+.ledger-p, .ledger-step { text-align: center; font-family: 'Space Mono', monospace; font-size: 12px; width: 40px; }
+.ledger-step  { font-weight: 700; }
+.ledger-action { text-align: right; width: 76px; }
+.ledger-none  { color: var(--text3); }
+
+.ledger-row.past td { color: var(--text3); }
+.ledger-row.past .ledger-step { color: var(--text2); }
+.ledger-row.today td { background: var(--current-bg); }
+.ledger-row.next td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.ledger-row.is-event td, .ledger-row.is-special td { background: #fafaf8; }
+
+.modal-overlay.no-anim, .modal-overlay.no-anim .modal { animation: none; }
+
+.ledger-act {
+  padding: 3px 8px; font-size: 11px; white-space: nowrap;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface); color: var(--text2); cursor: pointer;
+}
+.ledger-act:hover { border-color: var(--text2); color: var(--text); }
+
+.ledger-edit-row td { background: #fffdf2; }
+.ledger-edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
+.ledger-edit-hint { margin-top: 4px; font-size: 11px; color: var(--text3); }
+
+@media (max-width: 480px) {
+  .ledger-table td, .ledger-table th { padding: 6px 3px; }
+  .ledger-p, .ledger-step { width: 30px; }
+  .ledger-action { width: 64px; }
+}
+.week-grid td .special-badge { display: block; width: fit-content; margin: 2px auto 0; font-size: 10px; padding: 1px 5px; }
+.week-grid td.special-cell { background: #fffdf2; }
