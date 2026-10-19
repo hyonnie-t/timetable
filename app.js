@@ -3,6 +3,7 @@ import {
   ref, get, set, update, onValue,
   signInWithPopup, signOut, onAuthStateChanged
 } from './firebase.js';
+import * as PE from './engine/progress-engine.js';
 
 // ============================================================
 // 상수
@@ -10,9 +11,14 @@ import {
 const DOW_KO  = ['일','월','화','수','목','금','토'];
 const DOW_KEY = ['sun','mon','tue','wed','thu','fri','sat'];
 const ADMIN_EMAIL = '0000.yhshin@gmail.com';
-const CURRENT_SEMESTER = '2026-2'; // 학기 바뀔 때 여기만 수정
-// 반별 수업 장부에 펼칠 기간 — 학기 바뀔 때 여기만 수정
-const SEMESTER_RANGE = { start: '2026-08-18', end: '2027-01-08' };
+// 새 학기 데이터를 처음 만들 때 쓰는 학기 — 학기 바뀔 때 여기만 수정
+// (이미 만든 데이터는 users/{uid}/v2/semester 에 저장된 값을 쓴다)
+const DEFAULT_SEMESTER = { id: '2026-2', start: '2026-08-18', end: '2027-01-08' };
+// 진도 데이터 v2 뿌리. v1(users/{uid}/progress 등)은 읽기만 하고(처음 옮길 때) 쓰지 않는다.
+// 옛 버전 앱이 v1에 써도 v2 진도에는 아무 영향이 없다.
+const dataRoot = () => `users/${currentUser.uid}/v2`;
+// ?demo  → demo/demo.json 으로 로그인·DB 없이 열기 (화면 확인용, 저장은 메모리에만)
+const DEMO = new URLSearchParams(location.search).get('demo');
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
@@ -76,26 +82,28 @@ function getWeekDates(offsetWeeks = 0) {
 }
 
 // ============================================================
-// 학기 progress 헬퍼
-// ============================================================
-// 현재 학기의 progress 객체를 반환 (없으면 빈 객체)
-function semProgress() {
-  return userData?.progress?.[CURRENT_SEMESTER] || {};
-}
-
-// ============================================================
 // 교시 유틸
 // ============================================================
+const DEFAULT_PERIODS = {
+  1: { start: '09:00', end: '09:45' },
+  2: { start: '09:55', end: '10:40' },
+  3: { start: '10:50', end: '11:35' },
+  4: { start: '11:45', end: '12:30' },
+  5: { start: '13:20', end: '14:05' },
+  6: { start: '14:15', end: '15:00' },
+  7: { start: '15:10', end: '15:55' },
+};
+
+// DB가 배열([null, {...}])로 돌려줘도 { 1: {...} } 모양으로 쓴다
+function cleanPeriods_(p) {
+  const out = {};
+  for (const [k, v] of Object.entries(p || {})) if (v?.start && v?.end && Number(k) > 0) out[k] = v;
+  return out;
+}
+
 function getPeriods() {
-  return userData?.timetable?.periods || {
-    1: { start: '09:00', end: '09:45' },
-    2: { start: '09:55', end: '10:40' },
-    3: { start: '10:50', end: '11:35' },
-    4: { start: '11:45', end: '12:30' },
-    5: { start: '13:20', end: '14:05' },
-    6: { start: '14:15', end: '15:00' },
-    7: { start: '15:10', end: '15:55' },
-  };
+  const p = cleanPeriods_(userData?.periods);
+  return Object.keys(p).length ? p : DEFAULT_PERIODS;
 }
 
 function getCurrentPeriod() {
@@ -130,114 +138,88 @@ function formatPeriodTime(p) {
 }
 
 // ============================================================
-// 학사일정 헬퍼
+// 진도 — 계산은 모두 engine/progress-engine.js 가 한다 (테스트: tests/)
 // ============================================================
-// 그날 하루만 바꾼 시간표(dayOverrides/날짜) 가 있으면 그것을, 없으면 요일별 기본 시간표를 쓴다.
-// 진도 계산·오늘 탭·미니창이 모두 이 함수를 거치므로 카드 위치를 바꿔도 차시가 어긋나지 않는다.
+// userData = v2 데이터 { semester, periods, timetables, dayOverrides, specials, pins, curriculum, lessonNotes, classNotes, log, devices }
+//            + calendar(school/calendar, 저장하지 않음)
+// userData를 바꾸는 길은 setData_() 하나뿐이고, 바뀔 때마다 dataRev가 올라가 장부 캐시가 버려진다.
+// DB에 쓰는 길은 commit_() 하나뿐이다 (v2 뿌리 아래 경로만 쓴다).
+let dataRev = 0;
+const ledgerCache = new Map();
+let healthCache = null;
+
+function setData_(d) {
+  userData = d;
+  dataRev++;
+}
+
+function ledger(key) {
+  const c = ledgerCache.get(key);
+  if (c && c.rev === dataRev) return c.rows;
+  const rows = PE.buildLedger(userData, key);
+  ledgerCache.set(key, { rev: dataRev, rows });
+  return rows;
+}
+
+function health() {
+  const today = todayStr();
+  if (healthCache?.rev === dataRev && healthCache.today === today) return healthCache.issues;
+  let issues;
+  try { issues = PE.checkHealth(userData, { today }); }
+  catch (e) { issues = [{ level: 'error', code: 'check-failed', msg: '자체 점검 실패: ' + e.message }]; }
+  healthCache = { rev: dataRev, today, issues };
+  return issues;
+}
+
+function nowPos_() {
+  const n = new Date();
+  return { date: todayStr(), min: n.getHours() * 60 + n.getMinutes() };
+}
+
+// 오늘 적용되는 주간 시간표 (진도표 탭·시간표 편집기·진단에서 "지금 시간표"로 쓴다)
+function currentWeek() {
+  const v = PE.timetableVersionOn(userData, todayStr());
+  return v ? (userData.timetables[v] || {}) : {};
+}
+
+// 그날 하루만 바꾼 시간표가 있으면 그것, 없으면 그날 적용되는 시간표 버전의 요일
 function daySchedule(dateStr) {
-  return userData?.dayOverrides?.[dateStr]
-      || userData?.timetable?.schedule?.[DOW_KEY[parseDateStr_(dateStr).getDay()]]
-      || {};
+  return PE.scheduleOn(userData, dateStr);
 }
 
 function getCalendarEvent(dateStr, periodStr) {
-  const dayEvents = schoolData?.calendar?.[dateStr] || {};
-  return dayEvents[periodStr] || dayEvents['all'] || null;
+  return PE.calendarEvent(userData, dateStr, periodStr);
 }
 
-// 특별 수업(자습·다른 내용 등 진도에 안 들어가는 수업) — specialLessons/{날짜}/{교시} = { key, label }
-// key가 그날 그 교시 수업과 같을 때만 효력이 있다 (나중에 시간표가 바뀌어도 엉뚱한 반에 붙지 않게)
+// 특별 수업(자습·다른 내용 등 진도에 안 들어가는 수업) — specials/{날짜}/{교시} = { key, label }
 function getSpecialLesson(dateStr, p, key) {
-  const sp = userData?.specialLessons?.[dateStr]?.[p];
-  return sp && sp.key === key ? sp : null;
+  return PE.specialAt(userData, dateStr, p, key);
 }
 
 // 기말고사까지(오늘 포함) 남은 역사 수업 차시 — 학사일정 예외 자동 반영
 function remainingLessonsUntilExam(cls, g) {
-  const end = g.includeStart ? g.start : addDaysStr(g.start, -1);
-  return countLessons(`${cls}_${g.subject}`, todayStr(), end);
+  const key = PE.lessonKey(cls, g.subject);
+  return PE.remainingUntil(userData, key, todayStr(), g.start, g.includeStart, ledger(key));
 }
-
-// dateStr 기준으로 delta일 이동한 날짜 문자열
-function addDaysStr(dateStr, delta) {
-  const d = parseDateStr_(dateStr); // new Date('YYYY-MM-DD')는 UTC 자정이라 시간대에 따라 하루 밀릴 수 있음
-  d.setDate(d.getDate() + delta);
-  return dateToStr(d);
-}
-
-// ============================================================
-// 진도 계산 — 저장하지 않고 매번 계산한다
-// ============================================================
-// DB의 progress[학기][반_과목] = { current, lastUpdated } 는 "기준점" 하나뿐이다.
-//   뜻: lastUpdated 날이 끝났을 때까지 current 차시를 마쳤다.
-// 어떤 수업이 몇 차시인지는 기준점 + 그 사이 시간표 수업 수(학사일정으로 빠진 교시·특별 수업 제외)로
-// 그때그때 계산한다. 그래서 날마다 +1 해서 저장하는 일이 없고,
-//   - 앱을 안 열어도, 여러 기기를 써도, 수업 전/후 어느 때 고쳐도 하루가 빠지거나 겹치지 않고
-//   - 학사일정을 나중에 고치면 지난 차시까지 저절로 맞춰진다.
-// 기준점은 사람이 차시를 직접 고칠 때와 시간표를 바꿀 때만 바뀐다.
-// (예전 앱이 쓰던 자동 +1 저장도 같은 뜻이라, 옛 데이터·옛 기기와 그대로 호환된다)
 
 function parseDateStr_(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 
-// dateStr에 key 수업이 실제로 있는 교시 번호들 (학사일정으로 빠진 교시·특별 수업 제외, 오름차순)
-function lessonPeriodsOn(key, dateStr) {
-  return Object.entries(daySchedule(dateStr))
-    .filter(([p, cell]) => cell?.class && `${cell.class}_${cell.subject}` === key
-      && !getCalendarEvent(dateStr, p) && !getSpecialLesson(dateStr, p, key))
-    .map(([p]) => Number(p))
-    .sort((a, b) => a - b);
-}
-
-// fromStr~toStr(둘 다 포함) 사이 key 수업 수
-function countLessons(key, fromStr, toStr) {
-  let count = 0;
-  for (let d = fromStr; d <= toStr; d = addDaysStr(d, 1)) count += lessonPeriodsOn(key, d).length;
-  return count;
-}
-
-// dateStr 날이 시작되기 전까지 마친 차시 수
-function doneBefore(key, dateStr) {
-  const entry = semProgress()[key];
-  if (!entry) return 0;
-  const done = entry.current ?? 0;
-  const lu   = entry.lastUpdated || addDaysStr(todayStr(), -1);
-  return dateStr > lu
-    ? done + countLessons(key, addDaysStr(lu, 1), addDaysStr(dateStr, -1))
-    : done - countLessons(key, dateStr, lu);
-}
-
-// dateStr p교시 수업이 몇 차시인지
+// dateStr p교시 수업이 몇 차시인지 (정규 수업이 아니면 null)
 function lessonStep(key, dateStr, p) {
-  const earlier = lessonPeriodsOn(key, dateStr).filter(q => q < Number(p)).length;
-  return doneBefore(key, dateStr) + earlier + 1;
-}
-
-// "dateStr p교시 수업 = step차시"가 되게 하는 기준점
-function anchorForLesson(key, dateStr, p, step) {
-  const earlier = lessonPeriodsOn(key, dateStr).filter(q => q < Number(p)).length;
-  return { current: step - 1 - earlier, lastUpdated: addDaysStr(dateStr, -1) };
+  return PE.stepAt(userData, key, dateStr, p, ledger(key));
 }
 
 // 아직 안 끝난 가장 가까운 key 수업 (지금 진행 중인 수업 포함). 없으면 null
 function nextLesson(key) {
-  const today   = todayStr();
-  const now     = new Date();
-  const nowMin  = now.getHours() * 60 + now.getMinutes();
-  const periods = getPeriods();
-  for (let i = 0, d = today; i < 120; i++, d = addDaysStr(d, 1)) {
-    const ps = lessonPeriodsOn(key, d).filter(p => d !== today || parseTimeToMin(periods[p]?.end) > nowMin);
-    if (ps.length) return { date: d, p: ps[0] };
-  }
-  return null;
+  return PE.nextLesson(userData, key, nowPos_(), ledger(key));
 }
 
 // 지금 기준 "다음 수업" 차시 (진도표·수업 주제 탭 표시용)
 function nextStep(key) {
-  const n = nextLesson(key);
-  return n ? lessonStep(key, n.date, n.p) : doneBefore(key, todayStr()) + 1;
+  return PE.nextStep(userData, key, nowPos_(), ledger(key));
 }
 
 function lessonLabel(n) {
@@ -249,33 +231,19 @@ function lessonLabel(n) {
 // 시간표 칸 하나(그날 p교시 수업)를 화면에 그릴 때 필요한 정보
 // 특별 수업이면 차시를 세지 않으므로 step·topic이 없다
 function lessonCellInfo(dateStr, p, cell) {
-  const key     = `${cell.class}_${cell.subject}`;
+  const key     = PE.cellKey(cell);
   const special = getSpecialLesson(dateStr, p, key);
   if (special) return { key, special, step: null, topic: '' };
   const step = lessonStep(key, dateStr, p);
   return { key, special: null, step, topic: userData.curriculum?.[key]?.[step] || '' };
 }
 
-// 진도 이력(progressLog)은 본 저장과 분리해서 쓴다 — 이력 쓰기가 막히거나 실패해도
-// 진도·주제 저장이 같이 실패하면 안 되므로, 본 저장이 끝난 뒤 따로 시도하고 실패는 무시한다.
-async function updateWithLog_(updates) {
-  const main = {}, log = {};
-  for (const [k, v] of Object.entries(updates)) (k.includes('/progressLog/') ? log : main)[k] = v;
-  if (Object.keys(main).length) await update(ref(db), main);
-  if (Object.keys(log).length) {
-    try { await update(ref(db), log); }
-    catch (e) { console.warn('진도 이력 저장 실패 (DB 규칙 확인)', e); }
-  }
-}
-
 // ============================================================
-// 진도 변경 이력 (진단용) — 설정 > 데이터 진단 하단 표에서 확인
-// 누가·언제·어느 기기에서 진도 기준점(current·lastUpdated)을 바꿨는지 남긴다.
-// 진도 계산 자체에는 영향 없음.
-// 저장 위치: users/{uid}/progressLog/{학기}/{이력id}, 기기 접속 기록은 .../_dev/{기기id}
+// 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
+// log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-10-16-ledger1';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
-const PROGRESS_LOG_MAX = 60;
+const APP_BUILD = '2026-10-19-engine2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
 function deviceInfo() {
@@ -294,79 +262,90 @@ function nowStamp() {
   return `${todayStr()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-function semLog_() {
-  if (!userData.progressLog) userData.progressLog = {};
-  if (!userData.progressLog[CURRENT_SEMESTER]) userData.progressLog[CURRENT_SEMESTER] = {};
-  return userData.progressLog[CURRENT_SEMESTER];
+// 이력 한 줄 + 오래된 이력 정리 + 이 기기의 마지막 접속(빌드 포함)을 patch에 얹는다
+function withHousekeeping_(patch, log) {
+  const out = { ...patch };
+  const dev = deviceInfo();
+  if (log) {
+    out[`log/${Date.now()}_${Math.random().toString(36).slice(2, 5)}`] =
+      { t: nowStamp(), dev: `${dev.label}·${dev.id}`, build: APP_BUILD, src: log.src, key: log.key || '', n: log.n || '' };
+  }
+  const ids = Object.keys(userData?.log || {});
+  if (ids.length > LOG_MAX) {
+    ids.sort((a, b) => (userData.log[a].t || '').localeCompare(userData.log[b].t || ''))
+       .slice(0, ids.length - LOG_MAX).forEach(id => { out[`log/${id}`] = null; });
+  }
+  if (Date.now() - lastDeviceBeatAt > 5 * 60 * 1000) {
+    lastDeviceBeatAt = Date.now();
+    out[`devices/${dev.id}`] = { label: dev.label, t: nowStamp(), build: APP_BUILD };
+  }
+  return out;
 }
 
-// updates(멀티패스 update 객체)에 이력 한 줄을 얹고 메모리에도 넣는다. 실패해도 본 작업은 막지 않는다.
-function addProgressLog_(updates, src, key, f = {}, id) {
-  try {
-    const dev = deviceInfo();
-    const entry = {
-      t: nowStamp(), dev: `${dev.label}·${dev.id}`, build: APP_BUILD, src, key,
-      from: f.from ?? '', to: f.to ?? '', luFrom: f.luFrom || '', luTo: f.luTo || '', n: f.n || ''
-    };
-    const eid = id || `${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-    updates[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${eid}`] = entry;
-    semLog_()[eid] = entry;
-  } catch (e) { console.error('진도 이력 기록 실패', e); }
-}
-
-// 이력이 너무 쌓이지 않게 오래된 것부터 지운다 + 이 기기의 마지막 접속(빌드 포함)을 남긴다
-function maintainProgressLog_(out) {
-  try {
-    const logs = semLog_();
-    const ids = Object.keys(logs).filter(k => k !== '_dev');
-    if (ids.length > PROGRESS_LOG_MAX) {
-      ids.sort((a, b) => (logs[a].t || '').localeCompare(logs[b].t || ''))
-         .slice(0, ids.length - PROGRESS_LOG_MAX)
-         .forEach(id => {
-           out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/${id}`] = null;
-           delete logs[id];
-         });
-    }
-    if (Date.now() - lastDeviceBeatAt > 5 * 60 * 1000) {
-      lastDeviceBeatAt = Date.now();
-      const dev = deviceInfo();
-      const beat = { label: dev.label, t: nowStamp(), build: APP_BUILD };
-      out[`users/${currentUser.uid}/progressLog/${CURRENT_SEMESTER}/_dev/${dev.id}`] = beat;
-      if (!logs._dev) logs._dev = {};
-      logs._dev[dev.id] = beat;
-    }
-  } catch (e) { console.error('진도 이력 정리 실패', e); }
+async function commit_(patch, log) {
+  const full = withHousekeeping_(patch, log);
+  if (!Object.keys(full).length) return;
+  if (!DEMO) {
+    const abs = {};
+    for (const [k, v] of Object.entries(full)) abs[`${dataRoot()}/${k}`] = v;
+    await update(ref(db), abs);
+  }
+  setData_(PE.applyPatch(userData, full));
 }
 
 // ============================================================
 // 데이터 로드
 // ============================================================
+async function fetchDemoData_() {
+  const name = /^[a-z0-9-]+$/.test(DEMO) ? DEMO : 'demo';
+  const res  = await fetch(`demo/${name}.json`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`demo/${name}.json ${res.status}`);
+  const data = await res.json();
+  return { v2: data, calendar: data.calendar || {} };
+}
+
+// v2가 아직 없으면(처음 여는 사용자) v1 데이터를 v2로 옮겨 한 번 저장한다. 옮긴 결과 보고서도 같이 남긴다.
+async function ensureV2_(calendar) {
+  const v1 = (await get(ref(db, `users/${currentUser.uid}`))).val() || {};
+  if (v1.v2) return v1.v2; // 그 사이 다른 기기가 먼저 옮김
+  let v2, report = [];
+  if (v1.timetable?.schedule || v1.progress?.[DEFAULT_SEMESTER.id]) {
+    ({ data: v2, report } = PE.migrateFromV1(v1, {
+      semesterId: DEFAULT_SEMESTER.id,
+      semester: { start: DEFAULT_SEMESTER.start, end: DEFAULT_SEMESTER.end },
+      calendar, today: todayStr(),
+    }));
+  } else {
+    v2 = { engineVersion: PE.ENGINE_VERSION, semester: { ...DEFAULT_SEMESTER }, periods: DEFAULT_PERIODS, timetables: {} };
+  }
+  v2.migration = { at: nowStamp(), build: APP_BUILD, report };
+  await set(ref(db, dataRoot()), v2);
+  return v2;
+}
+
 async function loadUserData() {
   if (!currentUser) return;
 
-  const [userSnap, schoolSnap] = await Promise.all([
-    get(ref(db, `users/${currentUser.uid}`)),
-    get(ref(db, 'school'))
-  ]);
+  let v2, calendar;
+  if (DEMO) {
+    ({ v2, calendar } = await fetchDemoData_());
+  } else {
+    const [v2Snap, calSnap] = await Promise.all([
+      get(ref(db, dataRoot())),
+      get(ref(db, 'school/calendar'))
+    ]);
+    calendar = calSnap.val() || {};
+    v2 = v2Snap.exists() ? v2Snap.val() : await ensureV2_(calendar);
+  }
 
-  userData   = userSnap.val()   || { timetable: { periods: {}, schedule: {} }, progress: {}, curriculum: {}, lessonNotes: {}, classNotes: {} };
-  schoolData = schoolSnap.val() || { calendar: {} };
+  schoolData = { calendar };
+  setData_({ curriculum: {}, lessonNotes: {}, classNotes: {}, ...v2, calendar });
 
-  if (!userData.timetable)   userData.timetable   = { periods: {}, schedule: {} };
-  if (!userData.progress)    userData.progress    = {};
-  if (!userData.progress[CURRENT_SEMESTER]) userData.progress[CURRENT_SEMESTER] = {};
-  if (!userData.curriculum)  userData.curriculum  = {};
-  if (!userData.lessonNotes) userData.lessonNotes = {};
-  if (!userData.classNotes)  userData.classNotes  = {};
-  if (!userData.specialLessons) userData.specialLessons = {};
-
-  // 진도는 화면을 그릴 때 계산하므로 여기서 저장할 것이 없다 (기기 접속 기록·이력 정리만)
-  const logUpdates = {};
-  maintainProgressLog_(logUpdates);
   lastKnownDateStr = todayStr();
   lastRefreshAt    = Date.now();
   renderCurrentTab();
-  if (Object.keys(logUpdates).length) updateWithLog_(logUpdates).catch(e => console.warn('이력 저장 실패', e));
+  // 이 기기 접속 기록·오래된 이력 정리 (실패해도 화면에는 영향 없음)
+  commit_({}).catch(e => console.warn('접속 기록 저장 실패', e));
 }
 
 // ============================================================
@@ -386,7 +365,7 @@ function isEditingNow() {
 }
 
 async function refreshFromServer() {
-  if (!currentUser || !userData || refreshing || isEditingNow()) return;
+  if (DEMO || !currentUser || !userData || refreshing || isEditingNow()) return;
   refreshing = true;
   try {
     await loadUserData();
@@ -526,17 +505,7 @@ window.saveClassNote = async function(key, wrap) {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중…'; }
 
   try {
-    const path = `users/${currentUser.uid}/classNotes/${key}`;
-    if (!userData.classNotes) userData.classNotes = {};
-
-    if (newText) {
-      const updatedAt = Date.now();
-      await update(ref(db), { [path]: { text: newText, updatedAt } });
-      userData.classNotes[key] = { text: newText, updatedAt };
-    } else {
-      await update(ref(db), { [path]: null });
-      delete userData.classNotes[key];
-    }
+    await commit_({ [`classNotes/${key}`]: newText ? { text: newText, updatedAt: Date.now() } : null });
 
     // 오늘 탭 / 진도표 탭에 같은 key로 렌더링된 모든 인스턴스를 동기화
     document.querySelectorAll(`.classnote-wrap[data-classnote-key="${CSS.escape(key)}"]`).forEach(w => {
@@ -589,6 +558,19 @@ function renderToday() {
     <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
   `;
   el.appendChild(header);
+
+  // 자체 점검 — 진도가 틀릴 수 있는 데이터가 있으면 조용히 넘어가지 않고 맨 위에 띄운다
+  const issues = health();
+  if (issues.length) {
+    const errs = issues.filter(i => i.level === 'error').length;
+    el.innerHTML += `
+      <div class="health-bar${errs ? ' health-error' : ''}" onclick="window.openDataDiag()">
+        <span>⚠ 진도 점검: ${errs ? `확인 필요 ${errs}건` : ''}${errs && issues.length > errs ? ' · ' : ''}${issues.length > errs ? `참고 ${issues.length - errs}건` : ''}</span>
+        <span class="health-first">${escapeHtml(issues[0].msg)}</span>
+        <span class="health-more">자세히 →</span>
+      </div>`;
+  }
+  if (DEMO) el.innerHTML += `<div class="health-bar">데모 화면이에요. 바꾼 내용은 저장되지 않아요.</div>`;
 
   const examGroups = FINAL_EXAM_GROUPS.filter(g => today <= g.start);
   if (examGroups.length) {
@@ -671,9 +653,9 @@ function renderToday() {
           <span class="empty-label"></span>
         </div>
       `;
-    } else if (cell?.class && getSpecialLesson(today, p, `${cell.class}_${cell.subject}`)) {
+    } else if (cell?.class && getSpecialLesson(today, p, PE.cellKey(cell))) {
       const { class: cls, subject } = cell;
-      const key = `${cls}_${subject}`;
+      const key = PE.cellKey(cell);
       const sp  = getSpecialLesson(today, p, key);
       card.className = `period-card has-class special-card${isCur ? ' current' : ''}${swapCls(p)}`;
       card.dataset.key = key;
@@ -698,7 +680,7 @@ function renderToday() {
       `;
     } else if (cell?.class) {
       const { class: cls, subject } = cell;
-      const key           = `${cls}_${subject}`;
+      const key           = PE.cellKey(cell);
       const current       = lessonStep(key, today, p);          // 이 수업의 차시
       const completedStep = current - 1;                        // 메모는 직전 차시(어디까지 나갔는지)
       const topic         = userData.curriculum[key]?.[current] || '';
@@ -827,9 +809,7 @@ window.tapSwap = async function(p) {
   }
   [snap[a], snap[p]] = [snap[p], snap[a]];
   try {
-    await set(ref(db, `users/${currentUser.uid}/dayOverrides/${today}`), snap);
-    if (!userData.dayOverrides) userData.dayOverrides = {};
-    userData.dayOverrides[today] = snap;
+    await commit_({ [`dayOverrides/${today}`]: snap }, { src: '하루바꾸기', n: `${today} ${a}교시 ↔ ${p}교시` });
     showToast(`${a}교시 ↔ ${p}교시 (오늘만)`);
   } catch (e) {
     showToast('저장 실패: ' + e.message, true);
@@ -841,8 +821,7 @@ window.tapSwap = async function(p) {
 window.resetDaySwap = async function() {
   const today = todayStr();
   try {
-    await set(ref(db, `users/${currentUser.uid}/dayOverrides/${today}`), null);
-    if (userData.dayOverrides) delete userData.dayOverrides[today];
+    await commit_({ [`dayOverrides/${today}`]: null }, { src: '하루바꾸기해제', n: today });
     showToast('원래 시간표로 되돌렸어요');
   } catch (e) {
     showToast('저장 실패: ' + e.message, true);
@@ -881,33 +860,24 @@ window.adjustStep = function(p, delta) {
 };
 
 // 차시·주제·메모 저장 (오늘 탭·진도표 탭 공통)
-// lesson = {date, p}: "그 수업 = step차시"로 기준점을 옮긴다. 수업 전에 고치든 후에 고치든 뜻이 같다.
-// 차시 숫자를 안 바꿨으면 기준점은 건드리지 않고 주제·메모만 저장한다.
+// lesson = {date, p}: "그 수업 = step차시"로 고정핀을 둔다. 수업 전에 고치든 후에 고치든 뜻이 같다.
+// 차시 숫자를 안 바꿨으면 핀은 건드리지 않고 주제·메모만 저장한다.
+// 돌려주는 값: 이 수업 뒤에 이미 고정된 차시가 있으면 그 개수 (그 뒤 수업은 그 핀을 따른다는 안내용)
 async function saveLessonEdit_(key, lesson, step, newTopic, newNote, src) {
-  const prevStep = lessonStep(key, lesson.date, lesson.p);
-  const stepChanged = step !== prevStep;
-  const updates = {};
-  let anchor = null;
-  if (stepChanged) {
-    const before = semProgress()[key] || {};
-    anchor = anchorForLesson(key, lesson.date, lesson.p, step);
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = anchor;
-    addProgressLog_(updates, src, key, {
-      from: before.current ?? '', to: anchor.current, luFrom: before.lastUpdated || '', luTo: anchor.lastUpdated,
-      n: `${lessonLabel(lesson)} 수업을 ${prevStep}차시 → ${step}차시로 고침`
-    });
-  }
-  if (newTopic) updates[`users/${currentUser.uid}/curriculum/${key}/${step}`] = newTopic;
-  updates[`users/${currentUser.uid}/lessonNotes/${key}/${step - 1}`] = newNote || null;
+  const r = PE.planSetStep(userData, key, lesson.date, lesson.p, step);
+  const patch = { ...r.patch };
+  if (newTopic) patch[`curriculum/${key}/${step}`] = newTopic;
+  patch[`lessonNotes/${key}/${step - 1}`] = newNote || null;
+  await commit_(patch, r.changed
+    ? { src, key, n: `${lessonLabel(lesson)} 수업을 ${r.from}차시 → ${r.to}차시로 고침` }
+    : { src, key, n: `${lessonLabel(lesson)} ${step}차시 주제·메모 저장` });
+  return r.changed ? r.laterPins.length : 0;
+}
 
-  await updateWithLog_(updates);
-
-  if (anchor) userData.progress[CURRENT_SEMESTER][key] = anchor;
-  if (!userData.curriculum[key]) userData.curriculum[key] = {};
-  if (newTopic) userData.curriculum[key][step] = newTopic;
-  if (!userData.lessonNotes[key]) userData.lessonNotes[key] = {};
-  if (newNote) userData.lessonNotes[key][step - 1] = newNote;
-  else delete userData.lessonNotes[key][step - 1];
+function savedToast_(key, laterPins) {
+  showToast(laterPins
+    ? `${key} 저장 완료 · 뒤에 직접 고친 차시가 ${laterPins}곳 있어 그 뒤는 그대로예요 (장부 📌)`
+    : `${key} 저장 완료`);
 }
 
 // 화면 숫자 = 이 수업(오늘 p교시)의 차시
@@ -928,8 +898,8 @@ window.saveStep = async function(p) {
 
   try {
     const step = Math.max(1, parseInt(disp.textContent) || 1);
-    await saveLessonEdit_(key, { date: todayStr(), p }, step, input.value.trim(), noteInp.value.trim(), '수동(오늘탭)');
-    showToast(`${key} 저장 완료`);
+    const later = await saveLessonEdit_(key, { date: todayStr(), p }, step, input.value.trim(), noteInp.value.trim(), '수동(오늘탭)');
+    savedToast_(key, later);
     renderCurrentTab(); // 같은 반의 다른 교시·배너도 새 기준으로 다시 계산
     if (pipWindow) renderPipWidget();
   } catch(e) {
@@ -942,42 +912,16 @@ window.saveStep = async function(p) {
 
 // ============================================================
 // 특별 수업 — 자습·다른 내용 등 정규 진도에 안 들어가는 수업
-// specialLessons/{날짜}/{교시} = { key, label }
+// specials/{날짜}/{교시} = { key, label }
 // ============================================================
-// 표시하면 그 뒤 정규 수업 차시가 하나씩 당겨지고, 앞 수업 차시는 그대로다. 해제는 반대.
-// 기준점 날(lastUpdated)까지의 수업은 기준점 차시에 이미 들어가 있으므로 기준점도 ±1 해야 이 뜻이 유지된다.
+// 표시하면 그 뒤 정규 수업 차시가 하나씩 당겨지고(다음 고정핀까지), 앞 수업 차시는 그대로다. 해제는 반대.
 // label === null 이면 해제.
 async function setSpecialLesson_(key, dateStr, p, label, src) {
-  const on         = label !== null;
-  const wasSpecial = !!getSpecialLesson(dateStr, p, key);
-  const updates    = {};
-  updates[`users/${currentUser.uid}/specialLessons/${dateStr}/${p}`] = on ? { key, label } : null;
-
-  const before = semProgress()[key];
-  const lu     = before?.lastUpdated || addDaysStr(todayStr(), -1); // doneBefore와 같은 기본값
-  let anchor   = null;
-  if (before && wasSpecial !== on && dateStr <= lu) {
-    anchor = { current: (before.current ?? 0) + (on ? -1 : 1), lastUpdated: lu };
-    updates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = anchor;
-  }
-  addProgressLog_(updates, src, key, {
-    from: anchor ? (before.current ?? '') : '', to: anchor ? anchor.current : '',
-    luFrom: anchor ? (before.lastUpdated || '') : '', luTo: anchor ? anchor.lastUpdated : '',
-    n: on ? `${lessonLabel({ date: dateStr, p })} 수업을 특별 수업(${label})으로 표시`
-          : `${lessonLabel({ date: dateStr, p })} 수업을 정규 수업으로 되돌림`
+  await commit_(PE.planSetSpecial(userData, key, dateStr, p, label), {
+    src, key,
+    n: label !== null ? `${lessonLabel({ date: dateStr, p })} 수업을 특별 수업(${label})으로 표시`
+                      : `${lessonLabel({ date: dateStr, p })} 수업을 정규 수업으로 되돌림`
   });
-
-  await updateWithLog_(updates);
-
-  if (anchor) userData.progress[CURRENT_SEMESTER][key] = anchor;
-  const sl = userData.specialLessons;
-  if (on) {
-    if (!sl[dateStr]) sl[dateStr] = {};
-    sl[dateStr][p] = { key, label };
-  } else if (sl[dateStr]) {
-    delete sl[dateStr][p];
-    if (!Object.keys(sl[dateStr]).length) delete sl[dateStr];
-  }
 }
 
 function cardKeyAt_(p) {
@@ -1095,13 +1039,13 @@ function renderProgress() {
   const el = document.getElementById('tab-progress');
   if (!el) return;
 
-  const schedule  = userData.timetable?.schedule || {};
+  const schedule  = currentWeek();
   const classSet  = new Map();
 
   for (const daySchedule of Object.values(schedule)) {
-    for (const cell of Object.values(daySchedule)) {
-      if (cell?.class && cell?.subject) {
-        const key = `${cell.class}_${cell.subject}`;
+    for (const cell of Object.values(daySchedule || {})) {
+      const key = PE.cellKey(cell);
+      if (key) {
         classSet.set(key, { class: cell.class, subject: cell.subject });
       }
     }
@@ -1141,7 +1085,7 @@ function renderProgress() {
     for (const item of items) {
       const idx           = progIdx++;
       const lesson        = nextLesson(item.key) || { date: todayStr(), p: 0 }; // 아직 안 끝난 가장 가까운 수업
-      const current       = lessonStep(item.key, lesson.date, lesson.p);
+      const current       = lesson.p ? lesson.step : nextStep(item.key);
       const completedStep = current - 1;
       const whenLabel     = lesson.p ? lessonLabel(lesson) : '';
       const currTopicRaw  = userData.curriculum[item.key]?.[current]     || '';
@@ -1198,35 +1142,16 @@ function renderProgress() {
 
 // ============================================================
 // 반별 수업 장부 — 학기 전체 수업을 날짜순으로 펼쳐 차시 계산 결과를 보여 준다
-// 저장값 없이 진도 계산 함수(doneBefore·lessonPeriodsOn)를 그대로 써서 그린다.
+// 진도 엔진의 장부(buildLedger)를 그대로 그린다. 📌 = 차시를 직접 고친(고정핀) 줄.
 // 여기서 할 수 있는 수정은 특별 수업 표시/해제뿐이다.
 // ============================================================
 function scheduleKeys_() {
-  const keys = new Set();
-  for (const day of Object.values(userData.timetable?.schedule || {})) {
-    for (const cell of Object.values(day || {})) {
-      if (cell?.class && cell?.subject) keys.add(`${cell.class}_${cell.subject}`);
-    }
-  }
-  return [...keys].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return PE.allKeys(userData);
 }
 
-// 학기 기간의 key 수업 전부: { date, p, ev(학사일정), sp(특별 수업), step(정규 수업 차시) }
+// 학기 기간의 key 수업 전부: { date, p, ev(학사일정), sp(특별 수업), step(정규 수업 차시), pin(직접 고친 줄) }
 function ledgerRows_(key) {
-  const rows = [];
-  let done = doneBefore(key, SEMESTER_RANGE.start); // 날마다 그날 정규 수업 수만큼 늘려 가면 doneBefore와 같다
-  for (let d = SEMESTER_RANGE.start; d <= SEMESTER_RANGE.end; d = addDaysStr(d, 1)) {
-    const sched = daySchedule(d);
-    const ps = Object.keys(sched).map(Number)
-      .filter(p => sched[p]?.class && `${sched[p].class}_${sched[p].subject}` === key)
-      .sort((a, b) => a - b);
-    for (const p of ps) {
-      const ev = getCalendarEvent(d, String(p));
-      const sp = ev ? null : getSpecialLesson(d, p, key);
-      rows.push({ date: d, p, ev, sp, step: ev || sp ? null : ++done });
-    }
-  }
-  return rows;
+  return ledger(key).map(r => ({ date: r.date, p: r.p, ev: r.event, sp: r.special, step: r.step, pin: r.pin }));
 }
 
 let ledgerEditAt = null; // 특별 수업 이름을 입력 중인 줄 'date|p'
@@ -1271,7 +1196,7 @@ window.openLedger = function(key) {
     let html = `<tr class="${cls_}" data-ledger-id="${id}">
       <td class="ledger-date">${d.getMonth() + 1}/${d.getDate()} <small>${DOW_KO[d.getDay()]}</small></td>
       <td class="ledger-p">${r.p}</td>
-      <td class="ledger-step">${r.step ?? '–'}</td>
+      <td class="ledger-step">${r.step ?? '–'}${r.pin ? ` <span class="ledger-pin" title="직접 고친 차시${r.pin.p === 0 ? ' (옮기기 기준점)' : ''}">📌</span>` : ''}</td>
       <td class="ledger-content">${content}</td>
       <td class="ledger-action">${action}</td>
     </tr>`;
@@ -1298,9 +1223,9 @@ window.openLedger = function(key) {
           <button class="modal-close" onclick="window.closeLedger()">✕</button>
         </div>
         <div class="modal-body" data-key="${escapeHtml(key)}">
-          <p class="modal-hint">${escapeHtml(cls)} ${escapeHtml(subject)} · ${SEMESTER_RANGE.start} ~ ${SEMESTER_RANGE.end}<br>
+          <p class="modal-hint">${escapeHtml(cls)} ${escapeHtml(subject)} · ${userData.semester.start} ~ ${userData.semester.end}<br>
             정규 ${cnt.reg}회(지금까지 ${cnt.done}차시) · 특별 ${cnt.sp}회 · 휴업 ${cnt.ev}회.
-            차시는 저장된 값이 아니라 학사일정·시간표·특별 수업으로 매번 계산한 결과야.</p>
+            차시는 저장된 값이 아니라 학기 첫 수업부터 학사일정·시간표·특별 수업을 반영해 매번 센 결과야. 📌는 차시를 직접 고친 줄이고, 그 뒤는 거기서부터 이어서 세.</p>
           ${rows.length ? `<table class="ledger-table">
             <thead><tr><th>날짜</th><th>교시</th><th>차시</th><th>내용</th><th></th></tr></thead>
             <tbody>${body}</tbody>
@@ -1401,8 +1326,8 @@ window.saveProgStep = async function(idx) {
 
   try {
     const step = Math.max(1, parseInt(disp.textContent) || 1);
-    await saveLessonEdit_(key, lesson, step, input.value.trim(), noteInp.value.trim(), '수동(진도탭)');
-    showToast(`${key} 저장 완료`);
+    const later = await saveLessonEdit_(key, lesson, step, input.value.trim(), noteInp.value.trim(), '수동(진도탭)');
+    savedToast_(key, later);
     renderProgress();
   } catch(e) {
     showToast('저장 실패: ' + e.message, true);
@@ -1512,13 +1437,9 @@ window.addSubjRow = function(gi) {
 window.deleteSubjRow = async function(gi, step, subject, classes) {
   if (!confirm(`${step}차시를 삭제하시겠어요?`)) return;
   try {
-    const dbUpdates = {};
-    classes.forEach(cls => {
-      const key = `${cls}_${subject}`;
-      dbUpdates[`users/${currentUser.uid}/curriculum/${key}/${step}`] = null;
-      if (userData.curriculum[key]) delete userData.curriculum[key][step];
-    });
-    await update(ref(db), dbUpdates);
+    const patch = {};
+    classes.forEach(cls => { patch[`curriculum/${PE.lessonKey(cls, subject)}/${step}`] = null; });
+    await commit_(patch, { src: '주제삭제', key: subject, n: `${step}차시 주제 삭제 (${classes.join(', ')})` });
     showToast(`${step}차시 삭제 완료`);
     renderSubject();
   } catch(e) {
@@ -1541,13 +1462,13 @@ window.saveSubject = async function(gi, subject, classes) {
   if (btn) { btn.disabled = true; btn.textContent = '저장 중…'; }
 
   try {
-    const dbUpdates = {};
+    // 화면에 보이는 차시만 하나씩 쓴다 (예전엔 반 전체를 덮어써서 화면에 안 보이던 앞 차시 주제가 지워졌다)
+    const patch = {};
     classes.forEach(cls => {
-      const key = `${cls}_${subject}`;
-      dbUpdates[`users/${currentUser.uid}/curriculum/${key}`] = newCurriculum;
-      userData.curriculum[key] = { ...newCurriculum };
+      const key = PE.lessonKey(cls, subject);
+      for (const [step, topic] of Object.entries(newCurriculum)) patch[`curriculum/${key}/${step}`] = topic || null;
     });
-    await update(ref(db), dbUpdates);
+    await commit_(patch, { src: '주제저장', key: subject, n: `${Object.keys(newCurriculum).join(',')}차시 (${classes.join(', ')})` });
     showToast(`${subject} 커리큘럼 저장 완료`);
     renderSubject();
   } catch(e) {
@@ -1621,7 +1542,7 @@ function renderSettings() {
           <span>교시 시간 설정</span><span class="arrow-r">→</span>
         </button>
         <button class="settings-item" onclick="window.openDataDiag()">
-          <span>데이터 진단 (반 이름 확인)</span><span class="arrow-r">→</span>
+          <span>데이터 진단 (진도 점검)</span><span class="arrow-r">→</span>
         </button>
       </div>
       ${isAdmin ? `
@@ -1649,14 +1570,18 @@ function renderSettings() {
 }
 
 // ============================================================
-// 시간표 편집기
+// 시간표 편집기 — 저장하면 "적용 시작일"부터 쓰는 새 시간표 버전이 생긴다.
+// 지난 날짜는 옛 시간표 그대로라 지난 수업 차시·장부가 바뀌지 않는다.
 // ============================================================
 window.openTimetableEditor = function() {
   const periods    = getPeriods();
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
-  const schedule   = userData.timetable?.schedule || {};
+  const schedule   = currentWeek();
   const days       = ['mon','tue','wed','thu','fri'];
   const dayLabels  = ['월','화','수','목','금'];
+  const versions   = Object.keys(userData.timetables || {}).sort();
+  // 칸에 넣을 수 있는 반 / 과목 목록 (오타로 다른 반이 생기지 않게 고르게 한다)
+  const choices    = PE.allKeys(userData).map(k => { const i = k.lastIndexOf('_'); return `${k.slice(0, i)} / ${k.slice(i + 1)}`; });
 
   let html = `
     <div class="modal-overlay" id="modal-timetable">
@@ -1666,7 +1591,13 @@ window.openTimetableEditor = function() {
           <button class="modal-close" onclick="window.closeModal('modal-timetable')">✕</button>
         </div>
         <div class="modal-body">
-          <p class="modal-hint">반과 과목을 각 칸에 입력하세요. 예: <code>308 / 역사</code></p>
+          <p class="modal-hint">반과 과목을 각 칸에 입력하세요. 예: <code>308 / 역사</code> — 칸을 누르면 있는 반 목록에서 고를 수 있어요.</p>
+          <label class="tt-effective">적용 시작일
+            <input type="date" id="tt-effective" value="${todayStr()}" min="${userData.semester.start}" max="${userData.semester.end}" />
+          </label>
+          <p class="modal-hint">이 날짜부터 새 시간표로 세고, 그 전 수업은 원래 시간표 그대로예요.
+            ${versions.length ? `지금까지의 시간표: ${versions.map(v => `<code>${v}~</code>`).join(' ')}` : ''}</p>
+          <datalist id="tt-choices">${choices.map(c => `<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>
           <div class="timetable-editor">
             <table>
               <thead><tr><th>교시</th>`;
@@ -1677,8 +1608,8 @@ window.openTimetableEditor = function() {
     html += `<tr><td class="period-col-edit">${p}교시</td>`;
     days.forEach(day => {
       const cell = schedule[day]?.[p];
-      const val  = cell ? `${cell.class} / ${cell.subject}` : '';
-      html += `<td><input class="cell-input" data-period="${p}" data-day="${day}" value="${val}" placeholder="반 / 과목" /></td>`;
+      const val  = PE.cellKey(cell) ? `${cell.class} / ${cell.subject}` : '';
+      html += `<td><input class="cell-input" list="tt-choices" data-period="${p}" data-day="${day}" value="${escapeHtml(val)}" placeholder="반 / 과목" /></td>`;
     });
     html += '</tr>';
   }
@@ -1695,55 +1626,23 @@ window.openTimetableEditor = function() {
 };
 
 window.saveTimetable = async function() {
-  const inputs   = document.querySelectorAll('.cell-input');
-  const schedule = {};
-  const progress = semProgress();
-  const yesterday = addDaysStr(todayStr(), -1);
-
-  // 차시는 시간표로 계산하므로, 시간표를 바꾸면 지난 수업까지 다시 계산돼 차시가 틀어진다.
-  // → 바꾸기 전에 지금(옛 시간표) 기준으로 "어제까지 마친 차시"를 기준점으로 고정해 두고,
-  //   새 시간표는 오늘부터만 적용되게 한다.
-  const anchors = {};
-  for (const key of Object.keys(progress)) {
-    anchors[key] = { current: doneBefore(key, todayStr()), lastUpdated: yesterday };
-  }
-
-  inputs.forEach(input => {
-    const p   = Number(input.dataset.period);
-    const day = input.dataset.day;
+  const effectiveFrom = document.getElementById('tt-effective')?.value || todayStr();
+  const week = {};
+  document.querySelectorAll('.cell-input').forEach(input => {
     const val = input.value.trim();
-
-    if (!schedule[day]) schedule[day] = {};
-
-    if (val) {
-      const parts   = val.split('/').map(s => s.trim());
-      const cls     = parts[0] || '';
-      const subject = parts[1] || '';
-      if (cls && subject) {
-        schedule[day][p] = { class: cls, subject };
-        const key = `${cls}_${subject}`;
-        // 새 반은 "어제까지 0차시" → 오늘 이후 첫 수업이 1차시
-        if (!anchors[key]) anchors[key] = { current: 0, lastUpdated: yesterday };
-      }
-    }
+    if (!val) return;
+    const i = val.indexOf('/');
+    const [cls, subject] = i < 0 ? [val, ''] : [val.slice(0, i), val.slice(i + 1)];
+    (week[input.dataset.day] ||= {})[input.dataset.period] = { class: cls, subject };
   });
 
   try {
-    const dbUpdates = {};
-    dbUpdates[`users/${currentUser.uid}/timetable/schedule`] = schedule;
-    for (const [key, a] of Object.entries(anchors)) {
-      dbUpdates[`users/${currentUser.uid}/progress/${CURRENT_SEMESTER}/${key}`] = a;
-    }
-    addProgressLog_(dbUpdates, '시간표저장', '(전체)', {
-      n: '옛 시간표 기준 어제까지 마친 차시로 기준점 고정: ' + Object.entries(anchors)
-        .map(([k, v]) => `${k}=${v.current}`).join(', ')
-    });
-    await updateWithLog_(dbUpdates);
-    userData.timetable.schedule = schedule;
-    Object.assign(userData.progress[CURRENT_SEMESTER], anchors);
-
+    const patch = PE.planSetTimetable(week, effectiveFrom); // 반·과목 중 하나만 적은 칸이 있으면 여기서 막는다
+    if (effectiveFrom < todayStr() &&
+        !confirm(`${effectiveFrom}부터 적용하면 그날부터 오늘까지 지난 수업의 장부·차시가 새 시간표로 다시 세어져요. 계속할까요?`)) return;
+    await commit_(patch, { src: '시간표저장', key: '(전체)', n: `${effectiveFrom}부터 새 시간표` });
     closeModal('modal-timetable');
-    showToast('시간표 저장 완료');
+    showToast(`시간표 저장 완료 (${effectiveFrom}부터)`);
     renderCurrentTab();
   } catch(e) {
     showToast('저장 실패: ' + e.message, true);
@@ -1801,8 +1700,7 @@ window.savePeriods = async function() {
   });
 
   try {
-    await set(ref(db, `users/${currentUser.uid}/timetable/periods`), periods);
-    userData.timetable.periods = periods;
+    await commit_({ periods }, { src: '교시시간저장', n: Object.keys(periods).length + '교시' });
     closeModal('modal-periods');
     showToast('교시 시간 저장 완료');
   } catch(e) {
@@ -1849,8 +1747,7 @@ window.reindexPeriods = function() {
 };
 
 // ============================================================
-// 데이터 진단 — 시간표 셀 문자열과 progress 키를 있는 그대로 대조
-// (반 이름 표기가 칸마다 미묘하게 달라서 진도가 갈라지는 문제 확인용)
+// 데이터 진단 — 자체 점검 결과, 반별 진도·고정핀, 변경 이력, 기기별 빌드
 // ============================================================
 function visibleStr(str) {
   // 공백류 문자를 눈에 보이는 기호로 바꿔서 렌더링 (공백/탭/전각공백 등 구분)
@@ -1862,28 +1759,38 @@ function visibleStr(str) {
 }
 
 window.openDataDiag = function() {
-  const schedule  = userData.timetable?.schedule || {};
-  const progress  = semProgress();
-  const dayLabels = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금' };
+  document.getElementById('modal-datadiag')?.remove();
+  const issues = health();
+  const keys   = PE.allKeys(userData);
+  const me     = deviceInfo();
+  const levelLabel = { error: '확인 필요', warn: '참고' };
 
-  // 시간표에서 실제 쓰이고 있는 (반, 과목) 셀 전부 수집
-  const cells = [];
-  for (const [day, daySchedule] of Object.entries(schedule)) {
-    for (const [period, cell] of Object.entries(daySchedule)) {
-      if (cell?.class && cell?.subject) {
-        cells.push({ day, period: Number(period), class: cell.class, subject: cell.subject, key: `${cell.class}_${cell.subject}` });
-      }
-    }
-  }
-  cells.sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }) || a.period - b.period);
+  const issueHtml = issues.length
+    ? `<ul class="diag-issues">${issues.map(i =>
+        `<li class="diag-${i.level}"><b>${levelLabel[i.level] || i.level}</b> ${escapeHtml(i.msg)}</li>`).join('')}</ul>`
+    : `<p class="modal-hint">✅ 자체 점검에서 문제를 찾지 못했어.</p>`;
 
-  const scheduleKeys = new Set(cells.map(c => c.key));
-  const progressKeys = new Set(Object.keys(progress));
+  const keyRows = keys.map(k => {
+    const rows = ledger(k);
+    const n    = nextLesson(k);
+    const pins = PE.pinsOf(userData, k);
+    const cnt  = rows.reduce((c, r) => (c[r.kind]++, c), { regular: 0, special: 0, event: 0 });
+    return `<tr>
+      <td><code>${visibleStr(k)}</code></td>
+      <td>${n ? `${escapeHtml(lessonLabel(n))} · <b>${n.step}차시</b>` : '학기에 남은 수업 없음'}</td>
+      <td>${cnt.regular} / ${cnt.special} / ${cnt.event}</td>
+      <td>${pins.map(p => `${p.date}${p.p ? ` ${p.p}교시` : ' 첫 수업'}=${p.step}`).join('<br>') || '-'}</td>
+    </tr>`;
+  }).join('');
 
-  const missingProgress = [...scheduleKeys].filter(k => !progressKeys.has(k)); // 시간표엔 있는데 progress엔 없음
-  const orphanProgress  = [...progressKeys].filter(k => !scheduleKeys.has(k)); // progress엔 있는데 지금 시간표엔 없음 (옛 표기 흔적일 수 있음)
+  const logs = Object.values(userData.log || {}).sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 40);
+  const logRows = logs.map(e => `<tr><td>${escapeHtml(e.t || '')}</td><td>${escapeHtml(e.dev || '')}</td>
+    <td>${escapeHtml(e.src || '')}</td><td><code>${visibleStr(e.key || '')}</code></td><td>${escapeHtml(e.n || '')}</td></tr>`).join('');
+  const devRows = Object.entries(userData.devices || {}).sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
+    .map(([id, d]) => `<tr><td>${escapeHtml(d.label || '')}·${escapeHtml(id)}${id === me.id ? ' (이 기기)' : ''}</td><td>${escapeHtml(d.t || '')}</td><td>${escapeHtml(d.build || '')}</td></tr>`).join('');
+  const mig = userData.migration;
 
-  let html = `
+  const html = `
     <div class="modal-overlay" id="modal-datadiag">
       <div class="modal modal-lg">
         <div class="modal-header">
@@ -1891,67 +1798,29 @@ window.openDataDiag = function() {
           <button class="modal-close" onclick="window.closeModal('modal-datadiag')">✕</button>
         </div>
         <div class="modal-body">
-          <p class="modal-hint">공백은 <code>␣</code>(반각) / <code>⭞</code>(전각) 기호로 표시돼. 같은 반인데 칸마다 문자열이 다르면 진도가 따로 카운트돼.</p>`;
-
-  if (missingProgress.length || orphanProgress.length) {
-    html += `<p class="modal-hint" style="color:#d33">⚠ 아래처럼 불일치가 있어:</p><ul style="margin:0 0 12px;padding-left:18px;font-size:13px;line-height:1.6">`;
-    missingProgress.forEach(k => {
-      html += `<li>시간표엔 <code>${visibleStr(k)}</code> 셀이 있는데 progress 기록이 없음 (진도 0으로 안 잡혀 있을 수 있음)</li>`;
-    });
-    orphanProgress.forEach(k => {
-      html += `<li>progress에 <code>${visibleStr(k)}</code> 기록이 남아있는데 지금 시간표엔 이 조합이 없음 (예전 표기 흔적일 가능성)</li>`;
-    });
-    html += `</ul>`;
-  } else {
-    html += `<p class="modal-hint">시간표 셀과 progress 키가 1:1로 일치해. 표기 문제는 아닌 걸로 보여.</p>`;
-  }
-
-  html += `
+          <h3 class="diag-h">자체 점검</h3>
+          ${issueHtml}
+          <h3 class="diag-h">반별 진도</h3>
+          <p class="modal-hint">학기 ${escapeHtml(userData.semester.start)} ~ ${escapeHtml(userData.semester.end)} ·
+            시간표 버전 ${Object.keys(userData.timetables || {}).sort().map(v => `<code>${v}~</code>`).join(' ') || '없음'}<br>
+            차시는 학기 첫 수업부터 세고, 직접 고친 자리(고정핀)를 만나면 거기서부터 이어서 세. 공백은 <code>␣</code>로 보여.</p>
           <table class="cal-table">
-            <thead><tr><th>요일</th><th>교시</th><th>반(문자열)</th><th>과목(문자열)</th><th>progress key</th><th>기준점 current</th><th>기준점 lastUpdated</th><th>다음 수업 차시</th></tr></thead>
-            <tbody>`;
-  cells.forEach(c => {
-    const prog = progress[c.key];
-    html += `<tr>
-      <td>${dayLabels[c.day] || c.day}</td>
-      <td>${c.period}</td>
-      <td><code>${visibleStr(c.class)}</code></td>
-      <td><code>${visibleStr(c.subject)}</code></td>
-      <td><code>${visibleStr(c.key)}</code></td>
-      <td>${prog ? prog.current : '<span style="color:#d33">없음</span>'}</td>
-      <td>${prog ? (prog.lastUpdated || '') : ''}</td>
-      <td>${nextStep(c.key)}</td>
-    </tr>`;
-  });
-  html += `</tbody></table>`;
-
-  // 진도 변경 이력 — "차시가 안 넘어갔을 때" 원인 추적용
-  const semLog   = semLog_();
-  const devs     = semLog._dev || {};
-  const entries  = Object.entries(semLog).filter(([k]) => k !== '_dev').map(([, v]) => v)
-    .sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 40);
-  const me       = deviceInfo();
-  const devRows  = Object.entries(devs).sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
-    .map(([id, d]) => `<tr><td>${escapeHtml(d.label || '')}·${escapeHtml(id)}${id === me.id ? ' (이 기기)' : ''}</td><td>${escapeHtml(d.t || '')}</td><td>${escapeHtml(d.build || '')}</td></tr>`).join('');
-  const rowsHtml = entries.map(e => {
-    const cnt = (e.from !== '' || e.to !== '') ? `${e.from === '' ? '-' : e.from} → ${e.to === '' ? '-' : e.to}` : '';
-    const lu  = (e.luFrom || e.luTo) ? `${escapeHtml(e.luFrom || '-')} → ${escapeHtml(e.luTo || '-')}` : '';
-    return `<tr><td>${escapeHtml(e.t || '')}</td><td>${escapeHtml(e.dev || '')}</td><td>${escapeHtml(e.src || '')}</td>
-      <td><code>${visibleStr(e.key || '')}</code></td><td>${cnt}</td><td>${lu}</td><td>${escapeHtml(e.n || '')}</td></tr>`;
-  }).join('');
-  html += `
-          <h3 style="margin:18px 0 6px;font-size:14px">진도 변경 이력 <small style="font-weight:400">(최근 40건, 최신순 · 이 화면 빌드 ${escapeHtml(APP_BUILD)} · ${escapeHtml(me.label)}·${escapeHtml(me.id)})</small></h3>
-          <p class="modal-hint">차시는 기준점(current·lastUpdated) + 그 뒤 시간표 수업 수로 매번 계산해. 기준점이 바뀌는 건 <b>수동</b>(직접 고침)과 <b>시간표저장</b>뿐이야. <b>자동</b>·<b>어제미집계</b>는 예전 방식(2026-10-15 이전) 기록이야.</p>
-          <table class="cal-table">
-            <thead><tr><th>시각</th><th>기기</th><th>구분</th><th>반_과목</th><th>current</th><th>lastUpdated</th><th>메모</th></tr></thead>
-            <tbody>${rowsHtml || '<tr><td colspan="7">아직 이력이 없어</td></tr>'}</tbody>
+            <thead><tr><th>반_과목</th><th>다음 수업</th><th>정규 / 특별 / 휴업</th><th>직접 고친 차시(고정핀)</th></tr></thead>
+            <tbody>${keyRows || '<tr><td colspan="4">시간표에 수업이 없어</td></tr>'}</tbody>
           </table>
-          <h3 style="margin:18px 0 6px;font-size:14px">기기별 마지막 접속</h3>
-          <p class="modal-hint">빌드가 기기마다 다르면 한쪽이 옛 app.js를 쓰고 있는 거야(캐시). 한 기기의 접속 시각이 오래됐으면 그 기기는 낡은 데이터를 들고 있을 수 있어.</p>
+          <h3 class="diag-h">변경 이력 <small>(최근 40건 · 이 화면 빌드 ${escapeHtml(APP_BUILD)} · ${escapeHtml(me.label)}·${escapeHtml(me.id)})</small></h3>
+          <table class="cal-table">
+            <thead><tr><th>시각</th><th>기기</th><th>구분</th><th>반_과목</th><th>내용</th></tr></thead>
+            <tbody>${logRows || '<tr><td colspan="5">아직 이력이 없어</td></tr>'}</tbody>
+          </table>
+          <h3 class="diag-h">기기별 마지막 접속</h3>
+          <p class="modal-hint">빌드가 기기마다 다르면 한쪽이 옛 app.js를 쓰고 있는 거야(캐시). 옛 버전은 v2 진도에 쓰지 못해서 진도가 망가지지는 않아.</p>
           <table class="cal-table">
             <thead><tr><th>기기</th><th>마지막 접속</th><th>빌드</th></tr></thead>
             <tbody>${devRows || '<tr><td colspan="3">아직 기록 없음</td></tr>'}</tbody>
           </table>
+          ${mig ? `<h3 class="diag-h">v1에서 옮긴 기록 <small>${escapeHtml(mig.at || '')}</small></h3>
+            <ul class="diag-issues">${(mig.report || []).map(r => `<li class="diag-${r.level}">${escapeHtml(r.msg)}</li>`).join('') || '<li>특이사항 없음</li>'}</ul>` : ''}
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" onclick="window.closeModal('modal-datadiag')">닫기</button>
@@ -2149,8 +2018,9 @@ window.saveCalendar = async function() {
   });
 
   try {
-    await set(ref(db, 'school/calendar'), calendar);
+    if (!DEMO) await set(ref(db, 'school/calendar'), calendar);
     schoolData.calendar = calendar;
+    setData_({ ...userData, calendar }); // 학사일정은 v2에 저장하지 않고 계산할 때만 같이 쓴다
     closeModal('modal-calendar');
     showToast('학사일정 저장 완료');
     renderCurrentTab();
@@ -2199,7 +2069,16 @@ window.handleSignOut = async function() {
 
 window.switchTab = switchTab;
 
+// 데모: 로그인·DB 없이 demo/*.json 으로 화면만 띄운다 (저장은 메모리에만)
+if (DEMO) {
+  currentUser = { uid: 'demo', displayName: '데모' };
+  userProfile = { name: '데모', role: 'admin' };
+  showApp();
+  loadUserData().catch(e => showToast('데모 데이터를 못 읽었어요: ' + e.message, true));
+}
+
 onAuthStateChanged(auth, async (user) => {
+  if (DEMO) return;
   if (user) {
     currentUser = user;
 

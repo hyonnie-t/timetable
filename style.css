@@ -1508,3 +1508,29 @@ html { -webkit-text-size-adjust: 100%; }
 }
 .week-grid td .special-badge { display: block; width: fit-content; margin: 2px auto 0; font-size: 10px; padding: 1px 5px; }
 .week-grid td.special-cell { background: #fffdf2; }
+
+/* ============================================================
+   진도 점검 띠 · 진단 · 시간표 적용 시작일 (진도 엔진 v2)
+   ============================================================ */
+.health-bar {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  margin: 0 0 12px; padding: 10px 14px;
+  background: #fff7ed; border: 1px solid #f6c48e; border-radius: 12px;
+  font-size: 13px; color: #8a4b0f; cursor: pointer;
+}
+.health-bar.health-error { background: #fdecee; border-color: #f1a7ae; color: var(--danger); }
+.health-bar > span:first-child { font-weight: 700; }
+.health-first { flex: 1 1 220px; min-width: 0; color: inherit; opacity: .85; }
+.health-more { margin-left: auto; font-weight: 500; }
+
+.ledger-pin { font-size: 11px; }
+
+.tt-effective { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; font-size: 13px; font-weight: 500; }
+.tt-effective input { padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; }
+
+.diag-h { margin: 18px 0 6px; font-size: 14px; }
+.diag-h small { font-weight: 400; color: var(--text2); }
+.diag-issues { margin: 0 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.diag-issues .diag-error { color: var(--danger); }
+.diag-issues .diag-warn  { color: #8a4b0f; }
+.diag-issues .diag-info  { color: var(--text2); }

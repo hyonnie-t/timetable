@@ -24,6 +24,7 @@
 
 export const ENGINE_VERSION = 2;
 export const DOW_KEY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const DOW_KO_ = { sun: '일', mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토' };
 
 // ------------------------------------------------------------
 // 날짜 (문자열 'YYYY-MM-DD' 만 다룬다 — 시간대에 따라 하루 밀리는 일이 없게 UTC로 계산)
@@ -261,7 +262,7 @@ export function planSetTimetable(week, effectiveFrom) {
     for (const [p, cell] of Object.entries(cells || {})) {
       const c = normalizeName(cell?.class), s = normalizeName(cell?.subject);
       if (c && s) clean[day][p] = { class: c, subject: s };
-      else if (c || s) throw new Error(`${day} ${p}교시: 반과 과목을 둘 다 적어야 합니다`);
+      else if (c || s) throw new Error(`${DOW_KO_[day]} ${p}교시: 반과 과목을 둘 다 적어야 합니다 (예: 308 / 역사)`);
     }
   }
   return { [`timetables/${effectiveFrom}`]: clean };
