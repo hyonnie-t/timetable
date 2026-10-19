@@ -442,16 +442,24 @@ export function migrateFromV1(v1, { semesterId, semester, calendar = {}, today }
   };
 
   // 장부 앞부분(기준점 이전)도 v1 화면과 같게: v1은 기준점에서 거꾸로 세어 학기 첫 수업 차시를 정했다.
-  // 그 값이 1이 아니면 학기 첫날에도 핀을 하나 더 둔다. 1보다 작으면 시간표상 수업이 차시보다 많다는 뜻(빠진 학사일정 등).
-  const withCal = { ...data, calendar };
+  //  - 그 값이 1보다 크면 학기 첫날에 핀을 하나 더 둔다.
+  //  - 1보다 작으면 시간표상 수업이 차시보다 많다는 뜻(오리엔테이션·빠진 학사일정 등). v1 장부에서 0차시 이하로
+  //    보이던 학기 초 수업을 특별 수업 '진도 외(옮기기)'로 표시해, 장부가 v1과 같고 차시가 되돌아가지 않게 한다.
+  //    어떤 수업인지 report에 하나하나 적는다 (효니 확인용).
   for (const [k, byId] of Object.entries(pins)) {
     const [id, { step }] = Object.entries(byId)[0];
     const lu = addDays(parsePinId(id).date, -1);
     if (lu < semester.start) continue;
-    const held = countRegular(withCal, k, semester.start, lu, buildLedger({ ...withCal, pins: {} }, k));
-    const startStep = step - held;
+    const withCal = { ...data, calendar };
+    const regular = buildLedger({ ...withCal, pins: {} }, k, { to: lu }).filter(r => r.kind === 'regular');
+    const startStep = step - regular.length;
     if (startStep > 1) byId[pinId(semester.start, 0)] = { step: startStep, from: 'v1' };
-    else if (startStep < 1) note('warn', `진도 "${k}": ${semester.start}~${lu} 시간표상 수업이 ${held}번인데 기록은 ${step - 1}차시까지입니다. 빠진 학사일정·특별 수업이 있을 수 있어요 (장부 앞부분 확인 필요, 앞으로의 차시는 영향 없음)`);
+    else if (startStep < 1) {
+      const extra = regular.slice(0, 1 - startStep);
+      for (const r of extra) (data.specials[r.date] ||= {})[r.p] = { key: k, label: '진도 외(옮기기)' };
+      note('warn', `진도 "${k}": ${semester.start}~${lu} 시간표상 수업이 ${regular.length}번인데 기록은 ${step - 1}차시까지라, `
+        + `학기 초 ${extra.map(r => `${r.date} ${r.p}교시`).join(', ')} 수업을 '진도 외'로 표시했습니다 (지금 앱 장부에서 0차시 이하로 보이던 수업). 실제로 진도를 안 나간 수업인지 확인하세요`);
+    }
   }
 
   note('info', `시간표는 한 벌(${semester.start}부터 적용)로 옮겼습니다. 학기 중 시간표를 바꾼 적이 있다면 그 이전 장부 줄은 지금 시간표로 보입니다 (앞으로의 차시에는 영향 없음)`);

@@ -261,6 +261,19 @@ describe('자체 점검', () => {
   });
 });
 
+describe('Firebase 배열 모양', () => {
+  // RTDB는 1,2,3… 숫자 키를 [null, {...}, ...] 배열로 돌려준다 (실제 DB의 시간표·교시가 이 모양)
+  test('배열로 온 시간표·교시도 똑같이 센다', () => {
+    const d = base({
+      periods: [null, ...Object.values(base().periods)],
+      timetables: { '2026-10-19': { mon: [null, null, null, cell()], wed: [null, null, cell(), null, null, cell()] } },
+    });
+    assert.equal(step(d, '2026-10-21', 5), 3);
+    assert.equal(E.nextLesson(d, K, { date: '2026-10-19', min: 11 * 60 + 36 }).step, 2);
+    assert.deepEqual(E.checkHealth(d, { today: '2026-10-19' }), []);
+  });
+});
+
 describe('applyPatch', () => {
   test('원본을 바꾸지 않는다', () => {
     const d0 = base();
@@ -327,8 +340,16 @@ describe('v1 → v2 옮기기', () => {
     const src = v1();
     src.progress['2026-2']['202 A_역사A'] = { current: 2, lastUpdated: '2026-10-16' }; // 금요일 수업 8번인데 2차시까지
     const { data, report } = migrate(src);
+    const d = { ...data, calendar };
     assert.ok(report.some(r => r.level === 'warn' && r.msg.includes('202 A_역사A')));
-    assert.equal(E.stepAt({ ...data, calendar }, '202 A_역사A', '2026-10-23', 1), 3);
+    assert.equal(E.stepAt(d, '202 A_역사A', '2026-10-23', 1), 3);
+    // v1 장부에서 0차시 이하였던 학기 초 6번(8/21·8/28·9/4·9/11·9/18·9/25)은 '진도 외'로, 나머지 장부는 v1과 같다
+    const extra = E.buildLedger(d, '202 A_역사A').filter(r => r.kind === 'special');
+    assert.deepEqual(extra.map(r => r.date), ['2026-08-21', '2026-08-28', '2026-09-04', '2026-09-11', '2026-09-18', '2026-09-25']);
+    for (const r of E.buildLedger(d, '202 A_역사A').filter(x => x.kind === 'regular')) {
+      assert.equal(r.step, v1Step(src, calendar, '2026-2', '202 A_역사A', r.date, r.p, '2026-10-19'), r.date);
+    }
+    assert.ok(!E.checkHealth(d).some(i => i.code === 'step-backwards'));
   });
 
   test('lastUpdated가 없던 기록은 지금 보이던 차시로 옮기고 오류로 알린다', () => {
