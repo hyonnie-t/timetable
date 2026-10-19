@@ -257,7 +257,10 @@ describe('자체 점검', () => {
   test('학기·시간표가 없으면 오류', () => {
     assert.equal(E.checkHealth({}).at(0).code, 'no-semester');
     assert.ok(E.checkHealth({ ...base(), timetables: {} }).some(i => i.code === 'no-timetable'));
-    assert.ok(E.checkHealth(base(), { today: '2026-10-01' }).some(i => i.code === 'no-timetable-today'));
+    const late = { ...base(), timetables: { '2026-10-26': base().timetables['2026-10-19'] } };
+    assert.ok(E.checkHealth(late, { today: '2026-10-20' }).some(i => i.code === 'no-timetable-today'));
+    // 학기 시작 전(새 학기를 미리 시작해 둔 방학 중)은 정상
+    assert.ok(!E.checkHealth(base(), { today: '2026-10-01' }).some(i => i.code === 'no-timetable-today'));
   });
 });
 
@@ -383,5 +386,66 @@ describe('v1 → v2 옮기기', () => {
     const { data } = migrate();
     const issues = E.checkHealth({ ...data, calendar }, { today: '2026-10-19' }).filter(i => i.level === 'error');
     assert.deepEqual(issues, []);
+  });
+});
+
+describe('새 학기 시작', () => {
+  const NEW = { id: '2027-1', start: '2027-03-02', end: '2027-07-20' };
+  const filled = () => base({
+    pins: { [K]: { '2026-10-26_3': { step: 10 } } },
+    specials: { '2026-10-21': { 2: { key: K, label: '자습' } } },
+    dayOverrides: { '2026-10-20': { 1: cell() } },
+    curriculum: { [K]: { 1: '선사 시대' } },
+    lessonNotes: { [K]: { 1: '메모' } },
+    classNotes: { [K]: { text: '반 메모' } },
+    periods: { 1: { start: '09:00', end: '09:45' }, 3: { start: '10:50', end: '11:35' } },
+    log: { a: { t: 'x' } },
+  });
+  const week = { tue: { 3: cell() }, thu: { 1: cell() } };
+
+  test('지난 학기 기록은 보관함으로, 새 학기는 1차시부터', () => {
+    const d = filled();
+    const next = E.applyPatch(d, E.planStartSemester(d, NEW, week, { at: '2027-02-20 10:00:00' }));
+    assert.deepEqual(next.semester, NEW);
+    assert.deepEqual(Object.keys(next.timetables), ['2027-03-02']);
+    for (const k of ['pins', 'specials', 'dayOverrides', 'curriculum', 'lessonNotes', 'classNotes']) assert.equal(next[k], undefined, k);
+    // 3/2(화) 3교시가 1차시, 3/4(목) 1교시가 2차시 — 지난 학기 핀(10차시)이 섞이지 않는다
+    assert.equal(step(next, '2027-03-02', 3), 1);
+    assert.equal(step(next, '2027-03-04', 1), 2);
+    const box = next.archive.T;
+    assert.deepEqual(box.semester, d.semester);
+    assert.equal(box.archivedAt, '2027-02-20 10:00:00');
+    for (const k of ['timetables', 'pins', 'specials', 'dayOverrides', 'curriculum', 'lessonNotes', 'classNotes']) assert.deepEqual(box[k], d[k], k);
+    // 학기와 상관없는 값은 그대로
+    assert.deepEqual(next.periods, d.periods);
+    assert.deepEqual(next.log, d.log);
+    assert.deepEqual(E.checkHealth(next, { today: '2027-03-02' }), []);
+    // 방학 중에 미리 시작해 둬도 '오늘 시간표 없음' 오류를 띄우지 않는다
+    assert.deepEqual(E.checkHealth(next, { today: '2027-01-20' }), []);
+  });
+
+  test('보관함은 계산에 쓰이지 않고, 두 번 넘겨도 학기별로 따로 남는다', () => {
+    const d1 = E.applyPatch(filled(), E.planStartSemester(filled(), NEW, week));
+    const d2 = E.applyPatch(d1, E.planStartSemester(d1, { id: '2027-2', start: '2027-08-17', end: '2028-01-07' }, week));
+    assert.deepEqual(Object.keys(d2.archive).sort(), ['2027-1', 'T']);
+    assert.equal(d2.archive.T.pins[K]['2026-10-26_3'].step, 10);
+    assert.equal(step(d2, '2027-08-17', 3), 1);
+  });
+
+  test('빈 시간표로 시작해도 된다 (나중에 시간표 편집)', () => {
+    const next = E.applyPatch(filled(), E.planStartSemester(filled(), NEW, {}));
+    assert.deepEqual(next.timetables, { '2027-03-02': {} });
+    assert.deepEqual(E.allKeys(next), []);
+  });
+
+  test('잘못된 입력은 막는다', () => {
+    const d = filled();
+    assert.throws(() => E.planStartSemester(d, { ...NEW, id: '' }), /학기 이름/);
+    assert.throws(() => E.planStartSemester(d, { ...NEW, id: '2027.1' }), /학기 이름/);
+    assert.throws(() => E.planStartSemester(d, { ...NEW, end: '2027-03-01' }), /끝날/);
+    assert.throws(() => E.planStartSemester(d, { ...NEW, id: 'T' }), /같습니다/);
+    assert.throws(() => E.planStartSemester(d, { ...NEW, start: '2026-10-01' }), /뒤여야/);
+    assert.throws(() => E.planStartSemester({ ...d, archive: { T: {} } }, NEW), /덮어쓸 수 없습니다/);
+    assert.throws(() => E.planStartSemester(d, NEW, { mon: { 1: { class: '101', subject: '' } } }), /둘 다/);
   });
 });

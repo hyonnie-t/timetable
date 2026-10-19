@@ -149,7 +149,8 @@ const ledgerCache = new Map();
 let healthCache = null;
 
 function setData_(d) {
-  userData = d;
+  // 새 학기 시작처럼 주제·메모를 통째로 비우면 DB에서 칸이 사라지므로 빈 객체로 채워 둔다
+  userData = { curriculum: {}, lessonNotes: {}, classNotes: {}, ...d };
   dataRev++;
 }
 
@@ -177,8 +178,14 @@ function nowPos_() {
 }
 
 // 오늘 적용되는 주간 시간표 (진도표 탭·시간표 편집기·진단에서 "지금 시간표"로 쓴다)
+// 새 학기를 미리 시작해 둔 경우(오늘이 학기 시작 전)는 학기 첫 시간표
+function semesterToday_() {
+  const t = todayStr(), s = userData.semester?.start;
+  return s && t < s ? s : t;
+}
+
 function currentWeek() {
-  const v = PE.timetableVersionOn(userData, todayStr());
+  const v = PE.timetableVersionOn(userData, semesterToday_());
   return v ? (userData.timetables[v] || {}) : {};
 }
 
@@ -1545,6 +1552,12 @@ function renderSettings() {
           <span>데이터 진단 (진도 점검)</span><span class="arrow-r">→</span>
         </button>
       </div>
+      <div class="settings-section">
+        <div class="settings-title">학기</div>
+        <button class="settings-item" onclick="window.openSemesterStarter()">
+          <span>새 학기 시작 <span class="settings-sub">지금 ${escapeHtml(userData?.semester?.id || '')} · ${escapeHtml(userData?.semester?.start || '')} ~ ${escapeHtml(userData?.semester?.end || '')}</span></span><span class="arrow-r">→</span>
+        </button>
+      </div>
       ${isAdmin ? `
       <div class="settings-section">
         <div class="settings-title">학교 공통</div>
@@ -1570,6 +1583,68 @@ function renderSettings() {
 }
 
 // ============================================================
+// 새 학기 시작 — 지난 학기 시간표·고정핀·특별 수업·주제·메모는 archive/{지난학기} 에 보관하고 새 학기는 1차시부터 센다.
+// 계산은 engine 의 planStartSemester 가 하고 여기서는 입력·확인·저장만 한다.
+// ============================================================
+function suggestNextSemesterId_(id) {
+  const m = /^(\d{4})-([12])$/.exec(id || '');
+  if (!m) return '';
+  return m[2] === '1' ? `${m[1]}-2` : `${Number(m[1]) + 1}-1`;
+}
+
+window.openSemesterStarter = function() {
+  const sem = userData.semester || {};
+  const archived = Object.keys(userData.archive || {}).sort();
+  const html = `
+    <div class="modal-overlay" id="modal-semester">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>새 학기 시작</h2>
+          <button class="modal-close" onclick="window.closeModal('modal-semester')">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint">지금 학기: <code>${escapeHtml(sem.id || '')}</code> ${escapeHtml(sem.start || '')} ~ ${escapeHtml(sem.end || '')}</p>
+          <div class="sem-form">
+            <label>새 학기 이름 <input type="text" id="sem-id" value="${escapeHtml(suggestNextSemesterId_(sem.id))}" placeholder="예: 2027-1" /></label>
+            <label>시작일 <input type="date" id="sem-start" /></label>
+            <label>끝날 <input type="date" id="sem-end" /></label>
+            <label class="sem-check"><input type="checkbox" id="sem-copy-tt" checked /> 지금 시간표를 새 학기 첫 시간표로 복사 (반이 바뀌면 시작한 뒤 시간표 편집에서 고치기)</label>
+          </div>
+          <p class="modal-hint">시작하면 지난 학기의 <b>시간표·고정한 차시·특별 수업·하루 바꾸기·수업 주제·수업 메모·학급 메모</b>는 보관함에 그대로 남고,
+            새 학기는 빈 상태에서 <b>1차시부터</b> 셉니다. 교시 시간과 학사일정은 그대로예요.</p>
+          ${archived.length ? `<p class="modal-hint">보관된 학기: ${archived.map(a => `<code>${escapeHtml(a)}</code>`).join(' ')}</p>` : ''}
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="window.closeModal('modal-semester')">취소</button>
+          <button class="btn-primary" onclick="window.startSemester()">새 학기 시작</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.startSemester = async function() {
+  const next = {
+    id:    document.getElementById('sem-id')?.value.trim(),
+    start: document.getElementById('sem-start')?.value,
+    end:   document.getElementById('sem-end')?.value,
+  };
+  const week = document.getElementById('sem-copy-tt')?.checked ? currentWeek() : {};
+  const old  = userData.semester || {};
+  try {
+    const patch = PE.planStartSemester(userData, next, week, { at: nowStamp() }); // 잘못된 입력은 여기서 막는다
+    if (!confirm(`${old.id || '지금'} 학기를 보관하고 ${next.id} 학기(${next.start} ~ ${next.end})를 시작할까요?\n\n`
+      + `지난 학기 진도·주제·메모는 보관함(archive/${old.id})에 남고 화면에서는 사라집니다.`)) return;
+    await commit_(patch, { src: '새학기시작', key: '(전체)', n: `${old.id} → ${next.id} (${next.start}~${next.end})` });
+    closeModal('modal-semester');
+    showToast(`${next.id} 학기를 시작했어요`);
+    renderCurrentTab();
+  } catch (e) {
+    showToast('새 학기 시작 실패: ' + e.message, true);
+  }
+};
+
+// ============================================================
 // 시간표 편집기 — 저장하면 "적용 시작일"부터 쓰는 새 시간표 버전이 생긴다.
 // 지난 날짜는 옛 시간표 그대로라 지난 수업 차시·장부가 바뀌지 않는다.
 // ============================================================
@@ -1593,7 +1668,7 @@ window.openTimetableEditor = function() {
         <div class="modal-body">
           <p class="modal-hint">반과 과목을 각 칸에 입력하세요. 예: <code>308 / 역사</code> — 칸을 누르면 있는 반 목록에서 고를 수 있어요.</p>
           <label class="tt-effective">적용 시작일
-            <input type="date" id="tt-effective" value="${todayStr()}" min="${userData.semester.start}" max="${userData.semester.end}" />
+            <input type="date" id="tt-effective" value="${semesterToday_()}" min="${userData.semester.start}" max="${userData.semester.end}" />
           </label>
           <p class="modal-hint">이 날짜부터 새 시간표로 세고, 그 전 수업은 원래 시간표 그대로예요.
             ${versions.length ? `지금까지의 시간표: ${versions.map(v => `<code>${v}~</code>`).join(' ')}` : ''}</p>
@@ -1626,7 +1701,7 @@ window.openTimetableEditor = function() {
 };
 
 window.saveTimetable = async function() {
-  const effectiveFrom = document.getElementById('tt-effective')?.value || todayStr();
+  const effectiveFrom = document.getElementById('tt-effective')?.value || semesterToday_();
   const week = {};
   document.querySelectorAll('.cell-input').forEach(input => {
     const val = input.value.trim();

@@ -316,7 +316,8 @@ export function checkHealth(data, { today } = {}) {
   const versions = sortedVersions_(data);
   if (!versions.length) add('error', 'no-timetable', '시간표가 없습니다');
   else if (versions[0] > sem.start) add('warn', 'timetable-late', `학기 첫날(${sem.start})부터 ${versions[0]} 전까지는 시간표가 없어 수업을 세지 않습니다`);
-  if (today && versions.length && !timetableVersionOn(data, today, versions)) add('error', 'no-timetable-today', '오늘에 해당하는 시간표 버전이 없습니다');
+  // 새 학기를 미리 시작해 둔 경우(학기 시작 전)는 오늘 시간표가 없는 게 정상
+  if (today && today >= sem.start && versions.length && !timetableVersionOn(data, today, versions)) add('error', 'no-timetable-today', '오늘에 해당하는 시간표 버전이 없습니다');
 
   // 반쪽짜리 칸 (반만 있거나 과목만 있음)
   const halfCells = (label, day) => Object.entries(day || {}).forEach(([p, c]) => {
@@ -466,4 +467,43 @@ export function migrateFromV1(v1, { semesterId, semester, calendar = {}, today }
 
   note('info', `시간표는 한 벌(${semester.start}부터 적용)로 옮겼습니다. 학기 중 시간표를 바꾼 적이 있다면 그 이전 장부 줄은 지금 시간표로 보입니다 (앞으로의 차시에는 영향 없음)`);
   return { data, report };
+}
+
+// ------------------------------------------------------------
+// 새 학기 시작 — 지난 학기 기록은 archive/{지난학기id} 에 그대로 보관하고, 계산에 쓰는 자리는 비운다.
+//   - semester 교체, 시간표는 새 학기 첫날(start)부터 쓰는 한 벌(week)로 새로 시작
+//   - pins·specials·dayOverrides 는 보관만 하고 비운다 → 새 학기 차시는 1부터
+//   - curriculum·lessonNotes·classNotes 도 보관하고 비운다 (2026-10-19 효니 결정)
+//   - periods·log·devices 는 그대로 (학기와 상관없음). 학사일정은 학교 공용(school/calendar)이라 건드리지 않는다.
+// at: 보관 시각 문자열 (순수 함수라 호출하는 쪽이 넣는다)
+// ------------------------------------------------------------
+export const SEMESTER_SCOPED = ['timetables', 'dayOverrides', 'specials', 'pins', 'curriculum', 'lessonNotes', 'classNotes'];
+const DB_KEY_RE = /^[^.#$\[\]\/\s]+$/;
+
+export function planStartSemester(data, { id, start, end } = {}, week = {}, { at = '' } = {}) {
+  id = normalizeName(id);
+  if (!id || !DB_KEY_RE.test(id)) throw new Error('학기 이름이 필요합니다 (예: 2027-1, 띄어쓰기·. # $ [ ] / 없이)');
+  if (!isDateStr(start) || !isDateStr(end)) throw new Error('학기 시작일과 끝날이 필요합니다');
+  if (start >= end) throw new Error('학기 끝날은 시작일보다 뒤여야 합니다');
+  const old = data.semester;
+  if (old && isDateStr(old.start)) {
+    if (normalizeName(old.id) === id) throw new Error(`지금 학기와 이름(${id})이 같습니다`);
+    if (start <= old.start) throw new Error(`새 학기 시작일은 지금 학기 시작일(${old.start})보다 뒤여야 합니다`);
+  }
+  if (data.archive?.[id]) throw new Error(`보관함에 이미 ${id} 학기가 있습니다`);
+
+  const patch = {};
+  if (old && isDateStr(old.start)) {
+    const oldId = normalizeName(old.id) || old.start;
+    if (data.archive?.[oldId]) throw new Error(`보관함에 이미 ${oldId} 학기가 있어 덮어쓸 수 없습니다`);
+    const box = { semester: structuredClone(old), archivedAt: at };
+    for (const k of SEMESTER_SCOPED) if (data[k] != null) box[k] = structuredClone(data[k]);
+    patch[`archive/${oldId}`] = box;
+  }
+  for (const k of SEMESTER_SCOPED) patch[k] = null;
+  patch.semester = { id, start, end };
+  // 새 시간표 한 벌 (칸 정리·검사는 시간표 저장과 같게). 타임테이블 뿌리를 통째로 바꾼다.
+  const tt = planSetTimetable(week, start)[`timetables/${start}`];
+  patch.timetables = { [start]: tt };
+  return patch;
 }
