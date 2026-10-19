@@ -358,7 +358,8 @@ export function checkHealth(data, { today } = {}) {
   // 특별 수업 표시가 그 자리 수업과 안 맞음
   for (const [d, byP] of Object.entries(data.specials || {})) {
     for (const [p, sp] of Object.entries(byP || {})) {
-      const k = normalizeName(sp?.key);
+      if (!sp) continue; // DB가 배열로 돌려줄 때 생기는 빈 칸
+      const k = normalizeName(sp.key);
       if (!slotsOn(data, k, d, versions).some(s => s.p === Number(p))) {
         add('warn', 'orphan-special', `${d} ${p}교시 특별 수업(${sp?.label || ''}) 표시가 그 자리 수업(${k})과 맞지 않아 무시됩니다`);
       }

@@ -272,6 +272,13 @@ describe('Firebase 배열 모양', () => {
     assert.equal(E.nextLesson(d, K, { date: '2026-10-19', min: 11 * 60 + 36 }).step, 2);
     assert.deepEqual(E.checkHealth(d, { today: '2026-10-19' }), []);
   });
+
+  test('배열로 온 특별 수업(빈 칸 null)도 헛경고 없이 적용된다', () => {
+    const d = base({ specials: { '2026-10-21': [null, null, { key: K, label: '자습' }] } });
+    assert.equal(step(d, '2026-10-21', 2), null);
+    assert.equal(step(d, '2026-10-21', 5), 2);
+    assert.deepEqual(E.checkHealth(d, { today: '2026-10-19' }), []);
+  });
 });
 
 describe('applyPatch', () => {
