@@ -1917,8 +1917,11 @@ window.openDataDiag = function() {
 // - 원서접수·성적산출 기준일 같은 입시 일정은 수업 진행과 무관해 제외
 // ============================================================
 const _P = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
-const _ev = (date, type, label, periods) =>
-  periods ? { date, type, label, periods, isAll: false } : { date, type, label, periods: [], isAll: true };
+// 휴업은 전 학년, 나머지는 3학년 일정이라 학년 3을 붙인다
+const _ev = (date, type, label, periods) => {
+  const grades = type === 'holiday' ? '' : '3';
+  return periods ? { date, type, label, periods, isAll: false, grades } : { date, type, label, periods: [], isAll: true, grades };
+};
 const TRANSITION_CALENDAR = [
   // 11월
   _ev('2026-11-02', 'event',   '특성화고 설명회(교내)', [3]),
