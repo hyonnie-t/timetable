@@ -449,3 +449,66 @@ describe('새 학기 시작', () => {
     assert.throws(() => E.planStartSemester(d, NEW, { mon: { 1: { class: '101', subject: '' } } }), /둘 다/);
   });
 });
+
+describe('학년별 학사일정', () => {
+  // 305 역사(3학년)는 화 1교시, 201 A 역사A(2학년)는 월 3교시·수 2·5교시
+  test('3학년 기말고사 하루종일은 3학년 수업만 막고 2학년 수업은 그대로', () => {
+    const d = base({ calendar: { '2026-10-21': { 'all@3': { type: 'exam', label: '3학년 기말고사' } }, '2026-10-27': { 'all@3': { type: 'exam', label: '3학년 기말고사' } } } });
+    assert.equal(step(d, '2026-10-21', 2), 2);                           // 2학년: 수업 그대로
+    assert.equal(E.stepAt(d, '305_역사', '2026-10-27', 1), null);         // 3학년: 시험
+    assert.equal(E.calendarEvent(d, '2026-10-27', 1, '305')?.type, 'exam');
+    assert.equal(E.calendarEvent(d, '2026-10-27', 1, '201 A'), null);
+  });
+
+  test('2학년 기말고사는 3학년 수업을 막지 않는다', () => {
+    const d = base({ calendar: { '2026-10-21': { 'all@2': { type: 'exam', label: '2학년 기말고사' } }, '2026-10-27': { 'all@2': { type: 'exam', label: '2학년 기말고사' } } } });
+    assert.equal(step(d, '2026-10-21', 2), null);
+    assert.equal(E.stepAt(d, '305_역사', '2026-10-27', 1), 2);
+  });
+
+  test('학년 표시가 없는 일정은 옛날처럼 전 학년에 적용, 교시 일정이 하루종일보다 우선', () => {
+    const d = base({ calendar: { '2026-10-21': { all: { type: 'holiday', label: '휴업' } } } });
+    assert.equal(step(d, '2026-10-21', 2), null);
+    assert.equal(E.calendarEvent(d, '2026-10-21', 5, '201 A')?.label, '휴업');
+    const e = { calendar: { 'x': { 3: { type: 'event', label: '행사' }, all: { type: 'holiday', label: '휴업' } } } };
+    assert.equal(E.calendarEvent(e, 'x', 3, '201 A').label, '행사');
+  });
+
+  test('학년이 다른 같은 날 하루종일 두 일정이 서로 덮어쓰지 않는다', () => {
+    const d = { calendar: { x: { 'all@3': { type: 'exam', label: '3학년' }, 'all@2': { type: 'exam', label: '2학년' } } } };
+    assert.equal(E.calendarEvent(d, 'x', 1, '305').label, '3학년');
+    assert.equal(E.calendarEvent(d, 'x', 1, '201 B').label, '2학년');
+    assert.equal(E.calendarEvent(d, 'x', 1, '105'), null);
+  });
+});
+
+describe('요일 대체', () => {
+  // 10/19(월) 학기 시작. 금요일 시간표: 3교시 201 A. 월요일 시간표: 3교시 201 A (월 3교시)
+  const swapData = (extra = {}) => base({
+    timetables: { '2026-10-19': { mon: { 3: cell() }, fri: { 1: cell('305', '역사'), 4: cell() }, wed: { 2: cell() } } },
+    ...extra,
+  });
+
+  test('월요일을 금요일 시간표로 대체하면 월요일 수업은 사라지고 금요일 수업이 열린다', () => {
+    const d = swapData({ calendar: { '2026-10-26': { swap: { type: 'swap', label: '금요일 수업', to: 'fri' } } } });
+    assert.equal(E.swapOn(d, '2026-10-26'), 'fri');
+    assert.deepEqual(Object.keys(E.scheduleOn(d, '2026-10-26')), ['1', '4']);
+    assert.equal(step(d, '2026-10-26', 3), null);   // 월 3교시 수업은 그날 없음
+    assert.equal(step(d, '2026-10-26', 4), 4);      // 대신 금요일 4교시 수업이 그날 열림 (10/19=1, 10/21=2, 금 10/23=3, 10/26=4)
+    assert.equal(E.stepAt(d, '305_역사', '2026-10-26', 1), 2);   // 금 10/23=1, 대체일 10/26=2
+  });
+
+  test('대체일은 전 학년 공통, 다른 날짜는 영향 없음, 잘못된 요일은 무시', () => {
+    const d = swapData({ calendar: { '2026-10-26': { swap: { type: 'swap', to: 'fri' } }, '2026-11-02': { swap: { type: 'swap', to: 'xyz' } } } });
+    assert.equal(E.scheduleOn(d, '2026-11-02')[3]?.class, '201 A');   // 잘못된 값 → 원래 월요일
+    assert.equal(E.scheduleOn(d, '2026-10-19')[3]?.class, '201 A');
+  });
+
+  test('대체일에도 학년별 행사·하루 바꾸기는 그대로 동작', () => {
+    const d = swapData({ calendar: { '2026-10-26': { swap: { type: 'swap', to: 'fri' }, 'all@3': { type: 'exam', label: '3학년 시험' } } } });
+    assert.equal(E.stepAt(d, '305_역사', '2026-10-26', 1), null);
+    assert.equal(step(d, '2026-10-26', 4), 4);
+    const o = { ...d, dayOverrides: { '2026-10-26': { 2: cell() } } };
+    assert.deepEqual(Object.keys(E.scheduleOn(o, '2026-10-26')), ['2']);   // 하루 바꾸기가 우선
+  });
+});

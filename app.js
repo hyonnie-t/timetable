@@ -195,7 +195,8 @@ function daySchedule(dateStr) {
 }
 
 function getCalendarEvent(dateStr, periodStr) {
-  return PE.calendarEvent(userData, dateStr, periodStr);
+  // 학년별 일정(예: 3학년 기말고사)은 그 교시 수업 반의 학년으로 가려 본다
+  return PE.calendarEvent(userData, dateStr, periodStr, daySchedule(dateStr)[periodStr]?.class);
 }
 
 // 특별 수업(자습·다른 내용 등 진도에 안 들어가는 수업) — specials/{날짜}/{교시} = { key, label }
@@ -561,6 +562,7 @@ function renderToday() {
     <div class="header-row">
       <span class="date-main">${now.getMonth()+1}월 ${now.getDate()}일</span>
       <span class="date-sub">(${DOW_KO[dowIdx]})</span>
+      ${PE.swapOn(userData, today) ? `<span class="swap-badge">${DOW_KO[DOW_KEY.indexOf(PE.swapOn(userData, today))]}요일 수업</span>` : ''}
     </div>
     <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
   `;
@@ -984,7 +986,8 @@ function renderWeekly() {
     let html = '<div class="week-grid"><table><thead><tr><th></th>';
     dates.forEach((d, i) => {
       const isToday = dateToStr(d) === today;
-      html += `<th class="${isToday ? 'today-col' : ''}">${DOW_KO[i+1]}<br><span class="th-date">${d.getMonth()+1}/${d.getDate()}</span></th>`;
+      const swapTo = PE.swapOn(userData, dateToStr(d));
+      html += `<th class="${isToday ? 'today-col' : ''}">${DOW_KO[i+1]}<br><span class="th-date">${d.getMonth()+1}/${d.getDate()}</span>${swapTo ? `<br><span class="swap-badge">${DOW_KO[DOW_KEY.indexOf(swapTo)]}요일 수업</span>` : ''}</th>`;
     });
     html += '</tr></thead><tbody>';
 
@@ -1943,14 +1946,24 @@ const TRANSITION_CALENDAR = [
   _ev('2027-01-08', 'event',   '졸업식', [1, 2]),
 ];
 
+// 학사일정 한 행. g.grades: '' = 전 학년, '3' = 3학년만, '23' = 2·3학년 (같은 일정을 학년 칸으로 나눠 저장)
+// type 'swap' = 요일 대체: 그 날짜는 g.swapTo 요일 시간표로 수업 (교시·학년 칸은 쓰지 않음)
+const SWAP_DAYS = [['mon', '월'], ['tue', '화'], ['wed', '수'], ['thu', '목'], ['fri', '금']];
 function calRowHtml(idx, g) {
   const isAll = g.isAll;
   const periods = g.periods || [];
+  const grades = g.grades || '';
+  const isSwap = g.type === 'swap';
   return `
-  <tr id="cal-row-${idx}">
+  <tr id="cal-row-${idx}" class="${isSwap ? 'cal-swap-row' : ''}">
     <td><input class="cal-input" data-idx="${idx}" data-field="date" value="${g.date}" placeholder="YYYY-MM-DD" /></td>
     <td class="cal-allday-cell">
-      <div class="cal-period-group" data-idx="${idx}">
+      <div class="cal-swap-pick" style="${isSwap ? '' : 'display:none'}">
+        <select class="cal-select" data-idx="${idx}" data-field="swapto">
+          ${SWAP_DAYS.map(([k, ko]) => `<option value="${k}" ${g.swapTo === k ? 'selected' : ''}>${ko}요일 시간표로 수업</option>`).join('')}
+        </select>
+      </div>
+      <div class="cal-period-group" data-idx="${idx}" style="${isSwap ? 'display:none' : ''}">
         <label class="allday-toggle">
           <input type="checkbox" class="cal-allday-check" data-idx="${idx}" onchange="window.toggleAlldayCheck(this)" ${isAll ? 'checked' : ''} />
           <span>하루종일</span>
@@ -1964,13 +1977,24 @@ function calRowHtml(idx, g) {
         </div>
       </div>
     </td>
+    <td class="cal-grade-cell">
+      <div class="cal-grade-checks" style="${isSwap ? 'display:none' : ''}">
+        ${[1,2,3].map(n => `
+          <label class="period-check-label">
+            <input type="checkbox" class="cal-grade-check" data-idx="${idx}" value="${n}" ${grades.includes(String(n)) ? 'checked' : ''} />
+            ${n}
+          </label>`).join('')}
+        <small class="cal-grade-hint">${grades ? '' : '전체'}</small>
+      </div>
+    </td>
     <td>
-      <select class="cal-select" data-idx="${idx}" data-field="type">
+      <select class="cal-select" data-idx="${idx}" data-field="type" onchange="window.onCalTypeChange(this)">
         <option value="holiday" ${g.type==='holiday'?'selected':''}>휴업</option>
         <option value="event"   ${g.type==='event'  ?'selected':''}>행사</option>
         <option value="exam"    ${g.type==='exam'   ?'selected':''}>시험</option>
         <option value="club"    ${g.type==='club'   ?'selected':''}>동아리</option>
         <option value="noclass" ${g.type==='noclass'?'selected':''}>수업없음</option>
+        <option value="swap"    ${isSwap            ?'selected':''}>요일 대체</option>
       </select>
     </td>
     <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
@@ -1985,20 +2009,37 @@ window.openCalendarEditor = function() {
   const calendar = schoolData?.calendar || {};
 
   // 같은 날짜+종류+텍스트인 항목들을 하나의 행으로 그룹핑
-  const groupMap = new Map(); // key: date||type||label -> { date, type, label, periods:[], isAll }
+  // 교시 키는 '3' · 'all' · '3@2'(2학년만) · 'all@3' · 'swap'(요일 대체)
+  const groupMap = new Map(); // key: date||type||label||학년 -> { date, type, label, periods:[], isAll, grades }
+  const swaps = [];
   for (const [date, periods] of Object.entries(calendar)) {
     for (const [period, ev] of Object.entries(periods)) {
-      const key = `${date}||${ev.type}||${ev.label}`;
+      if (period === 'swap') {
+        swaps.push({ date, type: 'swap', label: ev.label || '', swapTo: ev.to, periods: [], isAll: false, grades: '' });
+        continue;
+      }
+      const [pk, grade = ''] = period.split('@');
+      const key = `${date}||${ev.type}||${ev.label}||${grade}`;
       if (!groupMap.has(key)) {
-        groupMap.set(key, { date, type: ev.type, label: ev.label, periods: [], isAll: false });
+        groupMap.set(key, { date, type: ev.type, label: ev.label, periods: [], isAll: false, grades: grade });
       }
       const g = groupMap.get(key);
-      if (period === 'all') g.isAll = true;
-      else g.periods.push(Number(period));
+      if (pk === 'all') g.isAll = true;
+      else g.periods.push(Number(pk));
     }
   }
 
-  const groups = [...groupMap.values()].sort((a,b) => b.date.localeCompare(a.date));
+  // 학년만 다른 같은 일정(예: 2학년·3학년 둘 다 같은 교시 행사)은 한 행으로 합친다
+  const merged = new Map();
+  for (const g of groupMap.values()) {
+    g.periods.sort((a, b) => a - b);
+    const sig = g.grades ? `${g.date}||${g.type}||${g.label}||${g.isAll}||${g.periods}` : `${g.date}||${g.type}||${g.label}||전체||${g.isAll}||${g.periods}`;
+    const prev = merged.get(sig);
+    if (prev) prev.grades = [...new Set(prev.grades + g.grades)].sort().join('');
+    else merged.set(sig, g);
+  }
+
+  const groups = [...merged.values(), ...swaps].sort((a,b) => b.date.localeCompare(a.date));
 
   const rows = groups.map((g, i) => calRowHtml(i, g)).join('');
 
@@ -2013,7 +2054,7 @@ window.openCalendarEditor = function() {
           <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
           <button class="btn-add-period" onclick="window.importTransitionCalendar()" style="margin-bottom:10px;margin-top:0">3학년 전환기 일정 불러오기</button>
           <table class="cal-table">
-            <thead><tr><th>날짜</th><th>교시</th><th>종류</th><th>표시</th><th></th></tr></thead>
+            <thead><tr><th>날짜</th><th>교시</th><th>학년<small> (비우면 전체)</small></th><th>종류</th><th>표시</th><th></th></tr></thead>
             <tbody id="cal-tbody">${rows}</tbody>
           </table>
         </div>
@@ -2036,6 +2077,16 @@ window.toggleAlldayCheck = function(checkbox) {
   } else {
     checksDiv.style.display = '';
   }
+};
+
+// 종류를 '요일 대체'로 바꾸면 교시·학년 칸 대신 요일 고르기를 보여준다
+window.onCalTypeChange = function(select) {
+  const row = select.closest('tr');
+  const isSwap = select.value === 'swap';
+  row.classList.toggle('cal-swap-row', isSwap);
+  row.querySelector('.cal-swap-pick').style.display = isSwap ? '' : 'none';
+  row.querySelector('.cal-period-group').style.display = isSwap ? 'none' : '';
+  row.querySelector('.cal-grade-checks').style.display = isSwap ? 'none' : '';
 };
 
 window.addCalRow = function(g) {
@@ -2082,12 +2133,24 @@ window.saveCalendar = async function() {
 
     if (!calendar[date]) calendar[date] = {};
 
+    // 요일 대체: 그날은 to 요일 시간표로 수업 (원래 요일 수업은 없어짐, 전 학년 공통)
+    if (type === 'swap') {
+      const to = row.querySelector('[data-field="swapto"]')?.value;
+      const toKo = SWAP_DAYS.find(([k]) => k === to)?.[1];
+      if (toKo) calendar[date]['swap'] = { type, label: label || `${toKo}요일 수업`, to };
+      return;
+    }
+
+    // 학년을 고르면 그 학년 수업만 해당 ('3@2' = 2학년만), 비우면 전 학년
+    const grades = [...row.querySelectorAll('.cal-grade-check:checked')].map(c => c.value);
+    const suffixes = grades.length ? grades.map(g => `@${g}`) : [''];
+
     if (isAll) {
-      calendar[date]['all'] = { type, label };
+      suffixes.forEach(s => { calendar[date]['all' + s] = { type, label }; });
     } else {
       const checkedPeriods = [...row.querySelectorAll('.cal-period-check:checked')].map(c => c.value);
       checkedPeriods.forEach(p => {
-        calendar[date][p] = { type, label };
+        suffixes.forEach(s => { calendar[date][p + s] = { type, label }; });
       });
     }
   });

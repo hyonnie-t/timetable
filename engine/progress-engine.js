@@ -91,18 +91,34 @@ export function timetableVersionOn(data, date, versions = sortedVersions_(data))
   return found;
 }
 
-// date의 { 교시: cell } — 하루 바꾸기가 있으면 그것, 없으면 그날 적용되는 시간표 버전의 요일
+// 요일 대체 — 학사일정 { 날짜: { swap: { to:'fri', ... } } }. 그날은 to 요일 시간표로 수업한다 (원래 요일 수업은 없어짐, 전 학년 공통)
+export function swapOn(data, date) {
+  const to = data.calendar?.[date]?.swap?.to;
+  return DOW_KEY.includes(to) ? to : null;
+}
+
+// date의 { 교시: cell } — 하루 바꾸기가 있으면 그것, 없으면 그날 적용되는 시간표 버전의 요일(요일 대체가 있으면 그 요일)
 export function scheduleOn(data, date, versions) {
   const ov = data.dayOverrides?.[date];
   if (ov) return ov;
   const v = timetableVersionOn(data, date, versions);
-  return v ? (data.timetables[v]?.[weekdayKey(date)] || {}) : {};
+  return v ? (data.timetables[v]?.[swapOn(data, date) || weekdayKey(date)] || {}) : {};
 }
 
-export function calendarEvent(data, date, p) {
+// 반 이름의 학년 ('305' → '3', '201 A' → '2'). 알 수 없으면 null
+export function gradeOf(cls) {
+  const m = /^(\d)/.exec(normalizeName(cls));
+  return m ? m[1] : null;
+}
+
+// 학사일정 키: '3' | 'all' (전 학년) 또는 '3@2' | 'all@2' (2학년만). cls(수업 반)를 주면 그 학년에 해당하는 일정만 본다.
+// cls 없이 부르면 학년 지정 일정은 무시한다.
+export function calendarEvent(data, date, p, cls) {
   const day = data.calendar?.[date];
   if (!day) return null;
-  return day[String(p)] || day.all || null;
+  const g = gradeOf(cls);
+  const pk = String(p);
+  return (g && day[`${pk}@${g}`]) || day[pk] || (g && day[`all@${g}`]) || day.all || null;
 }
 
 export function specialAt(data, date, p, key) {
@@ -118,7 +134,7 @@ export function slotsOn(data, key, date, versions) {
     .filter(p => cellKey(sched[p]) === key)
     .sort((a, b) => a - b)
     .map(p => {
-      const event = calendarEvent(data, date, p);
+      const event = calendarEvent(data, date, p, sched[p].class);
       const special = event ? null : specialAt(data, date, p, key);
       return { date, p, kind: event ? 'event' : special ? 'special' : 'regular', event, special };
     });
