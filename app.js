@@ -2391,6 +2391,13 @@ const PIP_CSS = `
   .pip-note  { flex-basis:100%; font-size:10.5px; color:#b5690b; }
   .pip-empty-cell, .pip-empty { color:#999; font-size:11px; }
   .pip-empty { padding:8px 4px; }
+  .pip-todo-h { margin:8px 4px 2px; font-size:10.5px; font-weight:700; color:#b5690b; }
+  .pip-todo { display:flex; gap:7px; align-items:flex-start; padding:5px 4px; font-size:12px; border-bottom:1px solid rgba(0,0,0,.06); }
+  .pip-todo:last-child { border-bottom:none; }
+  .pip-todo-chk { flex:0 0 16px; width:16px; height:16px; margin-top:1px; border:1.5px solid #bbb; border-radius:50%; background:#fff; cursor:pointer; padding:0; }
+  .pip-todo-chk:hover { border-color:#2d6a4f; background:#e8f5ee; }
+  .pip-todo-t { flex:1 1 auto; min-width:0; }
+  .pip-todo-time { font-family:'Space Mono', monospace; font-size:10px; color:#999; margin-right:4px; }
   .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
 `;
 
@@ -2454,6 +2461,19 @@ function pipRowsHtml() {
   }).join('');
 }
 
+// 관리자만: 오늘 고른 할 일 (간단히 보기에서는 앞의 3개만)
+function pipTodoHtml() {
+  const items = planner?.todayItems?.();
+  if (!items?.length) return '';
+  const shown = pipCompact ? items.slice(0, 3) : items;
+  const more  = items.length - shown.length;
+  return `<div class="pip-todo-h">오늘 할 일 ${items.length}</div>` + shown.map(t => `
+    <div class="pip-todo">
+      <button type="button" class="pip-todo-chk" data-id="${escapeHtml(t.id)}" aria-label="완료" title="완료"></button>
+      <span class="pip-todo-t">${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
+    </div>`).join('') + (more > 0 ? `<div class="pip-empty">외 ${more}개</div>` : '');
+}
+
 function renderPipWidget() {
   if (!pipWindow) return;
   const doc = pipWindow.document;
@@ -2465,7 +2485,7 @@ function renderPipWidget() {
   }
   const bodyEl = doc.getElementById('pip-body');
   if (bodyEl) {
-    bodyEl.innerHTML = pipRowsHtml();
+    bodyEl.innerHTML = pipRowsHtml() + pipTodoHtml();
     // 지금(또는 다음) 교시가 바뀌었을 때만 그 줄이 보이게 스크롤
     const focusRow = bodyEl.querySelector('.pip-row.focus');
     const focusP   = focusRow?.dataset.p ?? null;
@@ -2531,8 +2551,14 @@ window.openPipWidget = async function() {
   pipScrolledFor = null;
   setPipCompact(pipCompact);
   pipRefreshTimer = setInterval(renderPipWidget, 30000);
+  doc.getElementById('pip-body').addEventListener('click', e => {
+    const chk = e.target.closest('.pip-todo-chk');
+    if (chk) planner?.completeTask?.(chk.dataset.id);
+  });
+  const pipUnsub = planner?.subscribe?.(renderPipWidget);   // 다른 기기·할 일 탭에서 바뀌면 바로 반영
 
   pipWindow.addEventListener('pagehide', () => {
+    pipUnsub?.();
     clearInterval(pipRefreshTimer);
     pipRefreshTimer = null;
     pipWindow = null;

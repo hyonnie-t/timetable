@@ -505,3 +505,70 @@ test('애매한 기간: 저장 모양', () => {
   assert.equal(patch['tasks/a1/dueText'], null);
   assert.doesNotThrow(() => T.assertPlannerPatch(patch));
 });
+
+describe('수업 준비 자동 만들기', () => {
+  // 201 A·202 A 는 같은 진도표. 201 A 는 월 3교시(10/19 = 12차시), 202 A 는 화 2교시(10/20 = 11차시)
+  const prepData = () => ({
+    semester: { id: 'T', start: '2026-08-18', end: '2027-01-08' },
+    periods: { 2: { start: '09:55', end: '10:40' }, 3: { start: '10:50', end: '11:35' } },
+    timetables: { '2026-08-18': { mon: { 3: { class: '201 A', subject: '역사A' } }, tue: { 2: { class: '202 A', subject: '역사A' } } } },
+    pins: { '201 A_역사A': { '2026-10-19_3': { step: 12 } }, '202 A_역사A': { '2026-10-20_2': { step: 11 } } },
+    curriculum: {
+      '201 A_역사A': { 12: '프랑스 혁명(1)', 13: '나폴레옹', 14: '글쓰기' },
+      '202 A_역사A': { 12: '프랑스 혁명(1)', 13: '나폴레옹', 14: '글쓰기' },
+    },
+  });
+  const gid = d => T.prepGroups(d)[0].id;
+
+  test('같은 진도표 반은 한 묶음, 가장 먼저 가르치는 반의 전날이 마감', () => {
+    const d = prepData();
+    assert.equal(T.prepGroups(d).length, 1);
+    const patch = T.planPrepSync({}, d, TODAY, { now: NOW });
+    const id = T.prepTaskId(gid(d), 13);
+    assert.deepEqual(Object.keys(patch), [`tasks/${id}`]);   // 12차시는 이미 가르침, 14차시는 7일 밖
+    const t = patch[`tasks/${id}`];
+    assert.equal(t.title, '수업 준비 · 역사A 13차시 나폴레옹');
+    assert.equal(t.due, '2026-10-23'); assert.equal(t.prepDue, '2026-10-23'); assert.equal(t.src, 'prep'); assert.equal(t.area, '수업');
+    assert.match(t.note, /첫 수업 10\/26\(월\) 3교시 201 A/);
+    assert.match(t.note, /202 A 11\/3\(화\) 2교시/);
+    assert.doesNotThrow(() => T.assertPlannerPatch(patch));
+  });
+
+  test('첫 수업이 7일 밖이면 아직 만들지 않는다', () => {
+    const d = prepData();
+    for (const k of Object.keys(d.curriculum)) d.curriculum[k][14] = '산업혁명';
+    assert.equal(Object.keys(T.planPrepSync({}, d, TODAY, { now: NOW })).length, 1);
+    assert.equal(Object.keys(T.planPrepSync({}, d, TODAY, { now: NOW, horizonDays: 30 })).length, 2);
+  });
+
+  test('글쓰기·복습·마지막 정리·독서는 만들지 않는다', () => {
+    const d = prepData();
+    const ids = Object.keys(T.planPrepSync({}, d, TODAY, { now: NOW, horizonDays: 30 }));
+    assert.equal(ids.length, 1);
+    for (const w of ['복습', '마지막 정리', '독서3']) assert.ok(T.PREP_EXCLUDE.test(w));
+  });
+
+  test('두 번 돌려도 그대로, 지운 건 안 만들고, 끝낸 건 안 건드린다', () => {
+    const d = prepData();
+    const patch = T.planPrepSync({}, d, TODAY, { now: NOW });
+    const planner = PE.applyPatch({ tasks: {} }, patch);
+    assert.deepEqual(T.planPrepSync(planner, d, TODAY, { now: NOW }), {});
+    const id = T.prepTaskId(gid(d), 13);
+    assert.deepEqual(T.planPrepSync({ prepSkip: { [id]: true } }, d, TODAY, { now: NOW }), {});
+    const done = PE.applyPatch(planner, T.planComplete(T.shapeTask(id, planner.tasks[id]), { now: NOW }));
+    d.timetables['2026-08-18'].mon[3] = { class: '201 A', subject: '역사A' };
+    assert.deepEqual(T.planPrepSync(done, d, TODAY, { now: NOW }), {});
+  });
+
+  test('수업일이 밀리면 자동 마감만 따라가고, 직접 고친 마감은 둔다', () => {
+    const d = prepData();
+    const planner = PE.applyPatch({ tasks: {} }, T.planPrepSync({}, d, TODAY, { now: NOW }));
+    const id = T.prepTaskId(gid(d), 13);
+    d.calendar = { '2026-10-26': { all: { type: 'event', label: '행사' } } };   // 10/26 수업 없음 → 13차시는 201 A 11/2(월), 202 A 11/3(화)
+    const moved = T.planPrepSync(planner, d, TODAY, { now: NOW });
+    assert.equal(moved[`tasks/${id}/due`], '2026-10-30');   // 첫 수업이 11/2(월)로 밀려 전날은 주말이라 금요일
+
+    const edited = PE.applyPatch(planner, { [`tasks/${id}/due`]: '2026-10-24' });
+    assert.deepEqual(T.planPrepSync(edited, d, TODAY, { now: NOW }), {});
+  });
+});
