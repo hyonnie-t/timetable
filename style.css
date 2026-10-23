@@ -1551,3 +1551,18 @@ html { -webkit-text-size-adjust: 100%; }
 .diag-issues .diag-error { color: var(--danger); }
 .diag-issues .diag-warn  { color: #8a4b0f; }
 .diag-issues .diag-info  { color: var(--text2); }
+
+/* 오늘 수업: 할 일 한 줄 · 공강 카드의 다음 수업 준비 */
+.todo-line {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; cursor: pointer;
+  margin: 0 0 10px; padding: 9px 14px; border-radius: 12px; font-size: 13px;
+  background: var(--current-bg); border: 1px solid var(--accent2); color: var(--accent);
+}
+.todo-line.has-over { background: #fdecec; border-color: var(--danger); color: var(--danger); }
+.todo-line b { font-family: 'Space Mono', monospace; }
+.todo-over { font-weight: 700; }
+.todo-go { margin-left: auto; font-size: 12px; opacity: .8; }
+.period-card.empty.prep { opacity: 1; }
+.period-card.empty.prep .empty-label { opacity: .6; }
+.prep-line { margin-top: 4px; font-size: 13px; color: var(--text2); line-height: 1.45; }
+.prep-line b { color: var(--text); }
