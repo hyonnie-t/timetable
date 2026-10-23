@@ -399,10 +399,20 @@ function textSig_(t) {
   return `${t.length}:${h}`;
 }
 
+// 화면 코드가 여러 파일이라 app.js 하나만 보면 나머지가 바뀐 걸 못 알아챈다 → 모두 합쳐서 서명한다
+// (app.js 만 꼭 있어야 하고, 나머지는 없거나 못 받아도 넘어간다)
+const CODE_FILES = ['app.js', 'planner.js', 'engine/progress-engine.js', 'engine/task-engine.js'];
+
 async function fetchCodeSig_(fresh) {
-  const res = await fetch('app.js', fresh ? { cache: 'no-store' } : undefined);
-  if (!res.ok) throw new Error('app.js ' + res.status);
-  return textSig_(await res.text());
+  const texts = await Promise.all(CODE_FILES.map(async (f, i) => {
+    try {
+      const res = await fetch(f, fresh ? { cache: 'no-store' } : undefined);
+      if (res.ok) return await res.text();
+    } catch (e) { if (i === 0) throw e; }
+    if (i === 0) throw new Error('app.js 를 받지 못했습니다');
+    return '';
+  }));
+  return textSig_(texts.join('\u0000'));
 }
 
 function reloadForUpdate_() {
@@ -447,6 +457,40 @@ async function checkDateRollover() {
 }
 
 // ============================================================
+// 할 일 (관리자 전용) — planner.js 는 로그인 뒤에 따로 불러온다.
+// 정적 import 가 아니라서 그 파일에 문제가 있어도 시간표는 그대로 뜨고, 할 일 탭만 안 생긴다.
+// 저장 위치는 users/{uid}/planner/ (진도 데이터 v2 와 분리 — 새 학기를 시작해도 지워지지 않는다)
+// ============================================================
+let planner = null;
+
+async function startPlanner_() {
+  if (planner || !currentUser || userProfile?.role !== 'admin') return;
+  try {
+    const mod = await import('./planner.js');
+    if (planner || !currentUser) return;   // 불러오는 사이 로그아웃·중복 호출
+    planner = mod.createPlanner({
+      uid: currentUser.uid,
+      demo: !!DEMO,
+      getSchoolData: () => userData,
+      toast: showToast,
+    });
+    document.getElementById('tab-btn-tasks').style.display = '';
+    const want = new URLSearchParams(location.search).get('tab');
+    if (want === 'tasks' && currentTab === 'today') switchTab('tasks');   // ?tab=tasks → 브라우저 시작 페이지로 쓸 수 있게
+    else if (currentTab === 'tasks') planner.render();
+  } catch (e) {
+    console.error('할 일 기능을 불러오지 못했어요', e);
+  }
+}
+
+function stopPlanner_() {
+  if (planner) { planner.destroy(); planner = null; }
+  const btn = document.getElementById('tab-btn-tasks');
+  if (btn) btn.style.display = 'none';
+  if (currentTab === 'tasks') switchTab('today');
+}
+
+// ============================================================
 // 탭 전환
 // ============================================================
 function switchTab(tab) {
@@ -454,7 +498,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
   });
-  ['today','weekly','progress','subject','settings'].forEach(t => {
+  ['today','weekly','progress','subject','tasks','settings'].forEach(t => {
     const el = document.getElementById(`tab-${t}`);
     if (el) el.style.display = t === tab ? '' : 'none';
   });
@@ -462,6 +506,7 @@ function switchTab(tab) {
 }
 
 function renderCurrentTab() {
+  if (currentTab === 'tasks') { planner?.render(); return; }   // 할 일은 시간표 데이터 없이도 그린다
   if (!userData) return;
   if (currentTab === 'today')    renderToday();
   if (currentTab === 'weekly')   renderWeekly();
@@ -2226,6 +2271,7 @@ if (DEMO) {
   userProfile = { name: '데모', role: 'admin' };
   showApp();
   loadUserData().catch(e => showToast('데모 데이터를 못 읽었어요: ' + e.message, true));
+  startPlanner_();
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -2251,12 +2297,14 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     showApp();
+    startPlanner_();   // 기다리지 않는다 — 시간표 로딩과 따로 진행
     await loadUserData();
 
     if (!dateRolloverTimer) {
       dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
     }
   } else {
+    stopPlanner_();
     currentUser = null;
     userProfile = null;
     if (dateRolloverTimer) { clearInterval(dateRolloverTimer); dateRolloverTimer = null; }

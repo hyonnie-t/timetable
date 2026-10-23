@@ -1,0 +1,125 @@
+/* 할 일 탭 (planner.js) — style.css 의 색·글꼴 변수를 그대로 쓴다. 클래스는 모두 pl- 로 시작해 기존 화면과 겹치지 않는다. */
+
+.pl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.pl-title-main { font-size: 22px; font-weight: 900; }
+.pl-counter { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.pl-count {
+  font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700;
+  padding: 3px 10px; border-radius: 99px; background: var(--current-bg); color: var(--accent);
+  border: 1px solid var(--accent2);
+}
+.pl-count.full { background: #fff4e5; color: var(--warn); border-color: var(--warn); }
+.pl-count.over { background: #fdecec; color: var(--danger); border-color: var(--danger); }
+
+/* 빠른 입력 */
+.pl-add { display: flex; gap: 8px; }
+.pl-add-input, .pl-add-area, .pl-f input, .pl-f select, .pl-f textarea {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  padding: 10px 12px; font-size: 14px; color: var(--text); min-width: 0;
+}
+.pl-add-input { flex: 1; }
+.pl-add-input:focus, .pl-f input:focus, .pl-f select:focus, .pl-f textarea:focus { outline: 2px solid var(--accent2); outline-offset: -1px; }
+.pl-add-btn { white-space: nowrap; }
+.pl-hint { min-height: 20px; margin: 6px 2px 10px; font-size: 12px; color: var(--text2); }
+
+/* 영역 필터 */
+.pl-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.pl-chip {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text2);
+  border-radius: 99px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+}
+.pl-chip b { font-family: 'Space Mono', monospace; font-weight: 700; margin-left: 2px; color: var(--text3); }
+.pl-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pl-chip.on b { color: #fff; }
+
+/* 묶음 */
+.pl-sec { margin-bottom: 18px; }
+.pl-sec-title { font-size: 14px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.pl-sec-title small { font-weight: 400; font-size: 12px; color: var(--text3); }
+.pl-sec-n { font-family: 'Space Mono', monospace; font-size: 12px; color: var(--text3); font-weight: 700; }
+.pl-sec-overdue .pl-sec-title { color: var(--danger); }
+.pl-sec-today .pl-sec-title { color: var(--accent); }
+.pl-empty, .pl-empty-sec { color: var(--text3); font-size: 13px; padding: 14px 4px; }
+.pl-empty-sec { padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.pl-error { color: var(--danger); }
+
+.pl-ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pl-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; min-height: 52px;
+}
+.pl-row.pl-over { border-left: 3px solid var(--danger); }
+.pl-sec-today .pl-row { border-left: 3px solid var(--accent); }
+.pl-row.pl-done .pl-title { text-decoration: line-through; color: var(--text3); }
+
+.pl-check, .pl-pin {
+  flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: none; cursor: pointer; font-size: 20px; line-height: 1; color: var(--text3);
+}
+.pl-check:hover { color: var(--accent); background: var(--current-bg); }
+.pl-check-off { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
+.pl-pin.on { color: var(--warn); }
+.pl-pin:hover { color: var(--warn); }
+
+.pl-main { flex: 1; min-width: 0; cursor: pointer; }
+.pl-title { display: block; font-size: 14px; font-weight: 500; word-break: break-word; }
+.pl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; font-size: 11px; color: var(--text2); }
+.pl-area { padding: 1px 8px; border-radius: 99px; background: var(--bg); color: var(--text2); font-weight: 500; }
+.pl-a-수업 { background: #fff1e0; color: #a85a00; }
+.pl-a-학생회 { background: #e4f0fa; color: #1d6fa4; }
+.pl-a-학교 { background: #eceaf6; color: #53459a; }
+.pl-a-대학원 { background: #f1e6f6; color: #7a2f99; }
+.pl-a-독서 { background: #f3e9df; color: #7a4a21; }
+.pl-a-연수 { background: #fde8ef; color: #b02a5a; }
+.pl-a-투자 { background: #ececec; color: #555; }
+.pl-a-기타 { background: #e6f3ea; color: #2d6a4f; }
+.pl-due { font-family: 'Space Mono', monospace; font-size: 11px; }
+.pl-due-over { color: var(--danger); font-weight: 700; }
+.pl-tag { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.pl-link { text-decoration: none; }
+
+.pl-closed-toggle { background: none; border: none; font-size: 13px; color: var(--text2); cursor: pointer; padding: 6px 0; margin-bottom: 6px; }
+.pl-restore { padding: 6px 12px; font-size: 12px; }
+
+/* 되돌리기 줄 */
+.pl-undo {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 1100;
+  display: flex; align-items: center; gap: 14px;
+  background: #222; color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25); max-width: 92vw;
+}
+.pl-undo button { background: none; border: none; color: #8fe0b2; font-weight: 700; cursor: pointer; font-size: 13px; }
+
+/* 고치기·정리 창 */
+.pl-f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); margin-bottom: 12px; flex: 1; }
+.pl-f-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.pl-f-row .pl-f { min-width: 130px; }
+.pl-slot-line { flex-direction: row; align-items: center; gap: 10px; }
+.pl-e-err { color: var(--danger); font-size: 12px; min-height: 16px; }
+.pl-e-foot { align-items: center; }
+.pl-spacer { flex: 1; }
+.pl-skip { font-size: 13px; }
+
+.pl-review .pl-row { align-items: flex-start; }
+.pl-rv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.pl-rv-postpone { display: inline-flex; gap: 6px; align-items: center; }
+.pl-rv-postpone input { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 13px; }
+.pl-rv-actions button { padding: 9px 14px; }
+
+/* 태블릿·PC: 목록이 한 줄로 길어지지 않게 두 칸 */
+@media (min-width: 768px) {
+  .pl-title-main { font-size: 26px; }
+  .pl-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; align-items: start; }
+  .pl-lists > .pl-sec-closed, .pl-lists > .pl-empty { grid-column: 1 / -1; }
+}
+@media (pointer: coarse) {
+  .pl-check, .pl-pin { width: 44px; height: 44px; }
+  .pl-chip { padding: 8px 14px; }
+}
+@media (max-width: 480px) {
+  .pl-add { flex-wrap: wrap; }
+  .pl-add-input { flex-basis: 100%; }
+  .pl-add-area { flex: 1; }
+}
