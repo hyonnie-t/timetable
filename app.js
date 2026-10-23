@@ -581,6 +581,16 @@ window.saveClassNote = async function(key, wrap) {
 // ============================================================
 // 오늘 탭
 // ============================================================
+// 공강 카드용 — 이 교시 뒤에 오는 오늘의 첫 수업과 그 차시 주제
+function nextLessonPrep(today, p, periodList, schedule) {
+  const q = periodList.find(x => x > p && schedule[x]?.class && !getCalendarEvent(today, String(x)));
+  if (!q) return null;
+  const cell = schedule[q];
+  const key = PE.cellKey(cell);
+  if (getSpecialLesson(today, q, key)) return null;
+  return { p: q, cls: cell.class, subject: cell.subject, topic: userData.curriculum[key]?.[lessonStep(key, today, q)] || '' };
+}
+
 function renderToday() {
   const el = document.getElementById('tab-today');
   if (!el) return;
@@ -625,6 +635,17 @@ function renderToday() {
       </div>`;
   }
   if (DEMO) el.innerHTML += `<div class="health-bar">데모 화면이에요. 바꾼 내용은 저장되지 않아요.</div>`;
+
+  // 할 일 한 줄 요약 (관리자만) — 눌러서 할 일 탭으로
+  const ps = planner?.summary?.();
+  if (ps?.loaded) {
+    el.innerHTML += `
+      <div class="todo-line${ps.overdue ? ' has-over' : ''}" onclick="window.switchTab('tasks')">
+        <span>✅ 오늘 할 일 <b>${ps.chosen}/${ps.cap}</b></span>
+        ${ps.overdue ? `<span class="todo-over">밀린 일 ${ps.overdue}건</span>` : ''}
+        <span class="todo-go">할 일 탭 →</span>
+      </div>`;
+  }
 
   const examGroups = FINAL_EXAM_GROUPS.filter(g => today <= g.start);
   if (examGroups.length) {
@@ -776,12 +797,14 @@ function renderToday() {
         ${swapBtn(p)}
       `;
     } else {
-      card.className = `period-card empty${swapCls(p)}`;
+      const prep = nextLessonPrep(today, p, periodList, schedule);
+      card.className = `period-card empty${prep ? ' prep' : ''}${swapCls(p)}`;
       card.innerHTML = `
         <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
+          ${prep ? `<div class="prep-line">📖 다음 수업 준비 · ${prep.p}교시 <b>${prep.cls}</b> ${prep.subject} — ${prep.topic ? escapeHtml(prep.topic) : '주제 미설정'}</div>` : ''}
         </div>
         ${swapBtn(p)}
       `;
