@@ -96,11 +96,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   let undo = null;               // { id, timer }
   let reviewDismissed = false;   // 이번 화면(새로고침 전)에서 "나중에"를 누름
   let materializedOn = '';
+  let prepOn = '';
   let showClosed = false;
   const expanded = new Set();    // "더 보기"를 누른 묶음
 
   let view = store_('plannerView') === 'cal' ? 'cal' : 'list';   // 좁은 화면에서 목록/달력 중 보이는 쪽 (넓으면 둘 다 보인다)
   let cal = null;
+
+  const subs = new Set();        // 미니창처럼 바깥에서 데이터가 바뀌면 알려 달라는 곳
+  const notify = () => subs.forEach(f => { try { f(); } catch (_) { /* 구독자 오류가 저장을 막지 않게 */ } });
 
   const root = () => document.getElementById('tab-tasks');
   const settings = () => T.resolveSettings(store.settings);
@@ -118,7 +122,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         .slice(0, logIds.length - LOG_MAX).forEach(id => { full[`log/${id}`] = null; });
     }
     T.assertPlannerPatch(full);
-    if (demo) { store = applyPatch(store, full); renderAll(); return true; }
+    if (demo) { store = applyPatch(store, full); renderAll(); notify(); return true; }
     const abs = {};
     for (const [k, v] of Object.entries(full)) abs[`users/${uid}/planner/${k}`] = v;
     await update(ref(db), abs);      // 내 기기에는 바로 반영되고(onValue), 다른 기기로도 퍼진다
@@ -610,6 +614,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       run(() => {
         const patch = T.planDelete(t);
         if (t.ruleId && t.due) Object.assign(patch, T.planSkipRuleDate(t.ruleId, t.due));   // 반복 건은 같은 날짜로 다시 만들지 않는다
+        if (t.src === 'prep') patch[`prepSkip/${t.id}`] = true;                                // 수업 준비도 지운 건 다시 만들지 않는다
         return patch;
       }, 'delete', '지웠어요');
     });
@@ -793,9 +798,19 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   // 같은 규칙·날짜는 같은 id 라 여러 기기가 동시에 해도 한 건이다. 이미 있는 건은 건드리지 않는다.
   function maybeMaterialize() {
     const today = todayStr();
-    if (!loaded || materializedOn === today) return;
-    materializedOn = today;
-    const patch = T.planMaterialize(store, today, { now: nowStamp() });
+    if (!loaded) return;
+    const patch = {};
+    if (materializedOn !== today) {
+      materializedOn = today;
+      Object.assign(patch, T.planMaterialize(store, today, { now: nowStamp() }));
+    }
+    // 수업 준비는 진도 데이터가 도착한 뒤에야 만들 수 있어서, 도착할 때까지 하루 안에 다시 시도한다
+    const sd = getSchoolData();
+    if (sd?.semester && prepOn !== today) {
+      prepOn = today;
+      try { Object.assign(patch, T.planPrepSync(store, sd, today, { now: nowStamp() })); }
+      catch (e) { console.error('수업 준비를 만들지 못했어요', e); }
+    }
     if (Object.keys(patch).length) run(() => patch, 'materialize');
   }
 
@@ -806,6 +821,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       loaded = true; loadError = '';
       maybeMaterialize();
       if (root()?.querySelector('.pl-shell')) renderAll();
+      notify();
     }, err => {
       loadError = err?.message || String(err);
       if (root()?.querySelector('.pl-shell')) renderLists();
@@ -822,10 +838,24 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     // 오늘 수업 탭 맨 위 한 줄용 (4단계에서 사용)
     summary() {
       const today = todayStr();
+      maybeMaterialize();   // 오늘 수업 탭이 그려질 때 진도 데이터가 이미 와 있으므로 수업 준비도 여기서 챙긴다
       const c = T.classify(tasks(), today);
       return { chosen: T.chosenFor(tasks(), today).length, cap: settings().todayCap, overdue: c.overdue.length, loaded };
     },
+    // 미니창용: 오늘 고른 일(칸에 놓은 건 시각 순, 나머지는 그 뒤). 끝낸 일은 빠진다.
+    todayItems() {
+      const today = todayStr();
+      return T.chosenFor(tasks(), today)
+        .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
+        .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '' }));
+    },
+    completeTask(id) {
+      const t = byId(id);
+      if (t) run(() => T.planComplete(t, { now: nowStamp() }), 'done');
+    },
+    subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     destroy() {
+      subs.clear();
       if (unsub) unsub();
       document.removeEventListener('keydown', onKey);
       hideUndo();

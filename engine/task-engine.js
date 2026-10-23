@@ -9,7 +9,7 @@
 // plan*() 은 "planner 뿌리 기준 경로 → 값" patch 를 돌려준다 (null = 삭제).
 // patch 는 progress-engine 의 applyPatch 로 메모리에도 같은 방식으로 반영할 수 있고,
 // 실제로 DB에 쓰기 전에 assertPlannerPatch() 로 planner 밖을 건드리지 않는지 검사한다.
-import { isDateStr, addDays, weekdayKey, timeToMin, scheduleOn, calendarEvent, cellKey, DOW_KEY } from './progress-engine.js';
+import { isDateStr, addDays, weekdayKey, timeToMin, scheduleOn, calendarEvent, cellKey, DOW_KEY, allKeys, buildLedger, gradeOf } from './progress-engine.js';
 
 export const AREAS = ['수업', '학생회', '학교', '대학원', '독서', '연수', '투자', '기타'];
 export const KINDS = ['once', 'watch'];
@@ -92,6 +92,7 @@ export function normalizeTask(raw, { now = '' } = {}) {
   const note = String(raw.note ?? '').trim();
   if (note) t.note = note.slice(0, MAX_NOTE);
   if (raw.ruleId) t.ruleId = String(raw.ruleId);
+  if (isDateStr(raw.prepDue)) t.prepDue = raw.prepDue;   // 수업 준비가 자동으로 정한 마감 (효니가 고쳤는지 가려내는 용도)
   // 애매한 기간("한 달 내")으로 정한 마감 — due 는 그 기간의 끝날짜, dueText 는 화면에 보일 말
   const dueText = String(raw.dueText ?? '').trim();
   if (dueText && t.due) t.dueText = dueText.slice(0, MAX_DUETEXT);
@@ -453,6 +454,93 @@ export function planSkipRuleDate(ruleId, date) {
 }
 
 // ------------------------------------------------------------
+// 수업 준비 — 진도표에서 자동으로 만든다
+//   같은 과목·학년에 주제 목록이 똑같은 반들을 한 묶음으로 보고, 묶음 안에서 그 차시를 가장 먼저 가르치는 날의
+//   전날(주말이면 금요일)을 마감으로 한 할 일을 첫 수업 7일 전부터 만든다.
+//   id 는 묶음+차시로 정해져(p{묶음}_{차시}) 여러 기기가 동시에 돌려도 한 건이다.
+//   지운 건 prepSkip/{id} 에 남겨 다시 만들지 않고, 끝낸·보관한 건 건드리지 않는다.
+//   마감을 효니가 직접 고친 건(prepDue 와 다른 due) 진도가 밀려도 그대로 둔다.
+// ------------------------------------------------------------
+export const PREP_EXCLUDE = /글쓰기|복습|마지막 정리|독서/;
+const DOW_KO = { sun: '일', mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토' };
+
+function hash_(s) {
+  let h = 5381;
+  for (const ch of s) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0;
+  return h.toString(36);
+}
+
+export function prepTaskId(groupId, step) { return `p${groupId}_${step}`; }
+
+function prevSchoolDay_(date) {
+  let d = addDays(date, -1);
+  while (['sat', 'sun'].includes(weekdayKey(d))) d = addDays(d, -1);
+  return d;
+}
+
+const dateLabel_ = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}(${DOW_KO[weekdayKey(d)]})`;
+
+// 진도표 묶음 [{ id, subject, keys, topics }] — curriculum 이 비어 있는 반은 뺀다
+export function prepGroups(data) {
+  const groups = new Map();
+  for (const key of allKeys(data)) {
+    const topics = data.curriculum?.[key];
+    if (!topics || !Object.values(topics).some(Boolean)) continue;
+    const i = key.indexOf('_');
+    const cls = key.slice(0, i), subject = key.slice(i + 1);
+    const sig = `${subject}|${gradeOf(cls)}|${JSON.stringify(Object.entries(topics).filter(([, v]) => v))}`;
+    if (!groups.has(sig)) groups.set(sig, { subject, keys: [], topics });
+    groups.get(sig).keys.push(key);
+  }
+  return [...groups.values()].map(g => ({ ...g, id: hash_(`${g.subject}|${g.keys[0]}`) }));
+}
+
+export function planPrepSync(planner, data, today, { horizonDays = 7, now } = {}) {
+  const patch = {};
+  if (!data?.semester || !isDateStr(today)) return patch;
+  const limit = addDays(today, horizonDays);
+  for (const g of prepGroups(data)) {
+    // 반별로 각 차시를 처음 가르치는 날
+    const firsts = new Map();   // step → [{ key, date, p }] (반마다 가장 이른 정규 수업)
+    for (const key of g.keys) {
+      let rows;
+      try { rows = buildLedger(data, key); } catch (_) { continue; }
+      const seen = new Map();
+      for (const r of rows) {
+        if (r.kind === 'regular' && !seen.has(r.step)) seen.set(r.step, { key, date: r.date, p: r.p });
+      }
+      for (const [step, v] of seen) {
+        if (!firsts.has(step)) firsts.set(step, []);
+        firsts.get(step).push(v);
+      }
+    }
+    for (const [step, list] of firsts) {
+      const topic = String(g.topics[step] ?? '').trim();
+      if (!topic || PREP_EXCLUDE.test(topic)) continue;
+      list.sort((a, b) => a.date.localeCompare(b.date) || a.p - b.p);
+      const first = list[0];
+      if (first.date <= today) continue;
+      const due = prevSchoolDay_(first.date) < today ? today : prevSchoolDay_(first.date);
+      const id = prepTaskId(g.id, step);
+      if (planner?.prepSkip?.[id]) continue;
+      const clsOf = k => k.slice(0, k.indexOf('_'));
+      const note = `첫 수업 ${dateLabel_(first.date)} ${first.p}교시 ${clsOf(first.key)}\n` +
+        list.slice(1).map(v => `· ${clsOf(v.key)} ${dateLabel_(v.date)} ${v.p}교시`).join('\n');
+      const old = planner?.tasks?.[id];
+      if (!old) {
+        if (first.date > limit) continue;   // 아직 먼 수업은 7일 안으로 들어올 때 만든다
+        patch[`tasks/${id}`] = normalizeTask({
+          title: `수업 준비 · ${g.subject} ${step}차시 ${topic}`, area: '수업', due, prepDue: due, note: note.trim(), src: 'prep',
+        }, { now });
+      } else if (old.status === 'open' && old.prepDue && old.due === old.prepDue && old.due !== due) {
+        Object.assign(patch, taskPatch_(id, { due, prepDue: due, note: note.trim() }, now));
+      }
+    }
+  }
+  return patch;
+}
+
+// ------------------------------------------------------------
 // 애매한 기간 — "한 달 내", "이번 주 중", "10월 중" 처럼 날짜를 못 박지 않은 마감
 //   그 기간의 끝날짜를 due 로, 말 그대로를 dueText 로 저장한다 → 마감 지남·이번 주 같은 묶음 계산은 그대로 쓴다.
 // ------------------------------------------------------------
@@ -586,7 +674,7 @@ export function parseQuickInput(text, today) {
 // ------------------------------------------------------------
 // 쓰기 경로 검사 — planner 밖(v2 진도 데이터 등)을 건드리는 patch 는 DB에 보내지 않는다
 // ------------------------------------------------------------
-const PATCH_PATH_RE = /^(?:tasks\/[A-Za-z0-9_-]{1,64}(?:\/[A-Za-z]{1,20})?|rules\/[A-Za-z0-9_-]{1,64}(?:\/(?:[A-Za-z]{1,20}|skip\/\d{4}-\d{2}-\d{2}))?|settings(?:\/[A-Za-z]{1,20})?|log\/[A-Za-z0-9_-]{1,64})$/;
+const PATCH_PATH_RE = /^(?:tasks\/[A-Za-z0-9_-]{1,64}(?:\/[A-Za-z]{1,20})?|rules\/[A-Za-z0-9_-]{1,64}(?:\/(?:[A-Za-z]{1,20}|skip\/\d{4}-\d{2}-\d{2}))?|settings(?:\/[A-Za-z]{1,20})?|prepSkip\/[A-Za-z0-9_-]{1,64}|log\/[A-Za-z0-9_-]{1,64})$/;
 
 export function assertPlannerPatch(patch) {
   for (const path of Object.keys(patch)) {
