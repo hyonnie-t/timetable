@@ -343,6 +343,12 @@ export function normalizeRule(raw) {
   if (every === 'weekly') {
     if (!DOW_KEY.includes(raw.dow)) throw new Error('요일이 올바르지 않습니다 (mon~sun)');
     r.dow = raw.dow;
+    const iv = Number(raw.interval ?? 1);
+    if (!Number.isInteger(iv) || iv < 1 || iv > 8) throw new Error('몇 주마다인지는 1~8 이어야 합니다');
+    if (iv > 1) {
+      if (!isDateStr(raw.start)) throw new Error('격주 이상은 기준이 되는 첫 날짜가 필요합니다');
+      r.interval = iv; r.start = raw.start;
+    }
   } else if (every === 'monthly') {
     if (raw.day != null) {
       const d = Number(raw.day);
@@ -367,7 +373,12 @@ function daysInMonth_(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
 function ruleHits_(rule, date) {
   if (rule.until && date > rule.until) return false;
-  if (rule.every === 'weekly') return weekdayKey(date) === rule.dow;
+  if (rule.every === 'weekly') {
+    if (weekdayKey(date) !== rule.dow) return false;
+    if (!(rule.interval > 1)) return true;
+    const days = Math.round((Date.parse(`${mondayOf_(date)}T00:00:00Z`) - Date.parse(`${mondayOf_(rule.start)}T00:00:00Z`)) / 86400000);
+    return days >= 0 && (days / 7) % rule.interval === 0;   // 기준 주부터 N주마다
+  }
   const [y, m, d] = date.split('-').map(Number);
   if (rule.day != null) return d === Math.min(rule.day, daysInMonth_(y, m));
   if (weekdayKey(date) !== rule.dow) return false;
@@ -407,6 +418,32 @@ export function planMaterialize(planner, today, { horizonDays = 14, now }) {
 export function planAddRule(input, { id }) {
   if (!isValidId(id)) throw new Error('규칙 id가 올바르지 않습니다');
   return { [`rules/${id}`]: normalizeRule(input) };
+}
+
+const RULE_FIELDS = ['title', 'area', 'every', 'dow', 'nth', 'day', 'until', 'interval', 'start', 'active'];
+
+// 규칙 고치기 — 칸마다 써서 skip(지운 날짜 목록)은 그대로 남긴다. 이미 만들어진 앞날의 열린 반복 건은 새 규칙에 안 맞으면 지운다.
+export function planEditRule(planner, ruleId, input, { today }) {
+  const old = planner?.rules?.[ruleId];
+  if (!old || !isValidId(ruleId)) throw new Error('규칙을 찾을 수 없습니다');
+  const next = normalizeRule({ ...input, active: input.active ?? old.active });
+  const patch = {};
+  for (const k of RULE_FIELDS) patch[`rules/${ruleId}/${k}`] = next[k] ?? null;
+  const stale = new Set(expandRules({ [ruleId]: next }, today, addDays(today, 400)).map(o => o.date));
+  for (const [id, t] of Object.entries(planner.tasks || {})) {
+    if (t.ruleId === ruleId && t.status === 'open' && t.due >= today && !stale.has(t.due)) patch[`tasks/${id}`] = null;
+  }
+  return patch;
+}
+
+// 규칙 지우기 — 앞날의 열린 반복 건도 함께 지운다 (끝낸 건·지난 건은 기록으로 남는다)
+export function planDeleteRule(planner, ruleId, { today }) {
+  if (!isValidId(ruleId)) throw new Error('규칙 id가 올바르지 않습니다');
+  const patch = { [`rules/${ruleId}`]: null };
+  for (const [id, t] of Object.entries(planner?.tasks || {})) {
+    if (t.ruleId === ruleId && t.status === 'open' && t.due >= today) patch[`tasks/${id}`] = null;
+  }
+  return patch;
 }
 
 // 반복에서 생긴 할 일을 지울 때: 같은 날짜로 다시 만들어지지 않게 skip 에 적는다
