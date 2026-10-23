@@ -13,9 +13,14 @@ const SECTIONS = [
   ['today', '오늘', ''],
   ['week', '이번 주', '앞으로 7일 안'],
   ['later', '나중', ''],
-  ['undated', '날짜 없음', '날짜를 정하지 않으면 계속 쌓여요'],
-  ['watch', '지켜보기', '기한 없이 두고 보는 것'],
+  ['undated', '날짜 없음', '⋮⋮ 를 끌어서 우선순위를 정하세요'],
+  ['watch', '지켜보기', '기한 없이 두고 보는 것 · ⋮⋮ 로 순서 변경'],
 ];
+
+// 긴 묶음은 처음에 이만큼만 보여 주고 "더 보기"로 펼친다 (없는 묶음은 전부 보인다)
+const SEC_LIMIT = { later: 5 };
+// 효니가 끌어서 순서를 정하는 묶음 (나머지는 마감순이라 끌 수 없다)
+const DRAGGABLE = ['undated', 'watch'];
 
 // ------------------------------------------------------------
 // 날짜·문자열 도구
@@ -84,6 +89,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   let reviewDismissed = false;   // 이번 화면(새로고침 전)에서 "나중에"를 누름
   let materializedOn = '';
   let showClosed = false;
+  const expanded = new Set();    // "더 보기"를 누른 묶음
 
   const root = () => document.getElementById('tab-tasks');
   const settings = () => T.resolveSettings(store.settings);
@@ -125,7 +131,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     el.innerHTML = `
       <div class="pl-shell">
         <div class="pl-head">
-          <div class="pl-title-main">할 일</div>
+          <div><div class="pl-title-main">할 일</div><div class="pl-date" id="pl-date"></div></div>
           <div class="pl-counter" id="pl-counter"></div>
         </div>
         <form class="pl-add" id="pl-add" autocomplete="off">
@@ -144,6 +150,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     el.querySelector('#pl-add-input').addEventListener('input', updateHint);
     el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
     el.addEventListener('click', onClick);
+    el.addEventListener('pointerdown', e => { const g = e.target.closest('.pl-grip'); if (g) startDrag(e, g.closest('li')); });
     el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act]')) e.target.click(); });
   }
 
@@ -193,18 +200,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const label = dueLabel(t, today);
     const pinned = t.today === today || t.slot?.date === today;
     const over = section === 'overdue';
+    const note = (t.note || '').replace(/\s+/g, ' ').trim();
     return `
-      <li class="pl-row${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
+      <li class="pl-row pl-r-${esc(t.area)}${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
+        ${t.status === 'open' && DRAGGABLE.includes(section)
+        ? `<span class="pl-grip" title="끌어서 순서 바꾸기" aria-label="끌어서 순서 바꾸기">⋮⋮</span>` : ''}
         ${t.status === 'open'
-        ? `<button class="pl-check" data-act="done" aria-label="완료로 표시" title="완료">○</button>`
+        ? `<button class="pl-check" data-act="done" aria-label="완료로 표시" title="완료"></button>`
         : `<span class="pl-check pl-check-off" aria-hidden="true">${t.status === 'done' ? '✓' : '▣'}</span>`}
         <div class="pl-main" data-act="edit" role="button" tabindex="0">
           <span class="pl-title">${esc(t.title)}</span>
+          ${note ? `<span class="pl-note">${esc(note)}</span>` : ''}
           <span class="pl-meta">
             <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
-            ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}">${esc(label)}</span>` : ''}
+            ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}">${esc(label)}</span>` : ''}
             ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
-            ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="링크 열기">🔗</a>` : ''}
+            ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="원본 열기">원본 ↗</a>` : ''}
           </span>
         </div>
         ${t.status === 'open' && t.kind !== 'watch'
@@ -227,6 +238,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const cap = settings().todayCap;
     const chosen = T.chosenFor(all, today).length;
 
+    root().querySelector('#pl-date').textContent = `${fmtMD(today).replace('(', ' · ').replace(')', '요일')}`;
     root().querySelector('#pl-counter').innerHTML =
       `<span class="pl-count${chosen >= cap ? ' full' : ''}">오늘 ${chosen}/${cap}</span>`
       + (c.overdue.length ? ` <span class="pl-count over">마감 지남 ${T.classify(all, today).overdue.length}</span>` : '');
@@ -249,7 +261,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       html += `<section class="pl-sec pl-sec-${key}">
         <h3 class="pl-sec-title">${name} <span class="pl-sec-n">${items.length}</span>${sub ? `<small>${sub}</small>` : ''}</h3>
         ${items.length
-          ? `<ul class="pl-ul">${items.map(t => rowHtml(t, today, key)).join('')}</ul>`
+          ? `<ul class="pl-ul">${(expanded.has(key) ? items : items.slice(0, SEC_LIMIT[key] ?? items.length)).map(t => rowHtml(t, today, key)).join('')}</ul>`
+          + (!expanded.has(key) && items.length > (SEC_LIMIT[key] ?? Infinity)
+            ? `<button class="pl-more" data-act="more" data-sec="${key}">${items.length - SEC_LIMIT[key]}개 더 보기</button>` : '')
           : `<div class="pl-empty-sec">☆를 눌러 오늘 할 일을 골라 보세요 (최대 ${cap}개)</div>`}
       </section>`;
     }
@@ -282,6 +296,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
 
     if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
+    else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
     else if (!t) return;
     else if (act === 'done') {
       run(() => T.planComplete(t, { now }), 'done');
@@ -290,6 +305,35 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (act === 'restore') run(() => T.planRestore(t, { now }), 'restore', '복원했어요');
     else if (act === 'edit') openEdit(t);
     else if (act === 'pin') togglePin(t, today, now);
+  }
+
+  // 날짜 없음·지켜보기: ⋮⋮ 를 잡아 끌어서 순서를 정한다 (마우스·손가락 모두). 놓으면 묶음 전체의 새 순서를 저장한다.
+  function startDrag(e, li) {
+    const ul = li?.parentElement;
+    if (!ul || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault();
+    const grip = e.target.closest('.pl-grip');
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* 캡처가 안 돼도 창 이벤트로 이어진다 */ }
+    li.classList.add('pl-dragging');
+    const move = ev => {
+      const y = ev.clientY;
+      if (y < 70) window.scrollBy(0, -14); else if (y > window.innerHeight - 70) window.scrollBy(0, 14);
+      const others = [...ul.children].filter(x => x !== li);
+      const next = others.find(x => { const r = x.getBoundingClientRect(); return y < r.top + r.height / 2; });
+      if (next) { if (li.nextElementSibling !== next) ul.insertBefore(li, next); } else if (ul.lastElementChild !== li) ul.appendChild(li);
+    };
+    const end = ev => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', end);
+      grip.removeEventListener('pointercancel', end);
+      li.classList.remove('pl-dragging');
+      if (ev.type === 'pointercancel') { renderLists(); return; }
+      const ordered = [...ul.children].map(x => byId(x.dataset.id)).filter(Boolean);
+      run(() => T.planReorder(ordered, { now: nowStamp() }), 'reorder');
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
   }
 
   // 오늘 할 일에서 뺀다 — 칸에 놓았으면 칸도 비운다. (칸 비우기가 today 를 그대로 두므로 today 지우기를 나중에 합친다)
@@ -373,8 +417,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           <label class="pl-f">종류<select id="pl-e-kind"><option value="once"${t.kind === 'once' ? ' selected' : ''}>할 일</option><option value="watch"${t.kind === 'watch' ? ' selected' : ''}>지켜보기</option></select></label>
           <label class="pl-f">마감일<input id="pl-e-due" type="date" value="${esc(t.due || '')}"></label>
         </div>
-        <label class="pl-f">링크<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
-        <label class="pl-f">메모<textarea id="pl-e-note" rows="3" maxlength="2000">${esc(t.note || '')}</textarea></label>
+        <label class="pl-f">링크${t.link ? ` <a class="pl-open-link" href="${esc(t.link)}" target="_blank" rel="noopener">원본 열기 ↗</a>` : ''}<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
+        <label class="pl-f">메모<textarea id="pl-e-note" rows="8" maxlength="6000" placeholder="진행 상황, 해야 할 세부 내용을 적어 두세요">${esc(t.note || '')}</textarea></label>
         ${t.slot ? `<div class="pl-f pl-slot-line">칸: ${esc(fmtMD(t.slot.date))} ${esc(t.slot.start)} (${t.slot.min}분) <button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button></div>` : ''}
         <div class="pl-e-err" id="pl-e-err"></div>
       </div>

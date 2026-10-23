@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS = { todayCap: 5, dayStart: '07:00', dayEnd: '22:00
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_TITLE = 200;
-const MAX_NOTE = 2000;
+const MAX_NOTE = 6000;
 const MAX_LINK = 500;
 
 export function isTimeStr(s) { return typeof s === 'string' && TIME_RE.test(s); }
@@ -203,6 +203,22 @@ function byDue_(a, b) {
     || (a.createdAt || '').localeCompare(b.createdAt || '');
 }
 
+// 날짜 없음·지켜보기는 효니가 끌어서 정한 순서(order)가 먼저, 순서를 안 정한 건 그 뒤에 만든 순서로
+function byOrder_(a, b) {
+  const x = Number.isFinite(a.order) ? a.order : Infinity, y = Number.isFinite(b.order) ? b.order : Infinity;
+  return x === y ? byDue_(a, b) : x < y ? -1 : 1;
+}
+
+// 한 묶음을 끌어서 바꾼 새 순서(tasks 배열 순서 그대로)를 저장하는 patch — 값이 달라진 것만 쓴다
+export function planReorder(tasks, { now }) {
+  const patch = {};
+  tasks.forEach((t, i) => {
+    const order = (i + 1) * 1000;
+    if (t.order !== order) Object.assign(patch, taskPatch_(t.id, { order }, now));
+  });
+  return patch;
+}
+
 export function classify(tasks, today) {
   const out = { watch: [], today: [], overdue: [], week: [], later: [], undated: [], done: [], archived: [] };
   const weekEnd = addDays(today, 7);
@@ -216,7 +232,8 @@ export function classify(tasks, today) {
     if (!when) { out.undated.push(t); continue; }
     if (when <= weekEnd) out.week.push(t); else out.later.push(t);
   }
-  for (const k of ['today', 'overdue', 'week', 'later', 'watch', 'undated']) out[k].sort(byDue_);
+  for (const k of ['today', 'overdue', 'week', 'later']) out[k].sort(byDue_);
+  for (const k of ['watch', 'undated']) out[k].sort(byOrder_);
   out.done.sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return out;
 }

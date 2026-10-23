@@ -412,3 +412,23 @@ describe('데이터 모양', () => {
     assert.equal(merged['tasks/a/slot'], null);
   });
 });
+
+describe('날짜 없음 순서(끌어서 정하기)', () => {
+  test('순서를 정한 건 먼저, 안 정한 건 그 뒤에 만든 순서로', () => {
+    const s = T.classify([task('c', { createdAt: '2026-10-03' }), task('b', { order: 2000 }), task('a', { order: 1000 }), task('d', { createdAt: '2026-10-02' })], TODAY).undated;
+    assert.deepEqual(s.map(v => v.id), ['a', 'b', 'd', 'c']);
+  });
+  test('planReorder 는 값이 달라진 것만 쓰고 허용된 경로만 만든다', () => {
+    const list = [task('a', { order: 1000 }), task('b', { order: 3000 }), task('c')];
+    const p = T.planReorder([list[1], list[0], list[2]], { now: NOW });   // b, a, c
+    assert.deepEqual(Object.keys(p).filter(k => k.endsWith('/order')).sort(), ['tasks/a/order', 'tasks/b/order', 'tasks/c/order']);
+    assert.equal(p['tasks/b/order'], 1000);
+    assert.equal(p['tasks/a/order'], 2000);
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+    assert.deepEqual(T.planReorder([task('x', { order: 1000 })], { now: NOW }), {});
+  });
+  test('마감이 있는 묶음은 order 가 있어도 마감순', () => {
+    const w = T.classify([task('b', { due: '2026-10-29', order: 1 }), task('a', { due: '2026-10-25', order: 9 })], TODAY).week;
+    assert.deepEqual(w.map(v => v.id), ['a', 'b']);
+  });
+});
