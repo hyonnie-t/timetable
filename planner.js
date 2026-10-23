@@ -4,6 +4,13 @@
 import { db, ref, update, onValue } from './firebase.js';
 import { applyPatch, addDays } from './engine/progress-engine.js';
 import * as T from './engine/task-engine.js';
+import { createCalendar, reasonText } from './planner-cal.js';
+// 움직이는 아이콘(Lucian Icons, MIT) — 프로젝트 안에 복사해 쓴다 (외부 로드 없음)
+import './icons/lucian/calendar.js';
+import './icons/lucian/list.js';
+import './icons/lucian/flag.js';
+import './icons/lucian/clock.js';
+import './icons/lucian/plus.js';
 
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 const LOG_MAX = 80;
@@ -47,6 +54,7 @@ function dueLabel(t, today) {
   else if (n <= 14) s = `D-${n} ${fmtMD(d)}`;
   else s = fmtMD(d);
   if (t.slot) s += ` ${t.slot.start} (${t.slot.min}분)`;
+  else if (t.dueText) s = `${t.dueText} (${s})`;   // 애매한 기간으로 정한 마감: "한 달 내 (D-31 11/23(월))"
   return s;
 }
 
@@ -91,6 +99,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   let showClosed = false;
   const expanded = new Set();    // "더 보기"를 누른 묶음
 
+  let view = store_('plannerView') === 'cal' ? 'cal' : 'list';   // 좁은 화면에서 목록/달력 중 보이는 쪽 (넓으면 둘 다 보인다)
+  let cal = null;
+
   const root = () => document.getElementById('tab-tasks');
   const settings = () => T.resolveSettings(store.settings);
   const tasks = () => T.listTasks(store);
@@ -121,6 +132,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     } catch (e) {
       console.error(e);
       toast(`저장하지 못했어요: ${e.message}`, true);
+      cal?.render();      // 끌다 만 블록을 원래 자리로
     }
   }
 
@@ -129,28 +141,56 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const el = root();
     if (!el || el.querySelector('.pl-shell')) return;
     el.innerHTML = `
-      <div class="pl-shell">
-        <div class="pl-head">
-          <div><div class="pl-title-main">할 일</div><div class="pl-date" id="pl-date"></div></div>
-          <div class="pl-counter" id="pl-counter"></div>
+      <div class="pl-shell" data-view="${view}">
+        <div class="pl-view-switch" role="group" aria-label="보기">
+          <button type="button" data-act="view" data-v="list" class="${view === 'list' ? 'on' : ''}"><lucian-list size="20"></lucian-list> 목록</button>
+          <button type="button" data-act="view" data-v="cal" class="${view === 'cal' ? 'on' : ''}"><lucian-calendar size="20"></lucian-calendar> 시간표</button>
         </div>
-        <form class="pl-add" id="pl-add" autocomplete="off">
-          <input class="pl-add-input" id="pl-add-input" type="text" maxlength="200"
-                 placeholder="예) 내일 15시 학생회 회의 1시간 · 논문 읽기 10/30까지" />
-          <select class="pl-add-area" id="pl-add-area" aria-label="영역">
-            ${T.AREAS.map(a => `<option value="${a}"${a === addArea ? ' selected' : ''}>${a}</option>`).join('')}
-          </select>
-          <button class="btn-primary pl-add-btn" type="submit">추가</button>
-        </form>
-        <div class="pl-hint" id="pl-hint"></div>
-        <div class="pl-filter" id="pl-filter"></div>
-        <div class="pl-lists" id="pl-lists"></div>
+        <div class="pl-layout">
+          <div class="pl-left">
+            <div class="pl-head">
+              <div><div class="pl-title-main">할 일</div><div class="pl-date" id="pl-date"></div></div>
+              <div class="pl-counter" id="pl-counter"></div>
+            </div>
+            <form class="pl-add" id="pl-add" autocomplete="off">
+              <input class="pl-add-input" id="pl-add-input" type="text" maxlength="200"
+                     placeholder="예) 내일 15시 회의 1시간 · 논문 읽기 10/30까지 · 서평 한 달 내" />
+              <select class="pl-add-area" id="pl-add-area" aria-label="영역">
+                ${T.AREAS.map(a => `<option value="${a}"${a === addArea ? ' selected' : ''}>${a}</option>`).join('')}
+              </select>
+              <button class="btn-primary pl-add-btn" type="submit"><lucian-plus size="18" tone="line"></lucian-plus> 추가</button>
+            </form>
+            <div class="pl-hint" id="pl-hint"></div>
+            <div class="pl-filter" id="pl-filter"></div>
+            <div class="pl-lists" id="pl-lists"></div>
+          </div>
+          <aside class="pl-cal" id="pl-cal" aria-label="시간표 달력"></aside>
+        </div>
       </div>`;
+    cal = createCalendar({
+      root: el.querySelector('#pl-cal'),
+      getTasks: tasks,
+      getData: getSchoolData,
+      getSettings: () => store.settings,
+      today: todayStr,
+      onSetSlot: setSlot,
+      onOpen: openEdit,
+      onEmpty: (date, start) => openPlaceModal({ date, start }),
+      toast,
+    });
     el.querySelector('#pl-add').addEventListener('submit', e => { e.preventDefault(); addFromInput(); });
     el.querySelector('#pl-add-input').addEventListener('input', updateHint);
     el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
     el.addEventListener('click', onClick);
-    el.addEventListener('pointerdown', e => { const g = e.target.closest('.pl-grip'); if (g) startDrag(e, g.closest('li')); });
+    el.addEventListener('pointerdown', e => {
+      const g = e.target.closest('.pl-grip');
+      if (g) { startDrag(e, g.closest('li')); return; }
+      const pb = e.target.closest('.pl-place');
+      if (pb) {
+        const t = byId(pb.closest('[data-id]')?.dataset.id);
+        if (t) cal.startPlaceDrag(e, t, t.slot?.min || 60, () => openPlaceModal({ task: t }), pb);
+      }
+    });
     el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act]')) e.target.click(); });
   }
 
@@ -162,6 +202,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     if (!input.value.trim()) { hint.textContent = ''; return; }
     const bits = [];
     if (p.slot) bits.push(`${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`);
+    else if (p.dueText) bits.push(`${p.dueText} → ${fmtMD(p.due)}까지`);
     else if (p.due) bits.push(`마감 ${fmtMD(p.due)}`);
     else bits.push('날짜 없음');
     hint.textContent = `→ ${p.title || '(제목을 적어 주세요)'} · ${bits.join(' · ')}`;
@@ -189,7 +230,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     }
     const id = T.newTaskId();
     const area = root().querySelector('#pl-add-area').value;
-    run(() => T.planAddTask({ title: p.title, area, due: p.due, slot }, { id, now: nowStamp() }), 'add',
+    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot }, { id, now: nowStamp() }), 'add',
       note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
     input.value = '';
     updateHint();
@@ -213,11 +254,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           ${note ? `<span class="pl-note">${esc(note)}</span>` : ''}
           <span class="pl-meta">
             <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
-            ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}">${esc(label)}</span>` : ''}
+            ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}${t.dueText && !t.slot ? ' pl-due-fuzzy' : ''}">${t.dueText && !t.slot ? '<lucian-clock size="14" tone="line"></lucian-clock> ' : ''}${esc(label)}</span>` : ''}
             ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
             ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="원본 열기">원본 ↗</a>` : ''}
           </span>
         </div>
+        ${t.status === 'open' && t.kind !== 'watch'
+        ? `<button class="pl-place${t.slot ? ' on' : ''}" data-act="place" aria-label="시간 칸에 놓기" title="누르면 시간 칸을 고르고, 끌어서 시간표에 놓을 수도 있어요"><lucian-calendar size="20"></lucian-calendar></button>` : ''}
         ${t.status === 'open' && t.kind !== 'watch'
         ? `<button class="pl-pin${pinned ? ' on' : ''}" data-act="pin" aria-label="오늘 할 일로" title="${pinned ? '오늘 할 일에서 빼기' : '오늘 할 일로'}">${pinned ? '★' : '☆'}</button>`
         : ''}
@@ -241,7 +284,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     root().querySelector('#pl-date').textContent = `${fmtMD(today).replace('(', ' · ').replace(')', '요일')}`;
     root().querySelector('#pl-counter').innerHTML =
       `<span class="pl-count${chosen >= cap ? ' full' : ''}">오늘 ${chosen}/${cap}</span>`
-      + (c.overdue.length ? ` <span class="pl-count over">마감 지남 ${T.classify(all, today).overdue.length}</span>` : '');
+      + (c.overdue.length ? ` <span class="pl-count over"><lucian-flag size="14" tone="line"></lucian-flag> 마감 지남 ${T.classify(all, today).overdue.length}</span>` : '');
 
     // 영역 필터 (건수는 필터와 상관없이 열린 할 일 기준)
     const open = all.filter(t => t.status === 'open');
@@ -274,13 +317,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         ${showClosed ? `<ul class="pl-ul">${closed.map(t => rowHtml(t, today, 'closed')).join('')}</ul>` : ''}
       </section>`;
     }
-    if (!visible.length) html = `<div class="pl-empty">${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div>`;
+    if (!visible.length) html = `<div class="pl-empty pl-empty-art"><img src="images/planner_empty.webp" alt="" width="140" height="140"><div>${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div></div>`;
     lists.innerHTML = html;
   }
 
   function renderAll() {
     ensureShell();
     renderLists();
+    if (loaded && !loadError) cal.render();
     syncReview();
   }
 
@@ -294,7 +338,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const now = nowStamp();
     const today = todayStr();
 
-    if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
+    if (act === 'view') {
+      view = btn.dataset.v === 'cal' ? 'cal' : 'list';
+      store_('plannerView', view);
+      root().querySelector('.pl-shell').dataset.view = view;
+      root().querySelectorAll('[data-act=view]').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+      if (view === 'cal') cal.setDate(cal.date);   // 숨겨져 있던 달력은 보일 때 다시 그려 맞는 시각으로 스크롤
+    } else if (act === 'place') { if (e.detail === 0 && t) openPlaceModal({ task: t }); }   // 마우스·터치는 pointerdown 쪽에서 처리, 키보드만 여기
+    else if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
     else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
     else if (!t) return;
@@ -385,7 +436,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     return ov;
   }
   function closeModal(id) { document.getElementById(id)?.remove(); }
-  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap'].forEach(closeModal); };
+  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place'].forEach(closeModal); };
   document.addEventListener('keydown', onKey);
 
   function openCapModal(t, chk) {
@@ -416,6 +467,12 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           <label class="pl-f">영역<select id="pl-e-area">${T.AREAS.map(a => `<option${a === t.area ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
           <label class="pl-f">종류<select id="pl-e-kind"><option value="once"${t.kind === 'once' ? ' selected' : ''}>할 일</option><option value="watch"${t.kind === 'watch' ? ' selected' : ''}>지켜보기</option></select></label>
           <label class="pl-f">마감일<input id="pl-e-due" type="date" value="${esc(t.due || '')}"></label>
+          <label class="pl-f">또는 기간으로
+            <select id="pl-e-fuzzy">
+              <option value="">날짜를 직접 고름</option>
+              ${[...new Set([...(t.dueText ? [t.dueText] : []), ...T.FUZZY_PRESETS])].map(p => `<option${p === t.dueText ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+            </select>
+          </label>
         </div>
         <label class="pl-f">링크${t.link ? ` <a class="pl-open-link" href="${esc(t.link)}" target="_blank" rel="noopener">원본 열기 ↗</a>` : ''}<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
         <label class="pl-f">메모<textarea id="pl-e-note" rows="8" maxlength="6000" placeholder="진행 상황, 해야 할 세부 내용을 적어 두세요">${esc(t.note || '')}</textarea></label>
@@ -429,10 +486,17 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         <button class="btn-primary" id="pl-e-save" type="button">저장</button>
       </div>`);
     const $ = s => ov.querySelector(s);
+    // 기간을 고르면 그 끝날짜가 마감일 칸에 들어가고, 마감일을 직접 고치면 기간 선택은 풀린다
+    $('#pl-e-fuzzy').addEventListener('change', e => {
+      const f = e.target.value && T.resolveFuzzy(e.target.value, todayStr());
+      if (f) $('#pl-e-due').value = f.due;
+    });
+    $('#pl-e-due').addEventListener('input', () => { $('#pl-e-fuzzy').value = ''; });
     $('#pl-e-save').addEventListener('click', () => {
+      const due = $('#pl-e-due').value || null;
       const changes = {
         title: $('#pl-e-title').value, area: $('#pl-e-area').value, kind: $('#pl-e-kind').value,
-        due: $('#pl-e-due').value || null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
+        due, dueText: due ? ($('#pl-e-fuzzy').value || null) : null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
       };
       let patch;
       try { patch = T.planEditTask(t, changes, { now: nowStamp() }); }
@@ -450,6 +514,107 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         if (t.ruleId && t.due) Object.assign(patch, T.planSkipRuleDate(t.ruleId, t.due));   // 반복 건은 같은 날짜로 다시 만들지 않는다
         return patch;
       }, 'delete', '지웠어요');
+    });
+  }
+
+  // ---------- 시간 칸 놓기 ----------
+  // 달력에서 끌어 놓거나 놓기 창에서 정한 칸을 저장한다. 오늘 칸에 새로 놓으면 "오늘 할 일"이 하나 늘어나므로 상한을 먼저 본다.
+  function setSlot(t, slot, okMsg = '시간 칸에 놓았어요') {
+    const today = todayStr();
+    if (slot.date === today && !(t.today === today || t.slot?.date === today)) {
+      const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
+      if (!chk.ok) { toast(`오늘 할 일이 ${chk.cap}개예요. 하나를 빼야 오늘 칸에 놓을 수 있어요`, true); cal?.render(); return; }
+    }
+    run(() => T.planSetSlot(t, slot, { now: nowStamp() }), 'slot', okMsg);
+  }
+
+  const MIN_CHOICES = [15, 30, 45, 60, 90, 120, 180];
+  const fmtRange = f => `${T.minToTime(f.start)}–${T.minToTime(f.end)}`;
+
+  // 그날 첫 빈 시간 (오늘이면 지금 이후) — 놓기 창의 처음 값
+  function suggestStart(date, min, ignoreId) {
+    const free = T.freeIntervals(getSchoolData() || {}, tasks(), date, { settings: store.settings, ignoreId });
+    const n = new Date();
+    const floor = date === todayStr() ? Math.ceil((n.getHours() * 60 + n.getMinutes()) / 15) * 15 : 0;
+    for (const f of free) {
+      const s = Math.max(f.start, floor);
+      if (f.end - s >= min) return s;
+    }
+    return null;
+  }
+
+  // opts: { task } 목록에서 / { date, start } 달력의 빈 칸에서
+  function openPlaceModal(opts = {}) {
+    const today = todayStr();
+    const fixed = opts.task || null;
+    const pool = tasks().filter(t => t.status === 'open' && t.kind !== 'watch')
+      .sort((a, b) => (a.slot ? 1 : 0) - (b.slot ? 1 : 0) || (a.due || '9999').localeCompare(b.due || '9999'));
+    const first = fixed || null;
+    const min0 = first?.slot?.min || 60;
+    const date0 = opts.date || first?.slot?.date || (first?.due && first.due >= today ? first.due : today);
+    let start0 = opts.start ?? suggestStart(date0, min0, first?.id);
+    if (start0 == null) start0 = 9 * 60;
+    const mins = MIN_CHOICES.includes(min0) ? MIN_CHOICES : [...MIN_CHOICES, min0].sort((a, b) => a - b);
+    const minLabel = m => (m % 60 === 0 ? `${m / 60}시간` : m > 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`);
+
+    const ov = openModal('pl-modal-place', `
+      <div class="modal-header"><h2><lucian-calendar size="22"></lucian-calendar> 시간 칸에 놓기</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <label class="pl-f">할 일
+          <select id="pl-p-task">
+            ${fixed ? '' : '<option value="__new">＋ 새 할 일 만들기</option>'}
+            ${pool.map(t => `<option value="${esc(t.id)}"${first && first.id === t.id ? ' selected' : ''}>${esc(t.title)}${t.slot ? ` · 지금 ${fmtMD(t.slot.date)} ${t.slot.start}` : t.due ? ` · ${t.dueText || fmtMD(t.due)}` : ''}</option>`).join('')}
+          </select>
+        </label>
+        <label class="pl-f" id="pl-p-newwrap"${fixed ? ' hidden' : ''}>새 할 일 이름<input id="pl-p-new" type="text" maxlength="200" placeholder="예) 학생회 회의 준비"></label>
+        <div class="pl-f-row">
+          <label class="pl-f">날짜<input id="pl-p-date" type="date" value="${date0}"></label>
+          <label class="pl-f">시작<input id="pl-p-start" type="time" step="900" value="${T.minToTime(start0)}"></label>
+          <label class="pl-f">걸리는 시간<select id="pl-p-min">${mins.map(m => `<option value="${m}"${m === min0 ? ' selected' : ''}>${minLabel(m)}</option>`).join('')}</select></label>
+        </div>
+        <div class="pl-p-free" id="pl-p-free"></div>
+        <div class="pl-e-err" id="pl-p-msg"></div>
+      </div>
+      <div class="modal-footer pl-e-foot">
+        <button class="btn-secondary" id="pl-p-clear" type="button" hidden>칸 비우기</button>
+        <span class="pl-spacer"></span>
+        <button class="btn-primary" id="pl-p-save" type="button">놓기</button>
+      </div>`);
+    const $ = s => ov.querySelector(s);
+    const picked = () => { const v = $('#pl-p-task').value; return v === '__new' ? null : byId(v); };
+    const slotNow = () => ({ date: $('#pl-p-date').value, start: $('#pl-p-start').value, min: Number($('#pl-p-min').value) });
+
+    function refresh() {
+      const t = picked();
+      $('#pl-p-newwrap').hidden = !!t;
+      $('#pl-p-clear').hidden = !t?.slot;
+      const s = slotNow();
+      const msg = $('#pl-p-msg');
+      msg.textContent = '';
+      if (!s.date || !s.start) { msg.textContent = '날짜와 시작 시각을 정해 주세요'; return false; }
+      const free = T.freeIntervals(getSchoolData() || {}, tasks(), s.date, { settings: store.settings, ignoreId: t?.id });
+      $('#pl-p-free').textContent = free.length ? `이날 빈 시간: ${free.slice(0, 5).map(fmtRange).join(' · ')}` : '이날은 빈 시간이 없어요';
+      const c = T.slotConflict(getSchoolData() || {}, tasks(), s.date, s.start, s.min, { ignoreId: t?.id, settings: store.settings });
+      if (!c.ok) { msg.textContent = reasonText(c); return false; }
+      return true;
+    }
+    ['#pl-p-task', '#pl-p-date', '#pl-p-start', '#pl-p-min'].forEach(sel => $(sel).addEventListener('change', () => {
+      if (sel === '#pl-p-task' && picked()?.slot) { const sl = picked().slot; $('#pl-p-date').value = sl.date; $('#pl-p-start').value = sl.start; $('#pl-p-min').value = String(sl.min); }
+      refresh();
+    }));
+    refresh();
+
+    $('#pl-p-clear').addEventListener('click', () => { const t = picked(); closeModal('pl-modal-place'); if (t) run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
+    $('#pl-p-save').addEventListener('click', () => {
+      if (!refresh()) return;
+      const s = slotNow();
+      const t = picked();
+      if (t) { closeModal('pl-modal-place'); setSlot(t, s); return; }
+      const title = $('#pl-p-new').value.trim();
+      if (!title) { $('#pl-p-msg').textContent = '새 할 일 이름을 적어 주세요'; return; }
+      if (s.date === today && !T.checkTodayAdd(tasks(), { id: '' }, today, store.settings).ok) { $('#pl-p-msg').textContent = `오늘 할 일이 ${settings().todayCap}개예요. 다른 날로 하거나 하나를 먼저 빼 주세요`; return; }
+      closeModal('pl-modal-place');
+      run(() => T.planAddTask({ title, area: addArea, due: s.date, slot: s }, { id: T.newTaskId(), now: nowStamp() }), 'add', '추가하고 칸에 놓았어요');
     });
   }
 
@@ -493,7 +658,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       return;
     }
     if (existing) { existing.querySelector('.modal-body').innerHTML = reviewBody(list, today); return; }
-    if (reviewDismissed || document.querySelector('#pl-modal-edit, #pl-modal-cap')) return;
+    if (reviewDismissed || document.querySelector('#pl-modal-edit, #pl-modal-cap, #pl-modal-place')) return;
     if (document.getElementById('tab-tasks')?.style.display === 'none') return;   // 할 일 탭이 아닐 땐 띄우지 않는다
     const canSkip = skippedCount(today) < 1;
     const ov = openModal('pl-modal-review', `
@@ -566,7 +731,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       if (unsub) unsub();
       document.removeEventListener('keydown', onKey);
       hideUndo();
-      ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-review'].forEach(closeModal);
+      ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-review'].forEach(closeModal);
       if (root()) root().innerHTML = '';
     },
   };

@@ -401,7 +401,7 @@ function textSig_(t) {
 
 // 화면 코드가 여러 파일이라 app.js 하나만 보면 나머지가 바뀐 걸 못 알아챈다 → 모두 합쳐서 서명한다
 // (app.js 만 꼭 있어야 하고, 나머지는 없거나 못 받아도 넘어간다)
-const CODE_FILES = ['app.js', 'planner.js', 'engine/progress-engine.js', 'engine/task-engine.js'];
+const CODE_FILES = ['app.js', 'planner.js', 'planner-cal.js', 'engine/progress-engine.js', 'engine/task-engine.js'];
 
 async function fetchCodeSig_(fresh) {
   const texts = await Promise.all(CODE_FILES.map(async (f, i) => {
