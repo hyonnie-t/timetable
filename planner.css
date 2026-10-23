@@ -5,7 +5,7 @@
 .pl-date { margin-top: 4px; font-size: 13px; color: var(--text2); }
 .pl-counter { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .pl-count {
-  font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
   padding: 4px 11px; border-radius: 99px; background: var(--current-bg); color: var(--accent);
   border: 1px solid var(--accent2);
 }
@@ -37,7 +37,7 @@
   border-radius: 99px; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background .12s, border-color .12s;
 }
 .pl-chip:hover { border-color: var(--accent2); }
-.pl-chip b { font-family: 'Space Mono', monospace; font-weight: 700; margin-left: 2px; color: var(--text3); }
+.pl-chip b { font-family: var(--mono); font-weight: 700; margin-left: 2px; color: var(--text3); }
 .pl-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pl-chip.on b { color: #fff; }
 
@@ -49,7 +49,7 @@
 }
 .pl-sec-title small { font-weight: 400; font-size: 12px; color: var(--text3); }
 .pl-sec-n {
-  font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text2); font-weight: 700;
+  font-family: var(--mono); font-size: 11px; color: var(--text2); font-weight: 700;
   background: var(--bg); border-radius: 99px; padding: 1px 8px;
 }
 .pl-sec-overdue .pl-sec-title { color: var(--danger); }
@@ -129,7 +129,7 @@
 .pl-a-연수 { background: #fde8ef; color: #b02a5a; }
 .pl-a-투자 { background: #ececec; color: #555; }
 .pl-a-기타 { background: #e6f3ea; color: #2d6a4f; }
-.pl-due { font-family: 'Space Mono', monospace; font-size: 11px; background: var(--bg); border-radius: 6px; padding: 1px 7px; }
+.pl-due { font-family: var(--mono); font-size: 11px; background: var(--bg); border-radius: 6px; padding: 1px 7px; }
 .pl-due-over { color: var(--danger); background: #fdecec; font-weight: 700; }
 .pl-due-today { color: var(--accent); background: var(--current-bg); font-weight: 700; }
 .pl-tag { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
@@ -226,7 +226,7 @@
 }
 .pl-cal-nav:hover { border-color: var(--accent2); }
 .pl-cal-today { font-size: 13px; font-weight: 700; padding: 0 12px; }
-.pl-cal-label { flex: 1; text-align: center; font-weight: 800; font-size: 15px; font-family: 'Space Mono', monospace; }
+.pl-cal-label { flex: 1; text-align: center; font-weight: 800; font-size: 15px; font-family: var(--mono); }
 .pl-cal-mode { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .pl-cal-mode button { border: none; background: var(--surface); padding: 0 12px; height: 34px; font-size: 13px; cursor: pointer; color: var(--text2); font-family: inherit; }
 .pl-cal-mode button.on { background: var(--accent); color: #fff; font-weight: 700; }
@@ -235,7 +235,7 @@
 .pl-cal-heads { margin-bottom: 4px; }
 .pl-ch { min-width: 0; text-align: center; padding: 2px 0 4px; }
 .pl-ch-d { font-size: 12px; color: var(--text2); margin-bottom: 3px; }
-.pl-ch-d b { font-family: 'Space Mono', monospace; font-size: 15px; color: var(--text); }
+.pl-ch-d b { font-family: var(--mono); font-size: 15px; color: var(--text); }
 .pl-ch.today .pl-ch-d b { background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 7px; }
 .pl-chip-due {
   --rail: var(--accent2);
@@ -248,7 +248,7 @@
 
 .pl-cal-scroll { max-height: min(640px, calc(100vh - 250px)); min-height: 300px; overflow-y: auto; border-top: 1px solid var(--border); position: relative; }
 .pl-hours { position: relative; }
-.pl-hours span { position: absolute; right: 6px; transform: translateY(-50%); font-family: 'Space Mono', monospace; font-size: 10px; color: var(--text3); }
+.pl-hours span { position: absolute; right: 6px; transform: translateY(-50%); font-family: var(--mono); font-size: 10px; color: var(--text3); }
 .pl-hours span:first-child { transform: none; }
 .pl-col {
   position: relative; min-width: 0;
@@ -273,7 +273,7 @@
 }
 .pl-blk-task:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pl-blk-t { font-weight: 700; word-break: break-word; }
-.pl-blk-m { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--text2); }
+.pl-blk-m { font-family: var(--mono); font-size: 10px; color: var(--text2); }
 .pl-blk-task.dragging { z-index: 6; opacity: .92; box-shadow: 0 8px 20px rgba(0,0,0,.25); cursor: grabbing; }
 .pl-blk-task.bad, .pl-blk-preview.bad { background: #fdecec; border-color: var(--danger); }
 .pl-blk-preview { z-index: 5; opacity: .85; border-style: dashed; pointer-events: none; }

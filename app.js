@@ -2383,7 +2383,7 @@ const PIP_CSS = `
     font-size:11px; font-weight:700; color:#2d6a4f;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  #pip-date .pip-time { font-family:'Space Mono', monospace; margin-left:4px; }
+  #pip-date .pip-time { font-family:'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Malgun Gothic', monospace; margin-left:4px; }
   #pip-mode {
     flex-shrink:0; padding:2px 8px; border-radius:6px; cursor:pointer;
     border:1px solid #e8e6e0; background:#fff; color:#666; font-size:10.5px;
@@ -2393,7 +2393,7 @@ const PIP_CSS = `
   .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
   .pip-row.current { background:#f0faf4; border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
-  .pip-p { flex:0 0 14px; font-family:'Space Mono', monospace; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
+  .pip-p { flex:0 0 14px; font-family:'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Malgun Gothic', monospace; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
   .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; }
   .pip-class {
     font-family:'Space Mono', 'Noto Sans KR', monospace; font-weight:700; font-size:11px;
