@@ -212,6 +212,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (p.dueText) bits.push(`${p.dueText} → ${fmtMD(p.due)}까지`);
     else if (p.due) bits.push(`마감 ${fmtMD(p.due)}`);
     else bits.push('날짜 없음');
+    const guess = T.guessArea(p.title);
+    if (guess) bits.push(`영역 ${guess}`);
     hint.textContent = `→ ${p.title || '(제목을 적어 주세요)'} · ${bits.join(' · ')}`;
   }
 
@@ -236,7 +238,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       }
     }
     const id = T.newTaskId();
-    const area = root().querySelector('#pl-add-area').value;
+    const area = T.guessArea(p.title) || root().querySelector('#pl-add-area').value;
     run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot }, { id, now: nowStamp() }), 'add',
       note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
     input.value = '';
