@@ -2367,7 +2367,7 @@ function showLogin() {
 // 대신 '간단히' 보기로 지금·다음 교시만 남겨 창을 작게 쓸 수 있게 한다.
 // ============================================================
 // PiP 창은 별도 document 라 style.css 의 @import 폰트가 적용되지 않는다 → 따로 불러온다
-const PIP_FONT_URL = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap';
+const PIP_FONT_URL = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap';
 const PIP_HEIGHT   = { full: 280, compact: 150 };
 
 const PIP_CSS = `
@@ -2383,7 +2383,7 @@ const PIP_CSS = `
     font-size:11px; font-weight:700; color:#2d6a4f;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  #pip-date .pip-time { font-family:'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Malgun Gothic', monospace; margin-left:4px; }
+  #pip-date .pip-time { font-family:'Noto Sans KR', 'Malgun Gothic', sans-serif; margin-left:4px; }
   #pip-mode {
     flex-shrink:0; padding:2px 8px; border-radius:6px; cursor:pointer;
     border:1px solid #e8e6e0; background:#fff; color:#666; font-size:10.5px;
@@ -2393,10 +2393,10 @@ const PIP_CSS = `
   .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
   .pip-row.current { background:#f0faf4; border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
-  .pip-p { flex:0 0 14px; font-family:'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Malgun Gothic', monospace; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
+  .pip-p { flex:0 0 14px; font-family:'Noto Sans KR', 'Malgun Gothic', sans-serif; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
   .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; }
   .pip-class {
-    font-family:'Space Mono', 'Noto Sans KR', monospace; font-weight:700; font-size:11px;
+    font-family:'Noto Sans KR', 'Malgun Gothic', sans-serif; font-weight:700; font-size:11px;
     color:#2d6a4f; background:#e8f5ee; padding:1px 6px; border-radius:5px;
   }
   .pip-topic { flex-basis:100%; font-size:12px; font-weight:500; color:#1a1a1a; }

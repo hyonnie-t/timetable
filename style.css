@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
 
 :root {
   --bg: #f5f4f0;
@@ -15,7 +15,7 @@
   --current-bg: #f0faf4;
   --current-border: #2d6a4f;
   --font: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Nanum Gothic', sans-serif;
-  --mono: 'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', monospace;
+  --mono: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,6 +24,7 @@
 button, input, select, textarea { font-family: inherit; }
 
 body {
+  font-variant-numeric: tabular-nums;
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
