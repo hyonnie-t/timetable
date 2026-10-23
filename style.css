@@ -15,6 +15,7 @@
   --current-bg: #f0faf4;
   --current-border: #2d6a4f;
   --font: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Nanum Gothic', sans-serif;
+  --mono: 'Space Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,7 +55,7 @@ body {
 }
 
 .login-logo {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 3px;
   color: var(--text3);
@@ -171,7 +172,7 @@ body {
 .section-header { margin-bottom: 16px; }
 
 .date-label {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 10px;
   color: var(--text3);
   letter-spacing: 2px;
@@ -183,7 +184,7 @@ body {
 .date-main  { font-size: 22px; font-weight: 900; }
 .date-sub   { font-size: 14px; color: var(--text2); }
 .update-time {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 10px;
   color: var(--text3);
   margin-top: 4px;
@@ -258,7 +259,7 @@ body {
 }
 
 .exam-dday-count {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
   color: var(--accent);
@@ -283,7 +284,7 @@ body {
 .banner-next { background: #52b788; }
 
 .banner-label {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 10px;
   opacity: .75;
   text-transform: uppercase;
@@ -292,7 +293,7 @@ body {
 }
 
 .banner-info { flex: 1; font-weight: 500; }
-.banner-time { font-family: 'Space Mono', monospace; font-size: 11px; opacity: .8; }
+.banner-time { font-family: var(--mono); font-size: 11px; opacity: .8; }
 
 /* ============================================================
    교시 카드
@@ -345,7 +346,7 @@ body {
 }
 
 .period-num {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
   color: var(--text3);
@@ -357,7 +358,7 @@ body {
 }
 
 .period-time {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 9px;
   color: var(--text3);
   display: block;
@@ -386,7 +387,7 @@ body {
   background: #e8f5ee;
   color: var(--accent);
   flex-shrink: 0;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 
 .class-subject {
@@ -398,7 +399,7 @@ body {
 
 .class-topic { font-size: 14px; font-weight: 500; color: var(--text); flex: 1; min-width: 0; }
 .class-step  {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 11px; color: var(--text3);
   flex-shrink: 0;
 }
@@ -473,7 +474,7 @@ body {
 .step-btn:hover { border-color: var(--accent2); color: var(--accent); }
 
 .step-display {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 13px; font-weight: 700;
   color: var(--accent); min-width: 32px; text-align: center;
 }
@@ -550,7 +551,7 @@ body {
   background: var(--bg);
   text-align: center;
   border-bottom: 1px solid var(--border);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 .week-grid th.today-col { color: var(--accent); background: #f0faf4; }
 
@@ -565,7 +566,7 @@ body {
   line-height: 1.4;
 }
 .week-grid td.period-col {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 10px; color: var(--text3); font-weight: 700;
   background: var(--bg); width: 32px;
 }
@@ -591,7 +592,7 @@ body {
   font-size: 11px; font-weight: 700;
   letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--text3);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 .prog-group-line { flex: 1; height: 1px; background: var(--border); }
 .arrow {
@@ -619,10 +620,10 @@ body {
   font-size: 12px; font-weight: 700;
   padding: 3px 10px; border-radius: 6px;
   background: #e8f5ee; color: var(--accent);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 .prog-step {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px; color: var(--text2); font-weight: 700;
 }
 
@@ -703,7 +704,7 @@ body {
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--text3);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--accent2);
@@ -727,7 +728,7 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   color: var(--text2);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 .subj-table td {
   padding: 5px 8px;
@@ -737,7 +738,7 @@ body {
 .subj-table tr:last-child td { border-bottom: none; }
 
 .subj-step {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px; font-weight: 700;
   color: var(--text3);
   width: 44px;
@@ -821,7 +822,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   padding: 3px 6px;
   cursor: pointer;
   user-select: none;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   transition: all .15s;
 }
 .period-check-label:has(input:checked) {
@@ -848,7 +849,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   font-size: 11px; font-weight: 700;
   letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--text3);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   padding: 0 4px 8px;
 }
 
@@ -890,7 +891,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 }
 
 .role-badge {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 10px;
   padding: 2px 8px;
   border-radius: 4px;
@@ -987,7 +988,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   text-align: center;
   border-bottom: 2px solid var(--border);
   color: var(--text2);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
 }
 .timetable-editor td {
   padding: 4px;
@@ -995,7 +996,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   vertical-align: middle;
 }
 .period-col-edit {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 11px; color: var(--text3);
   font-weight: 700; white-space: nowrap;
   padding: 4px 8px !important;
@@ -1031,7 +1032,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   padding: 6px 4px;
   text-align: center;
   border-bottom: 1px solid var(--border);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px; color: var(--text2);
 }
 
@@ -1040,7 +1041,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 12px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--mono);
   background: var(--bg); color: var(--text);
   outline: none; width: 110px;
 }
@@ -1492,9 +1493,9 @@ html { -webkit-text-size-adjust: 100%; }
   border-bottom: 2px solid var(--border); color: var(--text2);
 }
 .ledger-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.ledger-date  { white-space: nowrap; font-family: 'Space Mono', monospace; font-size: 12px; }
+.ledger-date  { white-space: nowrap; font-family: var(--mono); font-size: 12px; }
 .ledger-date small { font-family: var(--font); color: var(--text3); }
-.ledger-p, .ledger-step { text-align: center; font-family: 'Space Mono', monospace; font-size: 12px; width: 40px; }
+.ledger-p, .ledger-step { text-align: center; font-family: var(--mono); font-size: 12px; width: 40px; }
 .ledger-step  { font-weight: 700; }
 .ledger-action { text-align: right; width: 76px; }
 .ledger-none  { color: var(--text3); }
@@ -1559,7 +1560,7 @@ html { -webkit-text-size-adjust: 100%; }
   background: var(--current-bg); border: 1px solid var(--accent2); color: var(--accent);
 }
 .todo-line.has-over { background: #fdecec; border-color: var(--danger); color: var(--danger); }
-.todo-line b { font-family: 'Space Mono', monospace; }
+.todo-line b { font-family: var(--mono); }
 .todo-over { font-weight: 700; }
 .todo-go { margin-left: auto; font-size: 12px; opacity: .8; }
 .period-card.empty.prep { opacity: 1; }
