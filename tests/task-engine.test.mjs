@@ -376,6 +376,31 @@ describe('반복 규칙', () => {
     assert.deepEqual(Object.keys(T.planMaterialize(planner, TODAY, { now: NOW })), ['tasks/r_r1_20261102']);
   });
 
+  test('격주 — 기준 주부터 2주마다, 기준 주 이전은 없다', () => {
+    const r = { r: T.normalizeRule({ title: '블로그', every: 'weekly', dow: 'sun', interval: 2, start: '2026-10-25' }) };
+    assert.deepEqual(T.expandRules(r, '2026-10-01', '2026-12-06').map(o => o.date), ['2026-10-25', '2026-11-08', '2026-11-22', '2026-12-06']);
+    assert.throws(() => T.normalizeRule({ title: 'a', every: 'weekly', dow: 'mon', interval: 2 }), /첫 날짜/);
+    assert.throws(() => T.normalizeRule({ title: 'a', every: 'weekly', dow: 'mon', interval: 0 }), /1~8/);
+  });
+
+  test('규칙 고치기·지우기 — 앞날 열린 건만 정리하고 skip·끝낸 건은 둔다', () => {
+    let planner = { rules: { r1: T.normalizeRule({ title: '회의', area: '학생회', every: 'weekly', dow: 'mon' }) } };
+    planner = PE.applyPatch(planner, T.planSkipRuleDate('r1', '2026-10-26'));
+    planner = PE.applyPatch(planner, { 'tasks/r_r1_20261019': { title: '회의', status: 'done', due: '2026-10-19', ruleId: 'r1' }, 'tasks/r_r1_20261102': { title: '회의', status: 'open', due: '2026-11-02', ruleId: 'r1' } });
+    const edit = T.planEditRule(planner, 'r1', { title: '회의', every: 'weekly', dow: 'tue' }, { today: TODAY });
+    assert.equal(edit['rules/r1/dow'], 'tue');
+    assert.equal(edit['rules/r1/nth'], null);
+    assert.equal(edit['tasks/r_r1_20261102'], null);         // 월요일 건은 화요일 규칙에 안 맞아 지움
+    assert.ok(!('tasks/r_r1_20261019' in edit));              // 지난·끝낸 건은 그대로
+    T.assertPlannerPatch(edit);
+    const after = PE.applyPatch(planner, edit);
+    assert.equal(after.rules.r1.skip['2026-10-26'], true);    // skip 목록 보존
+    const del = T.planDeleteRule(planner, 'r1', { today: TODAY });
+    assert.deepEqual(Object.keys(del).sort(), ['rules/r1', 'tasks/r_r1_20261102']);
+    T.assertPlannerPatch(del);
+    assert.throws(() => T.planEditRule(planner, 'nope', { title: 'a', every: 'weekly', dow: 'mon' }, { today: TODAY }), /찾을 수/);
+  });
+
   test('규칙에서 생긴 건 마감 날에 오늘 묶음으로 들어온다', () => {
     const planner = { rules: { r1: T.normalizeRule({ title: '회의', every: 'weekly', dow: 'mon' }) } };
     const p = PE.applyPatch(planner, T.planMaterialize(planner, '2026-10-26', { now: NOW }));

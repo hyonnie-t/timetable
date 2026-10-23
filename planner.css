@@ -315,3 +315,10 @@
 .pl-empty-art { text-align: center; padding: 18px 8px; }
 .pl-empty-art img { display: block; margin: 0 auto 6px; width: 140px; height: auto; }
 @media (max-width: 480px) { .pl-left .pl-head { min-height: 110px; } }
+
+/* 반복 규칙 창 */
+.pl-head-r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.pl-rules-btn { padding: 6px 12px; font-size: 13px; border-radius: 99px; white-space: nowrap; }
+.pl-rule-list .pl-row { align-items: center; }
+.pl-rule-list .pl-row button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.pl-rule-h { font-size: 14px; font-weight: 800; margin: 18px 0 8px; }

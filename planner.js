@@ -2,7 +2,7 @@
 // 저장은 users/{uid}/planner/ 아래만 (진도 데이터 v2 와 분리). 계산은 모두 engine/task-engine.js 가 한다.
 // 데이터가 바뀌는 길은 commit() 하나뿐이고, 그 안에서 assertPlannerPatch 로 planner 밖 경로 쓰기를 막는다.
 import { db, ref, update, onValue } from './firebase.js';
-import { applyPatch, addDays } from './engine/progress-engine.js';
+import { applyPatch, addDays, DOW_KEY } from './engine/progress-engine.js';
 import * as T from './engine/task-engine.js';
 import { createCalendar, reasonText } from './planner-cal.js';
 // 움직이는 아이콘(Lucian Icons, MIT) — 프로젝트 안에 복사해 쓴다 (외부 로드 없음)
@@ -150,7 +150,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           <div class="pl-left">
             <div class="pl-head">
               <div><div class="pl-title-main">할 일</div><div class="pl-date" id="pl-date"></div></div>
-              <div class="pl-counter" id="pl-counter"></div>
+              <div class="pl-head-r">
+                <div class="pl-counter" id="pl-counter"></div>
+                <button type="button" class="btn-secondary pl-rules-btn" data-act="rules" title="매주·격주·매월 반복되는 할 일">🔁 반복</button>
+              </div>
             </div>
             <form class="pl-add" id="pl-add" autocomplete="off">
               <input class="pl-add-input" id="pl-add-input" type="text" maxlength="200"
@@ -348,6 +351,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
     else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
+    else if (act === 'rules') openRules();
     else if (!t) return;
     else if (act === 'done') {
       run(() => T.planComplete(t, { now }), 'done');
@@ -437,7 +441,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     return ov;
   }
   function closeModal(id) { document.getElementById(id)?.remove(); }
-  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place'].forEach(closeModal); };
+  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules'].forEach(closeModal); };
   document.addEventListener('keydown', onKey);
 
   function openCapModal(t, chk) {
@@ -456,6 +460,99 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       const now = nowStamp(), today = todayStr();
       closeModal('pl-modal-cap');
       run(() => ({ ...unpinPatch(out, today, now), ...T.planSetToday(t, today, { now }) }), 'swap');
+    });
+  }
+
+  // ---------- 반복 규칙 ----------
+  const DOW_LABEL = { sun: '일', mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토' };
+  const NTH_LABEL = { 1: '첫째', 2: '둘째', 3: '셋째', 4: '넷째', 5: '마지막' };
+  function ruleText(r) {
+    if (r.every === 'weekly') return r.interval > 1 ? `${r.interval}주마다 ${DOW_LABEL[r.dow]}요일 (${fmtMD(r.start)}부터)` : `매주 ${DOW_LABEL[r.dow]}요일`;
+    return r.day != null ? `매월 ${r.day}일` : `매월 ${NTH_LABEL[r.nth]} ${DOW_LABEL[r.dow]}요일`;
+  }
+
+  // editId 가 있으면 그 규칙을 고치는 양식, 없으면 새 규칙 양식을 아래에 둔다
+  function openRules(editId = null) {
+    const rules = Object.entries(store.rules || {}).filter(([, r]) => r && r.title);
+    const cur = editId ? store.rules?.[editId] : null;
+    const kindOf = r => !r ? 'weekly' : r.every === 'weekly' ? (r.interval > 1 ? 'biweekly' : 'weekly') : (r.day != null ? 'day' : 'nth');
+    const kind0 = kindOf(cur);
+    const ov = openModal('pl-modal-rules', `
+      <div class="modal-header"><h2>반복 할 일</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <p class="modal-hint">정해 두면 앞으로 2주 치가 자동으로 할 일에 들어와요. 끝내거나 지워도 같은 날짜로 다시 생기지 않아요.</p>
+        ${rules.length ? `<ul class="pl-ul pl-rule-list">${rules.map(([id, r]) => `
+          <li class="pl-row pl-r-${esc(r.area)}${r.active === false ? ' pl-done' : ''}">
+            <div class="pl-main"><span class="pl-title">${esc(r.title)}</span>
+              <span class="pl-meta"><span class="pl-area pl-a-${esc(r.area)}">${esc(r.area)}</span><span class="pl-due">${esc(ruleText(r))}</span>${r.until ? `<span class="pl-tag">~${esc(fmtMD(r.until))}</span>` : ''}${r.active === false ? '<span class="pl-tag">꺼 둠</span>' : ''}</span></div>
+            <button class="btn-secondary" data-rule-act="edit" data-id="${esc(id)}">고치기</button>
+            <button class="btn-secondary" data-rule-act="toggle" data-id="${esc(id)}">${r.active === false ? '켜기' : '끄기'}</button>
+            <button class="btn-del" data-rule-act="del" data-id="${esc(id)}">삭제</button>
+          </li>`).join('')}</ul>` : '<div class="pl-empty-sec">아직 반복 할 일이 없어요</div>'}
+        <h3 class="pl-rule-h">${cur ? '반복 고치기' : '새 반복 만들기'}</h3>
+        <label class="pl-f">제목<input id="pl-r-title" type="text" maxlength="200" value="${esc(cur?.title || '')}" placeholder="예) 블로그 글쓰기 · 수업 준비 · 상설동아리 출결"></label>
+        <div class="pl-f-row">
+          <label class="pl-f">영역<select id="pl-r-area">${T.AREAS.map(a => `<option${a === (cur?.area || addArea) ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
+          <label class="pl-f">주기<select id="pl-r-kind">
+            <option value="weekly"${kind0 === 'weekly' ? ' selected' : ''}>매주</option>
+            <option value="biweekly"${kind0 === 'biweekly' ? ' selected' : ''}>격주 (2주마다)</option>
+            <option value="nth"${kind0 === 'nth' ? ' selected' : ''}>매월 몇째 주 무슨 요일</option>
+            <option value="day"${kind0 === 'day' ? ' selected' : ''}>매월 며칠</option>
+          </select></label>
+        </div>
+        <div class="pl-f-row">
+          <label class="pl-f" data-k="dow">요일<select id="pl-r-dow">${Object.entries(DOW_LABEL).map(([k, v]) => `<option value="${k}"${k === (cur?.dow || 'mon') ? ' selected' : ''}>${v}요일</option>`).join('')}</select></label>
+          <label class="pl-f" data-k="nth">몇째<select id="pl-r-nth">${Object.entries(NTH_LABEL).map(([k, v]) => `<option value="${k}"${Number(k) === (cur?.nth || 1) ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label class="pl-f" data-k="day">날짜(일)<input id="pl-r-day" type="number" min="1" max="31" value="${cur?.day ?? 1}"></label>
+          <label class="pl-f" data-k="start">첫 날짜<input id="pl-r-start" type="date" value="${esc(cur?.start || '')}"></label>
+          <label class="pl-f">끝나는 날 (선택)<input id="pl-r-until" type="date" value="${esc(cur?.until || '')}"></label>
+        </div>
+        <div class="pl-e-err" id="pl-r-err"></div>
+      </div>
+      <div class="modal-footer pl-e-foot">
+        ${cur ? '<button class="btn-secondary" id="pl-r-cancel" type="button">고치기 취소</button>' : ''}
+        <span class="pl-spacer"></span>
+        <button class="btn-primary" id="pl-r-save" type="button">${cur ? '저장' : '반복 추가'}</button>
+      </div>`, { small: false });
+    const $ = s => ov.querySelector(s);
+    const sync = () => {
+      const k = $('#pl-r-kind').value;
+      const show = { dow: k === 'weekly' || k === 'nth', nth: k === 'nth', day: k === 'day', start: k === 'biweekly' };
+      Object.entries(show).forEach(([n, v]) => { ov.querySelector(`[data-k=${n}]`).style.display = v ? '' : 'none'; });
+    };
+    $('#pl-r-kind').addEventListener('change', sync);
+    sync();
+    const after = async fn => { await run(fn, 'rule'); materializedOn = ''; maybeMaterialize(); closeModal('pl-modal-rules'); openRules(); };
+    $('#pl-r-cancel')?.addEventListener('click', () => { closeModal('pl-modal-rules'); openRules(); });
+    $('#pl-r-save').addEventListener('click', () => {
+      const k = $('#pl-r-kind').value, today = todayStr();
+      const input = { title: $('#pl-r-title').value, area: $('#pl-r-area').value, until: $('#pl-r-until').value || null };
+      if (k === 'weekly') Object.assign(input, { every: 'weekly', dow: $('#pl-r-dow').value });
+      else if (k === 'biweekly') {
+        const st = $('#pl-r-start').value;
+        Object.assign(input, { every: 'weekly', interval: 2, start: st, dow: st ? DOW_KEY[new Date(`${st}T00:00:00Z`).getUTCDay()] : 'mon' });
+      } else if (k === 'nth') Object.assign(input, { every: 'monthly', dow: $('#pl-r-dow').value, nth: Number($('#pl-r-nth').value) });
+      else Object.assign(input, { every: 'monthly', day: Number($('#pl-r-day').value) });
+      let patchFn;
+      try {
+        const patch = cur ? T.planEditRule(store, editId, input, { today }) : T.planAddRule(input, { id: T.newTaskId() });
+        patchFn = () => patch;
+      } catch (e) { $('#pl-r-err').textContent = e.message; return; }
+      after(patchFn);
+    });
+    ov.addEventListener('click', e => {
+      const b = e.target.closest('[data-rule-act]');
+      if (!b) return;
+      const id = b.dataset.id, r = store.rules?.[id];
+      if (!r) return;
+      if (b.dataset.ruleAct === 'edit') { closeModal('pl-modal-rules'); openRules(id); }
+      else if (b.dataset.ruleAct === 'toggle') after(() => (r.active === false
+        ? T.planEditRule(store, id, { ...r, active: true }, { today: todayStr() })
+        : { [`rules/${id}/active`]: false }));
+      else if (b.dataset.ruleAct === 'del') {
+        if (!confirm(`“${r.title}” 반복을 지울까요? 앞으로 예정된 반복 건도 함께 지워져요. (끝낸 건은 남아요)`)) return;
+        after(() => T.planDeleteRule(store, id, { today: todayStr() }));
+      }
     });
   }
 
@@ -732,7 +829,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       if (unsub) unsub();
       document.removeEventListener('keydown', onKey);
       hideUndo();
-      ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-review'].forEach(closeModal);
+      ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-review', 'pl-modal-rules'].forEach(closeModal);
       if (root()) root().innerHTML = '';
     },
   };

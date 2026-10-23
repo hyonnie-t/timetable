@@ -581,16 +581,6 @@ window.saveClassNote = async function(key, wrap) {
 // ============================================================
 // 오늘 탭
 // ============================================================
-// 공강 카드용 — 이 교시 뒤에 오는 오늘의 첫 수업과 그 차시 주제
-function nextLessonPrep(today, p, periodList, schedule) {
-  const q = periodList.find(x => x > p && schedule[x]?.class && !getCalendarEvent(today, String(x)));
-  if (!q) return null;
-  const cell = schedule[q];
-  const key = PE.cellKey(cell);
-  if (getSpecialLesson(today, q, key)) return null;
-  return { p: q, cls: cell.class, subject: cell.subject, topic: userData.curriculum[key]?.[lessonStep(key, today, q)] || '' };
-}
-
 function renderToday() {
   const el = document.getElementById('tab-today');
   if (!el) return;
@@ -797,14 +787,12 @@ function renderToday() {
         ${swapBtn(p)}
       `;
     } else {
-      const prep = nextLessonPrep(today, p, periodList, schedule);
-      card.className = `period-card empty${prep ? ' prep' : ''}${swapCls(p)}`;
+      card.className = `period-card empty${swapCls(p)}`;
       card.innerHTML = `
         <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
-          ${prep ? `<div class="prep-line">📖 다음 수업 준비 · ${prep.p}교시 <b>${prep.cls}</b> ${prep.subject} — ${prep.topic ? escapeHtml(prep.topic) : '주제 미설정'}</div>` : ''}
         </div>
         ${swapBtn(p)}
       `;
