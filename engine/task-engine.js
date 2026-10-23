@@ -20,6 +20,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_TITLE = 200;
 const MAX_NOTE = 6000;
 const MAX_LINK = 500;
+const MAX_DUETEXT = 20;
 
 export function isTimeStr(s) { return typeof s === 'string' && TIME_RE.test(s); }
 
@@ -91,6 +92,9 @@ export function normalizeTask(raw, { now = '' } = {}) {
   const note = String(raw.note ?? '').trim();
   if (note) t.note = note.slice(0, MAX_NOTE);
   if (raw.ruleId) t.ruleId = String(raw.ruleId);
+  // 애매한 기간("한 달 내")으로 정한 마감 — due 는 그 기간의 끝날짜, dueText 는 화면에 보일 말
+  const dueText = String(raw.dueText ?? '').trim();
+  if (dueText && t.due) t.dueText = dueText.slice(0, MAX_DUETEXT);
   return t;
 }
 
@@ -125,7 +129,7 @@ export function planAddTask(input, { id, now }) {
 export function planEditTask(task, changes, { now }) {
   const merged = normalizeTask({ ...task, ...changes }, { now });
   const fields = {};
-  for (const k of ['title', 'area', 'kind', 'due', 'today', 'slot', 'link', 'note']) {
+  for (const k of ['title', 'area', 'kind', 'due', 'dueText', 'today', 'slot', 'link', 'note']) {
     if (!(k in changes)) continue;
     fields[k] = merged[k] ?? null;
   }
@@ -158,7 +162,7 @@ export function planDelete(task) {
 // 날짜를 미룬다 — 마감을 옮기고 지난 칸·오늘 표시는 비운다
 export function planPostpone(task, newDate, { now }) {
   if (!isDateStr(newDate)) throw new Error('미룰 날짜가 올바르지 않습니다');
-  return taskPatch_(task.id, { due: newDate, today: null, slot: null }, now);
+  return taskPatch_(task.id, { due: newDate, dueText: null, today: null, slot: null }, now);
 }
 
 // 칸 놓기/빼기 (검사는 slotConflict 로 먼저 한다)
@@ -412,6 +416,43 @@ export function planSkipRuleDate(ruleId, date) {
 }
 
 // ------------------------------------------------------------
+// 애매한 기간 — "한 달 내", "이번 주 중", "10월 중" 처럼 날짜를 못 박지 않은 마감
+//   그 기간의 끝날짜를 due 로, 말 그대로를 dueText 로 저장한다 → 마감 지남·이번 주 같은 묶음 계산은 그대로 쓴다.
+// ------------------------------------------------------------
+export const FUZZY_PRESETS = ['이번 주 중', '다음 주 중', '2주 내', '이번 달 중', '다음 달 중', '한 달 내', '3개월 내', '올해 안'];
+
+function monthEnd_(y, m) { return `${y}-${String(m).padStart(2, '0')}-${String(daysInMonth_(y, m)).padStart(2, '0')}`; }
+
+// n개월 뒤 같은 날 (그 달에 없는 날이면 말일)
+function addMonths_(date, n) {
+  const [y0, m0, d0] = date.split('-').map(Number);
+  const idx = y0 * 12 + (m0 - 1) + n;
+  const y = Math.floor(idx / 12), m = idx % 12 + 1;
+  return `${y}-${String(m).padStart(2, '0')}-${String(Math.min(d0, daysInMonth_(y, m))).padStart(2, '0')}`;
+}
+
+// 말("한 달 내", "3개월 내", "2주 내", "10월 중", FUZZY_PRESETS) → { due, dueText } | null
+export function resolveFuzzy(label, today) {
+  const t = String(label ?? '').replace(/\s+/g, ' ').trim();
+  if (!isDateStr(today)) return null;
+  const [y, m] = today.split('-').map(Number);
+  let due = null, k;
+  if (t === '이번 주 중') { const fri = addDays(mondayOf_(today), 4); due = fri >= today ? fri : addDays(mondayOf_(today), 6); }
+  else if (t === '다음 주 중') due = addDays(mondayOf_(today), 7 + 4);
+  else if (t === '이번 달 중') due = monthEnd_(y, m);
+  else if (t === '다음 달 중') due = monthEnd_(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
+  else if (t === '올해 안') due = `${y}-12-31`;
+  else if (t === '한 달 내') due = addMonths_(today, 1);
+  else if ((k = /^(\d{1,2}) ?주 내$/.exec(t)) && Number(k[1]) >= 1) due = addDays(today, 7 * Number(k[1]));
+  else if ((k = /^(\d{1,2}) ?개월 내$/.exec(t)) && Number(k[1]) >= 1) due = addMonths_(today, Number(k[1]));
+  else if ((k = /^(\d{1,2})월 중$/.exec(t)) && Number(k[1]) >= 1 && Number(k[1]) <= 12) {
+    due = monthEnd_(y, Number(k[1]));
+    if (due < today) due = monthEnd_(y + 1, Number(k[1]));
+  }
+  return due ? { due, dueText: t } : null;
+}
+
+// ------------------------------------------------------------
 // 한 줄 입력 해석 — "내일 15시 학생회 회의 1시간", "논문 읽기 10/30까지", "다음주 금요일 보고서"
 //   날짜만 있으면 마감일, 시각이 있으면 그날 그 시각의 칸(기본 60분, 마감도 그날)
 //   "까지"가 붙으면 시각이 있어도 마감일만. 해석 못 한 부분은 제목에 그대로 남는다.
@@ -480,8 +521,20 @@ export function parseQuickInput(text, today) {
     });
   }
 
+  // 애매한 기간 — 날짜를 못 읽었을 때만. 끝말(중/내/안에)이 꼭 있어야 읽는다 ("다음주 금요일"과 안 섞이게)
+  let fuzzy = null;
+  if (!date) {
+    const END = '\\s*(?:중|안에?|내|이내)(?:에|으로)?';
+    const tryF = (re, mk) => eat(re, m => { const f = resolveFuzzy(mk(m), today); if (f) fuzzy = f; return !!f; });
+    tryF(new RegExp(`(이번|다음)\\s*(주|달)${END}`), m => `${m[1]} ${m[2]} 중`)
+      || tryF(new RegExp(`(한|\\d{1,2})\\s*(주|달|개월)${END}`), m => (m[1] === '한' ? (m[2] === '주' ? '1주 내' : '한 달 내') : `${m[1]}${m[2] === '주' ? '주' : '개월'} 내`))
+      || tryF(new RegExp(`(\\d{1,2})\\s*월${END}`), m => `${m[1]}월 중`)
+      || tryF(new RegExp(`올해${END}|연말`), () => '올해 안');
+  }
+
   const title = s.replace(/\s+/g, ' ').trim();
   const out = { title, due: null, slot: null };
+  if (fuzzy) { out.due = fuzzy.due; out.dueText = fuzzy.dueText; }
   if (date) {
     out.due = date;
     if (startMin != null && !until) {

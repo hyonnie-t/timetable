@@ -432,3 +432,51 @@ describe('날짜 없음 순서(끌어서 정하기)', () => {
     assert.deepEqual(w.map(v => v.id), ['a', 'b']);
   });
 });
+
+// ---- 애매한 기간 ----
+
+test('애매한 기간: 프리셋이 모두 끝날짜로 풀린다', () => {
+  for (const p of T.FUZZY_PRESETS) {
+    const f = T.resolveFuzzy(p, '2026-10-23');   // 금요일
+    assert.ok(f && /^\d{4}-\d{2}-\d{2}$/.test(f.due) && f.due >= '2026-10-23', p);
+    assert.equal(f.dueText, p);
+  }
+});
+
+test('애매한 기간: 날짜 계산', () => {
+  const d = l => T.resolveFuzzy(l, '2026-10-23').due;
+  assert.equal(d('이번 주 중'), '2026-10-23');
+  assert.equal(d('다음 주 중'), '2026-10-30');
+  assert.equal(d('이번 달 중'), '2026-10-31');
+  assert.equal(d('다음 달 중'), '2026-11-30');
+  assert.equal(d('한 달 내'), '2026-11-23');
+  assert.equal(d('3개월 내'), '2027-01-23');
+  assert.equal(d('올해 안'), '2026-12-31');
+  assert.equal(d('2주 내'), '2026-11-06');
+  assert.equal(d('3월 중'), '2027-03-31');
+  assert.equal(T.resolveFuzzy('1월 31일', '2026-10-23'), null);
+  assert.equal(T.resolveFuzzy('2026-01-31 한 달 내', '2026-01-31'), null);
+  assert.equal(T.resolveFuzzy('한 달 내', '2026-01-31').due, '2026-02-28');
+});
+
+test('애매한 기간: 한 줄 입력', () => {
+  const p = T.parseQuickInput('논문 읽기 한 달 내', '2026-10-23');
+  assert.equal(p.title, '논문 읽기'); assert.equal(p.due, '2026-11-23'); assert.equal(p.dueText, '한 달 내');
+  const q = T.parseQuickInput('이번 달 안에 서평 쓰기', '2026-10-23');
+  assert.equal(q.title, '서평 쓰기'); assert.equal(q.due, '2026-10-31'); assert.equal(q.dueText, '이번 달 중');
+  const r = T.parseQuickInput('보고서 3개월 이내', '2026-10-23');
+  assert.equal(r.dueText, '3개월 내');
+  // 요일과 섞이지 않는다
+  const w = T.parseQuickInput('다음주 금요일 보고서', '2026-10-23');
+  assert.equal(w.due, '2026-10-30'); assert.equal(w.dueText, undefined); assert.equal(w.title, '보고서');
+  assert.equal(T.parseQuickInput('10월 중 연수', '2026-10-23').dueText, '10월 중');
+});
+
+test('애매한 기간: 저장 모양', () => {
+  const t = T.normalizeTask({ title: 'x', due: '2026-11-23', dueText: '한 달 내' }, { now: 'n' });
+  assert.equal(t.dueText, '한 달 내');
+  assert.equal(T.normalizeTask({ title: 'x', dueText: '한 달 내' }, { now: 'n' }).dueText, undefined);
+  const patch = T.planEditTask({ id: 'a1', title: 'x', area: '기타', kind: 'once', due: '2026-11-23', dueText: '한 달 내', slot: null }, { due: '2026-12-01', dueText: null }, { now: 'n' });
+  assert.equal(patch['tasks/a1/dueText'], null);
+  assert.doesNotThrow(() => T.assertPlannerPatch(patch));
+});
