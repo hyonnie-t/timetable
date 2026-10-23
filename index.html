@@ -9,6 +9,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="planner.css" />
 </head>
 <body>
 
@@ -42,6 +43,7 @@
     <button class="tab"        data-tab="weekly"   onclick="window.switchTab('weekly')">주차별</button>
     <button class="tab"        data-tab="progress" onclick="window.switchTab('progress')">진도표</button>
     <button class="tab"        data-tab="subject"  onclick="window.switchTab('subject')">수업 주제</button>
+    <button class="tab" id="tab-btn-tasks" data-tab="tasks" style="display:none" onclick="window.switchTab('tasks')">할 일</button>
     <button class="settings-tab-btn" data-tab="settings" onclick="window.switchTab('settings')">⚙</button>
     <button class="pip-tab-btn" id="pip-btn" onclick="window.openPipWidget()" title="미니창(항상 위)으로 보기">🗗</button>
   </div>
@@ -50,6 +52,7 @@
   <div id="tab-weekly"   style="display:none"></div>
   <div id="tab-progress" style="display:none"></div>
   <div id="tab-subject"  style="display:none"></div>
+  <div id="tab-tasks"    style="display:none"></div>
   <div id="tab-settings" style="display:none"></div>
 
 </div>

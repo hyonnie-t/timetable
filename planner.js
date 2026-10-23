@@ -1,0 +1,529 @@
+// 할 일 탭 — 관리자 전용. app.js 가 로그인 뒤에 따로 불러온다(import() ) → 이 파일에 문제가 생겨도 시간표는 그대로 뜬다.
+// 저장은 users/{uid}/planner/ 아래만 (진도 데이터 v2 와 분리). 계산은 모두 engine/task-engine.js 가 한다.
+// 데이터가 바뀌는 길은 commit() 하나뿐이고, 그 안에서 assertPlannerPatch 로 planner 밖 경로 쓰기를 막는다.
+import { db, ref, update, onValue } from './firebase.js';
+import { applyPatch, addDays } from './engine/progress-engine.js';
+import * as T from './engine/task-engine.js';
+
+const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
+const LOG_MAX = 80;
+const UNDO_MS = 6000;
+const SECTIONS = [
+  ['overdue', '⚠ 마감 지남', '오늘 결정해야 하는 일'],
+  ['today', '오늘', ''],
+  ['week', '이번 주', '앞으로 7일 안'],
+  ['later', '나중', ''],
+  ['undated', '날짜 없음', '날짜를 정하지 않으면 계속 쌓여요'],
+  ['watch', '지켜보기', '기한 없이 두고 보는 것'],
+];
+
+// ------------------------------------------------------------
+// 날짜·문자열 도구
+// ------------------------------------------------------------
+const pad = n => String(n).padStart(2, '0');
+function todayStr() { const n = new Date(); return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`; }
+function nowStamp() { const n = new Date(); return `${todayStr()} ${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`; }
+function parts(s) { return s.split('-').map(Number); }
+function dowOf(s) { const [y, m, d] = parts(s); return new Date(y, m - 1, d).getDay(); }
+function fmtMD(s) { const [, m, d] = parts(s); return `${m}/${d}(${DOW_KO[dowOf(s)]})`; }
+function daysBetween(a, b) { const u = s => { const [y, m, d] = parts(s); return Date.UTC(y, m - 1, d); }; return Math.round((u(b) - u(a)) / 86400000); }
+function nextWorkday(s) { let d = addDays(s, 1); while ([0, 6].includes(dowOf(d))) d = addDays(d, 1); return d; }
+function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function dueLabel(t, today) {
+  const d = t.slot?.date || t.due;
+  if (!d) return '';
+  const n = daysBetween(today, d);
+  let s;
+  if (n === 0) s = '오늘';
+  else if (n === 1) s = '내일';
+  else if (n === -1) s = '어제';
+  else if (n < 0) s = `${-n}일 지남`;
+  else if (n <= 14) s = `D-${n} ${fmtMD(d)}`;
+  else s = fmtMD(d);
+  if (t.slot) s += ` ${t.slot.start} (${t.slot.min}분)`;
+  return s;
+}
+
+function store_(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* 저장소가 막힌 환경 */ } return null; }
+
+// 화면 확인용 — 데모에서만 쓰는 예시 (오늘 날짜 기준)
+function demoSeed(today) {
+  const d = n => addDays(today, n);
+  const mk = (title, area, f = {}) => ({ title, area, kind: 'once', status: 'open', createdAt: `${d(-20)} 09:00:00`, updatedAt: `${d(-20)} 09:00:00`, ...f });
+  return {
+    tasks: {
+      d1: mk('고사원안 검토', '수업', { due: d(5) }),
+      d2: mk('학생회 안건 정리', '학생회', { today }),
+      d3: mk('ESG 경영 녹화 강의 듣기', '대학원', { due: today }),
+      d4: mk('도서관 서평 쓰기 대회 제출', '독서', { due: d(9), link: 'https://example.com' }),
+      d5: mk('임승휘 논문 읽기', '대학원', { due: d(-3) }),
+      d6: mk('2학년 수행 결시자 응시 기회', '수업', { due: d(-1) }),
+      d7: mk('학생회 포스터 정리', '학생회'),
+      d8: mk('투자 종목 점검', '투자', { kind: 'watch' }),
+      d9: mk('자치 활동 기재록', '학생회', { due: d(30) }),
+      d10: mk('법정의무연수 수강', '연수', { status: 'done', doneAt: `${today} 08:00:00`, due: d(-2) }),
+    },
+    rules: {},
+    settings: {},
+  };
+}
+
+// ------------------------------------------------------------
+// 만들기 — app.js 가 부른다
+//   uid, demo, getSchoolData()(시간표 데이터: 수업과 겹침 검사용), toast(msg, isErr)
+// ------------------------------------------------------------
+export function createPlanner({ uid, demo = false, getSchoolData = () => null, toast = () => {} }) {
+  let store = demo ? demoSeed(todayStr()) : { tasks: {}, rules: {}, settings: {} };
+  let loaded = demo;
+  let loadError = '';
+  let unsub = null;
+  let filterArea = store_('plannerArea') || '';
+  let addArea = store_('plannerAddArea') || '수업';
+  let undo = null;               // { id, timer }
+  let reviewDismissed = false;   // 이번 화면(새로고침 전)에서 "나중에"를 누름
+  let materializedOn = '';
+  let showClosed = false;
+
+  const root = () => document.getElementById('tab-tasks');
+  const settings = () => T.resolveSettings(store.settings);
+  const tasks = () => T.listTasks(store);
+  const byId = id => tasks().find(t => t.id === id);
+
+  // ---------- 저장: 이 함수 하나만 DB에 쓴다 ----------
+  async function commit(patch, action) {
+    const full = { ...patch };
+    if (!Object.keys(full).length) return false;
+    full[`log/${Date.now()}_${Math.random().toString(36).slice(2, 5)}`] = { t: nowStamp(), a: action };
+    const logIds = Object.keys(store.log || {});
+    if (logIds.length > LOG_MAX) {
+      logIds.sort((a, b) => (store.log[a].t || '').localeCompare(store.log[b].t || ''))
+        .slice(0, logIds.length - LOG_MAX).forEach(id => { full[`log/${id}`] = null; });
+    }
+    T.assertPlannerPatch(full);
+    if (demo) { store = applyPatch(store, full); renderAll(); return true; }
+    const abs = {};
+    for (const [k, v] of Object.entries(full)) abs[`users/${uid}/planner/${k}`] = v;
+    await update(ref(db), abs);      // 내 기기에는 바로 반영되고(onValue), 다른 기기로도 퍼진다
+    return true;
+  }
+
+  async function run(fn, action, okMsg) {
+    try {
+      const patch = fn();
+      if (await commit(patch, action) && okMsg) toast(okMsg);
+    } catch (e) {
+      console.error(e);
+      toast(`저장하지 못했어요: ${e.message}`, true);
+    }
+  }
+
+  // ---------- 틀(한 번만 만든다 — 입력 중인 글이 다시 그리다 사라지지 않게 목록만 갈아 끼운다) ----------
+  function ensureShell() {
+    const el = root();
+    if (!el || el.querySelector('.pl-shell')) return;
+    el.innerHTML = `
+      <div class="pl-shell">
+        <div class="pl-head">
+          <div class="pl-title-main">할 일</div>
+          <div class="pl-counter" id="pl-counter"></div>
+        </div>
+        <form class="pl-add" id="pl-add" autocomplete="off">
+          <input class="pl-add-input" id="pl-add-input" type="text" maxlength="200"
+                 placeholder="예) 내일 15시 학생회 회의 1시간 · 논문 읽기 10/30까지" />
+          <select class="pl-add-area" id="pl-add-area" aria-label="영역">
+            ${T.AREAS.map(a => `<option value="${a}"${a === addArea ? ' selected' : ''}>${a}</option>`).join('')}
+          </select>
+          <button class="btn-primary pl-add-btn" type="submit">추가</button>
+        </form>
+        <div class="pl-hint" id="pl-hint"></div>
+        <div class="pl-filter" id="pl-filter"></div>
+        <div class="pl-lists" id="pl-lists"></div>
+      </div>`;
+    el.querySelector('#pl-add').addEventListener('submit', e => { e.preventDefault(); addFromInput(); });
+    el.querySelector('#pl-add-input').addEventListener('input', updateHint);
+    el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
+    el.addEventListener('click', onClick);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act]')) e.target.click(); });
+  }
+
+  function updateHint() {
+    const input = root()?.querySelector('#pl-add-input');
+    const hint = root()?.querySelector('#pl-hint');
+    if (!input || !hint) return;
+    const p = T.parseQuickInput(input.value, todayStr());
+    if (!input.value.trim()) { hint.textContent = ''; return; }
+    const bits = [];
+    if (p.slot) bits.push(`${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`);
+    else if (p.due) bits.push(`마감 ${fmtMD(p.due)}`);
+    else bits.push('날짜 없음');
+    hint.textContent = `→ ${p.title || '(제목을 적어 주세요)'} · ${bits.join(' · ')}`;
+  }
+
+  // ---------- 추가 ----------
+  function addFromInput() {
+    const input = root()?.querySelector('#pl-add-input');
+    if (!input) return;
+    const today = todayStr();
+    const p = T.parseQuickInput(input.value, today);
+    if (!p.title) { toast('할 일 제목을 적어 주세요', true); return; }
+    let slot = p.slot, note = '';
+    if (slot) {
+      const c = T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings });
+      if (!c.ok) {
+        note = c.reason === 'class' ? `수업(${c.with.label})과 겹쳐서`
+          : c.reason === 'task' ? `다른 할 일(${c.with.title})과 겹쳐서`
+            : '하루 칸(범위) 밖이라서';
+        slot = null;
+      } else if (slot.date === today && !T.checkTodayAdd(tasks(), { id: '' }, today, store.settings).ok) {
+        note = `오늘 할 일이 ${settings().todayCap}개라서`;
+        slot = null;
+      }
+    }
+    const id = T.newTaskId();
+    const area = root().querySelector('#pl-add-area').value;
+    run(() => T.planAddTask({ title: p.title, area, due: p.due, slot }, { id, now: nowStamp() }), 'add',
+      note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
+    input.value = '';
+    updateHint();
+  }
+
+  // ---------- 그리기 ----------
+  function rowHtml(t, today, section) {
+    const label = dueLabel(t, today);
+    const pinned = t.today === today || t.slot?.date === today;
+    const over = section === 'overdue';
+    return `
+      <li class="pl-row${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
+        ${t.status === 'open'
+        ? `<button class="pl-check" data-act="done" aria-label="완료로 표시" title="완료">○</button>`
+        : `<span class="pl-check pl-check-off" aria-hidden="true">${t.status === 'done' ? '✓' : '▣'}</span>`}
+        <div class="pl-main" data-act="edit" role="button" tabindex="0">
+          <span class="pl-title">${esc(t.title)}</span>
+          <span class="pl-meta">
+            <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
+            ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}">${esc(label)}</span>` : ''}
+            ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
+            ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="링크 열기">🔗</a>` : ''}
+          </span>
+        </div>
+        ${t.status === 'open' && t.kind !== 'watch'
+        ? `<button class="pl-pin${pinned ? ' on' : ''}" data-act="pin" aria-label="오늘 할 일로" title="${pinned ? '오늘 할 일에서 빼기' : '오늘 할 일로'}">${pinned ? '★' : '☆'}</button>`
+        : ''}
+        ${t.status !== 'open' ? `<button class="pl-restore btn-secondary" data-act="${t.status === 'done' ? 'undo' : 'restore'}">${t.status === 'done' ? '되돌리기' : '복원'}</button>` : ''}
+      </li>`;
+  }
+
+  function renderLists() {
+    const lists = root()?.querySelector('#pl-lists');
+    if (!lists) return;
+    if (loadError) { lists.innerHTML = `<div class="pl-empty pl-error">할 일을 불러오지 못했어요: ${esc(loadError)}</div>`; return; }
+    if (!loaded) { lists.innerHTML = `<div class="pl-empty">불러오는 중…</div>`; return; }
+
+    const today = todayStr();
+    const all = tasks();
+    const visible = filterArea ? all.filter(t => t.area === filterArea) : all;
+    const c = T.classify(visible, today);
+    const cap = settings().todayCap;
+    const chosen = T.chosenFor(all, today).length;
+
+    root().querySelector('#pl-counter').innerHTML =
+      `<span class="pl-count${chosen >= cap ? ' full' : ''}">오늘 ${chosen}/${cap}</span>`
+      + (c.overdue.length ? ` <span class="pl-count over">마감 지남 ${T.classify(all, today).overdue.length}</span>` : '');
+
+    // 영역 필터 (건수는 필터와 상관없이 열린 할 일 기준)
+    const open = all.filter(t => t.status === 'open');
+    root().querySelector('#pl-filter').innerHTML =
+      [['', '전체', open.length], ...T.AREAS.map(a => [a, a, open.filter(t => t.area === a).length])]
+        .filter(([a, , n]) => a === '' || n > 0 || a === filterArea)
+        .map(([a, name, n]) => `<button class="pl-chip${filterArea === a ? ' on' : ''}" data-act="filter" data-area="${esc(a)}">${esc(name)} <b>${n}</b></button>`)
+        .join('');
+
+    let html = '';
+    for (const [key, name, sub0] of SECTIONS) {
+      const items = c[key];
+      if (!items.length && key !== 'today') continue;
+      // 오늘 묶음에는 마감이 오늘이라 저절로 들어온 일도 있어서, 위 "오늘 N/5"(내가 고른 것)와 건수가 다를 수 있다
+      const forced = key === 'today' ? items.filter(t => t.today !== today && t.slot?.date !== today).length : 0;
+      const sub = forced ? `마감이 오늘인 ${forced}건 포함` : sub0;
+      html += `<section class="pl-sec pl-sec-${key}">
+        <h3 class="pl-sec-title">${name} <span class="pl-sec-n">${items.length}</span>${sub ? `<small>${sub}</small>` : ''}</h3>
+        ${items.length
+          ? `<ul class="pl-ul">${items.map(t => rowHtml(t, today, key)).join('')}</ul>`
+          : `<div class="pl-empty-sec">☆를 눌러 오늘 할 일을 골라 보세요 (최대 ${cap}개)</div>`}
+      </section>`;
+    }
+    const closed = [...c.done.slice(0, 10), ...c.archived.slice(0, 5)];
+    if (closed.length) {
+      html += `<section class="pl-sec pl-sec-closed">
+        <button class="pl-closed-toggle" data-act="toggle-closed">${showClosed ? '▾' : '▸'} 끝낸 일·보관 <span class="pl-sec-n">${c.done.length + c.archived.length}</span></button>
+        ${showClosed ? `<ul class="pl-ul">${closed.map(t => rowHtml(t, today, 'closed')).join('')}</ul>` : ''}
+      </section>`;
+    }
+    if (!visible.length) html = `<div class="pl-empty">${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div>`;
+    lists.innerHTML = html;
+  }
+
+  function renderAll() {
+    ensureShell();
+    renderLists();
+    syncReview();
+  }
+
+  // ---------- 클릭 한 곳에서 처리 ----------
+  function onClick(e) {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || e.target.closest('a.pl-link')) return;
+    const act = btn.dataset.act;
+    const row = btn.closest('[data-id]');
+    const t = row ? byId(row.dataset.id) : null;
+    const now = nowStamp();
+    const today = todayStr();
+
+    if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
+    else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
+    else if (!t) return;
+    else if (act === 'done') {
+      run(() => T.planComplete(t, { now }), 'done');
+      showUndo(t);
+    } else if (act === 'undo') run(() => T.planUndoComplete(t, { now }), 'undo', '되돌렸어요');
+    else if (act === 'restore') run(() => T.planRestore(t, { now }), 'restore', '복원했어요');
+    else if (act === 'edit') openEdit(t);
+    else if (act === 'pin') togglePin(t, today, now);
+  }
+
+  // 오늘 할 일에서 뺀다 — 칸에 놓았으면 칸도 비운다. (칸 비우기가 today 를 그대로 두므로 today 지우기를 나중에 합친다)
+  function unpinPatch(t, today, now) {
+    return {
+      ...(t.slot?.date === today ? T.planSetSlot(t, null, { now }) : {}),
+      ...(t.today === today ? T.planSetToday(t, null, { now }) : {}),
+    };
+  }
+
+  function togglePin(t, today, now) {
+    const pinned = t.today === today || t.slot?.date === today;
+    if (pinned) { run(() => unpinPatch(t, today, now), 'unpin'); return; }
+    const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
+    if (chk.ok) run(() => T.planSetToday(t, today, { now }), 'pin');
+    else openCapModal(t, chk);
+  }
+
+  // ---------- 되돌리기 줄 ----------
+  function showUndo(t) {
+    hideUndo();
+    const bar = document.createElement('div');
+    bar.className = 'pl-undo';
+    bar.id = 'pl-undo';
+    bar.innerHTML = `<span>“${esc(t.title.length > 24 ? t.title.slice(0, 24) + '…' : t.title)}” 완료</span><button type="button">되돌리기</button>`;
+    bar.querySelector('button').addEventListener('click', () => {
+      run(() => T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() }), 'undo');
+      hideUndo();
+    });
+    document.body.appendChild(bar);
+    undo = { timer: setTimeout(hideUndo, UNDO_MS) };
+  }
+  function hideUndo() {
+    if (undo) { clearTimeout(undo.timer); undo = null; }
+    document.getElementById('pl-undo')?.remove();
+  }
+
+  // ---------- 모달 ----------
+  function openModal(id, html, { small = true } = {}) {
+    document.getElementById(id)?.remove();
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.id = id;
+    ov.innerHTML = `<div class="modal${small ? ' modal-sm' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+    ov.addEventListener('mousedown', e => { if (e.target === ov) ov.dataset.down = '1'; else delete ov.dataset.down; });
+    ov.addEventListener('click', e => { if (e.target === ov && ov.dataset.down) closeModal(id); });
+    ov.addEventListener('click', e => { if (e.target.closest('[data-close]')) closeModal(id); });
+    document.body.appendChild(ov);
+    return ov;
+  }
+  function closeModal(id) { document.getElementById(id)?.remove(); }
+  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap'].forEach(closeModal); };
+  document.addEventListener('keydown', onKey);
+
+  function openCapModal(t, chk) {
+    const ov = openModal('pl-modal-cap', `
+      <div class="modal-header"><h2>오늘 할 일이 ${chk.cap}개예요</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <p class="modal-hint">“${esc(t.title)}”를 오늘 하려면 아래에서 하나를 빼 주세요. 뺀 일은 사라지지 않고 원래 마감일 목록으로 돌아가요.</p>
+        <ul class="pl-ul">
+          ${chk.chosen.map(c => `<li class="pl-row" data-id="${esc(c.id)}"><div class="pl-main"><span class="pl-title">${esc(c.title)}</span><span class="pl-meta"><span class="pl-area pl-a-${esc(c.area)}">${esc(c.area)}</span></span></div><button class="btn-secondary" data-swap="${esc(c.id)}">이걸 빼고 넣기</button></li>`).join('')}
+        </ul>
+      </div>`);
+    ov.addEventListener('click', e => {
+      const b = e.target.closest('[data-swap]');
+      if (!b) return;
+      const out = byId(b.dataset.swap);
+      const now = nowStamp(), today = todayStr();
+      closeModal('pl-modal-cap');
+      run(() => ({ ...unpinPatch(out, today, now), ...T.planSetToday(t, today, { now }) }), 'swap');
+    });
+  }
+
+  function openEdit(t) {
+    const ov = openModal('pl-modal-edit', `
+      <div class="modal-header"><h2>할 일 고치기</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <label class="pl-f">제목<input id="pl-e-title" type="text" maxlength="200" value="${esc(t.title)}"></label>
+        <div class="pl-f-row">
+          <label class="pl-f">영역<select id="pl-e-area">${T.AREAS.map(a => `<option${a === t.area ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
+          <label class="pl-f">종류<select id="pl-e-kind"><option value="once"${t.kind === 'once' ? ' selected' : ''}>할 일</option><option value="watch"${t.kind === 'watch' ? ' selected' : ''}>지켜보기</option></select></label>
+          <label class="pl-f">마감일<input id="pl-e-due" type="date" value="${esc(t.due || '')}"></label>
+        </div>
+        <label class="pl-f">링크<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
+        <label class="pl-f">메모<textarea id="pl-e-note" rows="3" maxlength="2000">${esc(t.note || '')}</textarea></label>
+        ${t.slot ? `<div class="pl-f pl-slot-line">칸: ${esc(fmtMD(t.slot.date))} ${esc(t.slot.start)} (${t.slot.min}분) <button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button></div>` : ''}
+        <div class="pl-e-err" id="pl-e-err"></div>
+      </div>
+      <div class="modal-footer pl-e-foot">
+        <button class="btn-del" id="pl-e-del" type="button">삭제</button>
+        <span class="pl-spacer"></span>
+        ${t.status === 'open' ? `<button class="btn-secondary" id="pl-e-arch" type="button">보관</button>` : ''}
+        <button class="btn-primary" id="pl-e-save" type="button">저장</button>
+      </div>`);
+    const $ = s => ov.querySelector(s);
+    $('#pl-e-save').addEventListener('click', () => {
+      const changes = {
+        title: $('#pl-e-title').value, area: $('#pl-e-area').value, kind: $('#pl-e-kind').value,
+        due: $('#pl-e-due').value || null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
+      };
+      let patch;
+      try { patch = T.planEditTask(t, changes, { now: nowStamp() }); }
+      catch (e) { $('#pl-e-err').textContent = e.message; return; }
+      closeModal('pl-modal-edit');
+      run(() => patch, 'edit', '저장했어요');
+    });
+    $('#pl-e-arch')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planArchive(t, { now: nowStamp() }), 'archive', '보관했어요'); });
+    $('#pl-e-clearslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
+    $('#pl-e-del').addEventListener('click', () => {
+      if (!confirm(`“${t.title}”를 완전히 지울까요? (보관은 나중에 복원할 수 있어요)`)) return;
+      closeModal('pl-modal-edit');
+      run(() => {
+        const patch = T.planDelete(t);
+        if (t.ruleId && t.due) Object.assign(patch, T.planSkipRuleDate(t.ruleId, t.due));   // 반복 건은 같은 날짜로 다시 만들지 않는다
+        return patch;
+      }, 'delete', '지웠어요');
+    });
+  }
+
+  // ---------- 매일 정리 — 마감 지난 일을 하나씩 결정해야 닫힌다 ----------
+  function skippedCount(today) {
+    try { const v = JSON.parse(store_('plannerSkip') || 'null'); return v && v.date === today ? v.n : 0; } catch (e) { return 0; }
+  }
+
+  function reviewBody(list, today) {
+    const cap = settings().todayCap;
+    const chosen = T.chosenFor(tasks(), today).length;
+    const tomorrow = nextWorkday(today);
+    return `
+      <p class="modal-hint">마감이 지난 일이 ${list.length}건 있어요. 하나씩 오늘 하기 / 날짜 미루기 / 보관 중에서 정해 주세요. (오늘 할 일 ${chosen}/${cap})</p>
+      <ul class="pl-ul pl-review">
+        ${list.map(t => `
+          <li class="pl-row pl-over" data-id="${esc(t.id)}">
+            <div class="pl-main">
+              <span class="pl-title">${esc(t.title)}</span>
+              <span class="pl-meta"><span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span><span class="pl-due pl-due-over">${esc(dueLabel(t, today))}</span></span>
+              <div class="pl-rv-actions">
+                <button class="btn-primary" data-rv="today">오늘 하기</button>
+                <span class="pl-rv-postpone"><input type="date" value="${tomorrow}" min="${addDays(today, 1)}"><button class="btn-secondary" data-rv="postpone">이 날로 미루기</button></span>
+                <button class="btn-secondary" data-rv="archive">보관</button>
+              </div>
+            </div>
+          </li>`).join('')}
+      </ul>`;
+  }
+
+  function syncReview() {
+    const today = todayStr();
+    const existing = document.getElementById('pl-modal-review');
+    if (!loaded || loadError) return;
+    const list = T.reviewList(tasks(), today, store.settings);
+    if (!list.length) {
+      if (existing) closeModal('pl-modal-review');
+      // 끝까지 정리했으면 오늘은 다시 묻지 않는다 (이미 비어 있던 날도 한 번 적어 둔다)
+      if (store.settings?.reviewedOn !== today && !demo) run(() => T.planMarkReviewed(today), 'reviewed');
+      else if (store.settings?.reviewedOn !== today && demo) store = applyPatch(store, T.planMarkReviewed(today));
+      return;
+    }
+    if (existing) { existing.querySelector('.modal-body').innerHTML = reviewBody(list, today); return; }
+    if (reviewDismissed || document.querySelector('#pl-modal-edit, #pl-modal-cap')) return;
+    if (document.getElementById('tab-tasks')?.style.display === 'none') return;   // 할 일 탭이 아닐 땐 띄우지 않는다
+    const canSkip = skippedCount(today) < 1;
+    const ov = openModal('pl-modal-review', `
+      <div class="modal-header"><h2>오늘 먼저 정리해요</h2>${canSkip ? '<button class="modal-close pl-skip" data-skip aria-label="나중에">나중에</button>' : ''}</div>
+      <div class="modal-body">${reviewBody(list, today)}</div>`, { small: false });
+    ov.addEventListener('click', e => {
+      if (e.target.closest('[data-skip]')) {
+        reviewDismissed = true;
+        store_('plannerSkip', JSON.stringify({ date: today, n: skippedCount(today) + 1 }));
+        closeModal('pl-modal-review');
+        return;
+      }
+      const b = e.target.closest('[data-rv]');
+      if (!b) return;
+      const row = b.closest('[data-id]');
+      const t = byId(row.dataset.id);
+      const now = nowStamp();
+      if (!t) return;
+      if (b.dataset.rv === 'today') {
+        const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
+        if (!chk.ok) { toast(`오늘 할 일이 ${chk.cap}개예요. 다른 일을 미루거나 보관해야 넣을 수 있어요`, true); return; }
+        run(() => T.planReviewAction(t, 'today', { today, now }), 'review-today');
+      } else if (b.dataset.rv === 'postpone') {
+        const date = row.querySelector('input[type=date]').value;
+        if (!date || date <= today) { toast('내일 이후 날짜를 골라 주세요', true); return; }
+        run(() => T.planReviewAction(t, 'postpone', { today, date, now }), 'review-postpone');
+      } else if (b.dataset.rv === 'archive') {
+        run(() => T.planReviewAction(t, 'archive', { today, now }), 'review-archive');
+      }
+    });
+  }
+
+  // ---------- 반복 규칙 펼치기 (하루 한 번) ----------
+  // 같은 규칙·날짜는 같은 id 라 여러 기기가 동시에 해도 한 건이다. 이미 있는 건은 건드리지 않는다.
+  function maybeMaterialize() {
+    const today = todayStr();
+    if (!loaded || materializedOn === today) return;
+    materializedOn = today;
+    const patch = T.planMaterialize(store, today, { now: nowStamp() });
+    if (Object.keys(patch).length) run(() => patch, 'materialize');
+  }
+
+  // ---------- 바깥에 내놓는 것 ----------
+  if (!demo) {
+    unsub = onValue(ref(db, `users/${uid}/planner`), snap => {
+      store = snap.val() || { tasks: {}, rules: {}, settings: {} };
+      loaded = true; loadError = '';
+      maybeMaterialize();
+      if (root()?.querySelector('.pl-shell')) renderAll();
+    }, err => {
+      loadError = err?.message || String(err);
+      if (root()?.querySelector('.pl-shell')) renderLists();
+    });
+  }
+
+  return {
+    // 할 일 탭이 보일 때마다 app.js 가 부른다
+    render() {
+      reviewDismissed = reviewDismissed && skippedCount(todayStr()) > 0;
+      renderAll();
+      maybeMaterialize();
+    },
+    // 오늘 수업 탭 맨 위 한 줄용 (4단계에서 사용)
+    summary() {
+      const today = todayStr();
+      const c = T.classify(tasks(), today);
+      return { chosen: T.chosenFor(tasks(), today).length, cap: settings().todayCap, overdue: c.overdue.length, loaded };
+    },
+    destroy() {
+      if (unsub) unsub();
+      document.removeEventListener('keydown', onKey);
+      hideUndo();
+      ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-review'].forEach(closeModal);
+      if (root()) root().innerHTML = '';
+    },
+  };
+}

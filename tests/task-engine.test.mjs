@@ -402,4 +402,13 @@ describe('데이터 모양', () => {
     assert.equal(off['tasks/a/slot'], null);
     assert.throws(() => T.planSetSlot(t, { date: TODAY, start: '13:20', min: 2 }, { now: NOW }), /5분/);
   });
+
+  test('오늘 할 일에서 뺄 때: 칸을 비워도 today 는 그대로라서 today 지우기를 따로 합쳐야 한다 (planner.js unpinPatch)', () => {
+    const t = task('a', { today: TODAY, slot: { date: TODAY, start: '13:20', min: 45 } });
+    const slotOff = T.planSetSlot(t, null, { now: NOW });
+    assert.equal(slotOff['tasks/a/today'], TODAY);   // 칸만 비우면 today 가 남는다
+    const merged = { ...slotOff, ...T.planSetToday(t, null, { now: NOW }) };   // 뒤에 합친 쪽이 이긴다
+    assert.equal(merged['tasks/a/today'], null);
+    assert.equal(merged['tasks/a/slot'], null);
+  });
 });
