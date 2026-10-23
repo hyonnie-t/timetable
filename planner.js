@@ -363,7 +363,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const ul = li?.parentElement;
     if (!ul || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
-    const grip = e.target.closest('.pl-grip');
+    // 줄을 옮기면 손잡이가 DOM 에서 떨어져 캡처가 풀리므로, 안 움직이는 목록(ul)이 포인터를 붙든다
+    const grip = ul;
     try { grip.setPointerCapture(e.pointerId); } catch (_) { /* 캡처가 안 돼도 창 이벤트로 이어진다 */ }
     li.classList.add('pl-dragging');
     const move = ev => {
