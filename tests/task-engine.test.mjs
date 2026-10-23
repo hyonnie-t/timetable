@@ -22,6 +22,23 @@ function schoolData(extra = {}) {
   };
 }
 
+describe('제목에서 영역 짐작', () => {
+  test('말이 맞으면 그 영역', () => {
+    assert.equal(T.guessArea('수업 준비 역사 A 제일 빨리 든 날 언제니? 그날 주제32 수업 있는 날로 해줘'), '수업');
+    assert.equal(T.guessArea('학생회 임원 회의 자료'), '학생회');
+    assert.equal(T.guessArea('서평 쓰기'), '독서');
+    assert.equal(T.guessArea('공문 기안'), '학교');
+  });
+  test('앞선 영역이 먼저 — 대학원 수업 과제는 대학원', () => {
+    assert.equal(T.guessArea('대학원 수업 과제'), '대학원');
+  });
+  test('못 짐작하면 null (고른 영역을 쓴다)', () => {
+    assert.equal(T.guessArea('병원 예약'), null);
+    assert.equal(T.guessArea(''), null);
+    assert.equal(T.guessArea(undefined), null);
+  });
+});
+
 describe('한 줄 입력 해석', () => {
   test('내일 + 시각 + 걸리는 시간 → 칸', () => {
     const r = T.parseQuickInput('내일 15시 학생회 회의 1시간', TODAY);
