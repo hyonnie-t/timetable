@@ -158,6 +158,8 @@
 .pl-f-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .pl-f-row .pl-f { min-width: 130px; }
 .pl-slot-line { flex-direction: row; align-items: center; gap: 10px; }
+.pl-slot-edit .pl-hint { display: inline; min-height: 0; margin: 0 0 0 6px; }
+.pl-slot-edit .pl-p-nudge { margin-top: 6px; }
 .pl-e-err { color: var(--danger); font-size: 12px; min-height: 16px; }
 .pl-e-foot { align-items: center; }
 .pl-spacer { flex: 1; }

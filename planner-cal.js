@@ -19,7 +19,7 @@ export function reasonText(c) {
   if (c.ok) return '';
   if (c.reason === 'class') return `수업·일정(${c.with.label})과 겹쳐요`;
   if (c.reason === 'task') return `다른 할 일(${c.with.title})과 겹쳐요`;
-  return '하루 칸 시간(범위) 밖이에요';
+  return '아침 시작 시간 전이거나 자정을 넘겨요 — 자정 전에 끝나게 해 주세요';
 }
 
 export function weekDates(date, weekend = false) {

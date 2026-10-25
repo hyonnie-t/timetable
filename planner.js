@@ -584,9 +584,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
             </select>
           </label>
         </div>
+        <div class="pl-f pl-slot-edit">시간 칸 <span class="pl-hint">${t.slot ? '날짜·시각을 바로 고치고 저장하세요' : '비워 두면 시간 칸 없이 둬요'}</span>
+          <div class="pl-f-row">
+            <label class="pl-f">날짜<input id="pl-e-sdate" type="date" value="${esc(t.slot?.date || '')}"></label>
+            <label class="pl-f">시작<input id="pl-e-sstart" type="time" step="900" value="${esc(t.slot?.start || '')}"></label>
+            <label class="pl-f">걸리는 시간<select id="pl-e-smin">${(() => { const m0 = t.slot?.min || 60; return [...new Set([...MIN_CHOICES, m0])].sort((a, b) => a - b).map(m => `<option value="${m}"${m === m0 ? ' selected' : ''}>${m % 60 === 0 ? `${m / 60}시간` : m > 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`}</option>`).join(''); })()}</select></label>
+          </div>
+          <div class="pl-p-nudge" role="group" aria-label="시작 시각 조금씩 옮기기">
+            <button type="button" class="btn-secondary" data-enudge="-60">−1시간</button>
+            <button type="button" class="btn-secondary" data-enudge="-15">−15분</button>
+            <button type="button" class="btn-secondary" data-enudge="15">+15분</button>
+            <button type="button" class="btn-secondary" data-enudge="60">+1시간</button>
+            ${t.slot ? '<button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button>' : ''}
+          </div>
+        </div>
         <label class="pl-f">링크${t.link ? ` <a class="pl-open-link" href="${esc(t.link)}" target="_blank" rel="noopener">원본 열기 ↗</a>` : ''}<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
-        <label class="pl-f">메모<textarea id="pl-e-note" rows="8" maxlength="6000" placeholder="진행 상황, 해야 할 세부 내용을 적어 두세요">${esc(t.note || '')}</textarea></label>
-        ${t.slot ? `<div class="pl-f pl-slot-line">칸: ${esc(fmtMD(t.slot.date))} ${esc(t.slot.start)} (${t.slot.min}분) <button type="button" class="btn-secondary" id="pl-e-moveslot">시간 바꾸기</button> <button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button></div>` : ''}
+        <label class="pl-f">메모<textarea id="pl-e-note" rows="5" maxlength="6000" placeholder="진행 상황, 해야 할 세부 내용을 적어 두세요">${esc(t.note || '')}</textarea></label>
         <div class="pl-e-err" id="pl-e-err"></div>
       </div>
       <div class="modal-footer pl-e-foot">
@@ -608,14 +621,32 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         title: $('#pl-e-title').value, area: $('#pl-e-area').value, kind: $('#pl-e-kind').value,
         due, dueText: due ? ($('#pl-e-fuzzy').value || null) : null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
       };
+      const sd = $('#pl-e-sdate').value, ss = $('#pl-e-sstart').value, sm = Number($('#pl-e-smin').value);
+      if (sd && ss) {
+        const changed = !t.slot || t.slot.date !== sd || t.slot.start !== ss || t.slot.min !== sm;
+        if (changed) {
+          const c = T.slotConflict(getSchoolData() || {}, tasks(), sd, ss, sm, { ignoreId: t.id, settings: store.settings });
+          if (!c.ok) { $('#pl-e-err').textContent = reasonText(c); return; }
+          if (sd === todayStr() && !(t.today === sd || t.slot?.date === sd)) {
+            const chk = T.checkTodayAdd(tasks(), t, sd, store.settings);
+            if (!chk.ok) { $('#pl-e-err').textContent = `오늘 할 일이 ${chk.cap}개예요. 하나를 빼야 오늘 칸에 놓을 수 있어요`; return; }
+          }
+          changes.slot = { date: sd, start: ss, min: sm };
+        }
+      } else if (sd || ss) { $('#pl-e-err').textContent = '날짜와 시작 시각을 둘 다 정해 주세요'; return; }
+      else if (t.slot) changes.slot = null;
       let patch;
       try { patch = T.planEditTask(t, changes, { now: nowStamp() }); }
       catch (e) { $('#pl-e-err').textContent = e.message; return; }
       closeModal('pl-modal-edit');
       run(() => patch, 'edit', '저장했어요');
     });
+    ov.querySelectorAll('[data-enudge]').forEach(b => b.addEventListener('click', () => {
+      const cur = $('#pl-e-sstart').value;
+      if (!cur) { if (!$('#pl-e-sdate').value) $('#pl-e-sdate').value = todayStr(); $('#pl-e-sstart').value = T.minToTime(Math.max(0, Math.min(9 * 60 + Number(b.dataset.enudge), 1440 - Number($('#pl-e-smin').value)))); return; }
+      $('#pl-e-sstart').value = T.minToTime(Math.min(Math.max(timeToMin(cur) + Number(b.dataset.enudge), 0), 1440 - Number($('#pl-e-smin').value)));
+    }));
     $('#pl-e-arch')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planArchive(t, { now: nowStamp() }), 'archive', '보관했어요'); });
-    $('#pl-e-moveslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); openPlaceModal({ task: t }); });
     $('#pl-e-clearslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
     $('#pl-e-del').addEventListener('click', () => {
       if (!confirm(`“${t.title}”를 완전히 지울까요? (보관은 나중에 복원할 수 있어요)`)) return;
@@ -790,6 +821,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const ov = openModal('pl-modal-review', `
       <div class="modal-header"><h2>오늘 먼저 정리해요</h2>${canSkip ? '<button class="modal-close pl-skip" data-skip aria-label="나중에">나중에</button>' : ''}</div>
       <div class="modal-body">${reviewBody(list, today)}</div>`, { small: false });
+    // 바깥을 눌러 닫으면 다음 저장 때 다시 떠서 작업을 가린다 — 닫는 길은 "나중에"나 정리뿐이다
+    ov.addEventListener('click', e => { if (e.target === ov) e.stopImmediatePropagation(); }, true);
     ov.addEventListener('click', e => {
       if (e.target.closest('[data-skip]')) {
         reviewDismissed = true;
