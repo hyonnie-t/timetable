@@ -305,6 +305,11 @@
 }
 .pl-blk-task:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pl-blk-t { font-weight: 700; word-break: break-word; }
+/* 블록 오른쪽 위 동그라미 — 누르면 완료 (끌기는 시작하지 않는다) */
+.pl-blk-chk { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--rail); border-radius: 50%; background: #fff; cursor: pointer; z-index: 3; }
+.pl-blk-chk:hover { background: color-mix(in srgb, var(--rail) 25%, #fff); }
+.pl-blk-task .pl-blk-t { padding-right: 20px; }
+@media (pointer: coarse) { .pl-blk-chk { width: 24px; height: 24px; } .pl-blk-task .pl-blk-t { padding-right: 26px; } }
 .pl-blk-m { font-family: var(--mono); font-size: 10px; color: var(--text2); }
 .pl-blk-task.dragging { z-index: 6; opacity: .92; box-shadow: 0 8px 20px rgba(0,0,0,.25); cursor: grabbing; }
 .pl-blk-task.bad, .pl-blk-preview.bad { background: #fdecec; border-color: var(--danger); }
