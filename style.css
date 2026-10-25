@@ -534,6 +534,7 @@ body {
   font-family: var(--font);
 }
 .week-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.week-tab-date { font-size: 11px; opacity: .7; font-weight: 400; }
 
 .week-grid {
   background: var(--surface);

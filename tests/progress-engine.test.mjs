@@ -512,3 +512,21 @@ describe('요일 대체', () => {
     assert.deepEqual(Object.keys(E.scheduleOn(o, '2026-10-26')), ['2']);   // 하루 바꾸기가 우선
   });
 });
+
+describe('주차별 기준 월요일 (weekMondayOf)', () => {
+  test('주중에는 그 주 월요일', () => {
+    assert.equal(E.weekMondayOf('2026-10-19'), '2026-10-19');   // 월
+    assert.equal(E.weekMondayOf('2026-10-21'), '2026-10-19');   // 수
+    assert.equal(E.weekMondayOf('2026-10-23'), '2026-10-19');   // 금
+  });
+  test('토·일요일에는 다가오는 주 월요일 (일요일 저녁에 지난주가 "이번 주"로 보이던 문제)', () => {
+    assert.equal(E.weekMondayOf('2026-10-24'), '2026-10-26');   // 토
+    assert.equal(E.weekMondayOf('2026-10-25'), '2026-10-26');   // 일
+  });
+  test('offsetWeeks 로 다음 주·다다음 주, 월·연 경계', () => {
+    assert.equal(E.weekMondayOf('2026-10-25', 1), '2026-11-02');
+    assert.equal(E.weekMondayOf('2026-10-21', 2), '2026-11-02');
+    assert.equal(E.weekMondayOf('2026-12-31'), '2026-12-28');   // 목
+    assert.equal(E.weekMondayOf('2027-01-02'), '2027-01-04');   // 토
+  });
+});
