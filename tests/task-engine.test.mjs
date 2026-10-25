@@ -725,3 +725,35 @@ describe('매일 하는 일 (daily)', () => {
     assert.equal(T.parseQuickInput('매일같이 확인 10/28', TODAY).daily, undefined);
   });
 });
+
+describe('이번만 초과 (extra)', () => {
+  const full = () => ['a', 'b', 'c'].map(id => task(id, { today: TODAY }));
+
+  test('초과로 넣은 일은 상한에 세지 않고 따로 센다', () => {
+    const over = task('x', { today: TODAY, extra: TODAY });
+    const list = [...full(), over];
+    assert.equal(T.chosenFor(list, TODAY).length, 3);
+    assert.deepEqual(T.extraFor(list, TODAY).map(t => t.id), ['x']);
+    assert.equal(T.checkTodayAdd(list, task('n'), TODAY, { todayCap: 3 }).ok, false);   // 상한은 그대로 찬 상태
+    assert.equal(T.classify(list, TODAY).today.length, 4);                              // 오늘 묶음에는 보인다
+  });
+
+  test('다른 날에는 초과가 아니다', () => {
+    const over = task('x', { today: TODAY, extra: TODAY });
+    assert.equal(T.extraFor([over], '2026-10-24').length, 0);
+  });
+
+  test('planSetToday — extra 로 넣고, 빼거나 일반으로 넣으면 지운다', () => {
+    const t = task('x');
+    assert.deepEqual(T.planSetToday(t, TODAY, { now: NOW, extra: true }), { 'tasks/x/today': TODAY, 'tasks/x/extra': TODAY, 'tasks/x/updatedAt': NOW });
+    assert.equal(T.planSetToday(t, null, { now: NOW, extra: true })['tasks/x/extra'], null);
+    assert.equal(T.planSetToday(t, TODAY, { now: NOW })['tasks/x/extra'], null);
+    assert.doesNotThrow(() => T.assertPlannerPatch(T.planSetToday(t, TODAY, { now: NOW, extra: true })));
+  });
+
+  test('초과 일을 지우면 초과 건수도 준다', () => {
+    const over = task('x', { today: TODAY, extra: TODAY });
+    assert.equal(T.extraFor([over], TODAY).length, 1);
+    assert.equal(T.extraFor([], TODAY).length, 0);
+  });
+});

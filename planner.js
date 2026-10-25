@@ -371,8 +371,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const chosen = T.chosenFor(all, today).length;
 
     root().querySelector('#pl-date').textContent = `${fmtMD(today).replace('(', ' · ').replace(')', '요일')}`;
+    const extraN = T.extraFor(all, today).length;
+    const chosenIds = new Set(T.chosenFor(all, today).map(t => t.id));
+    const autoN = T.classify(all, today).today.filter(t => !chosenIds.has(t.id) && t.extra !== today).length;   // 마감이 오늘이라 저절로 들어온 일
     root().querySelector('#pl-counter').innerHTML =
       `<span class="pl-count${chosen >= cap ? ' full' : ''}">오늘 ${chosen}/${cap}</span>`
+      + (extraN ? ` <span class="pl-count extra" title="상한을 넘겨 이번만 넣은 일">초과 +${extraN}</span>` : '')
+      + (autoN ? ` <span class="pl-count auto" title="마감이 오늘이라 자동으로 들어온 일 (상한에 안 세요)">마감 오늘 ${autoN}</span>` : '')
       + (c.overdue.length ? ` <span class="pl-count over"><lucian-flag size="14" tone="line"></lucian-flag> 마감 지남 ${T.classify(all, today).overdue.length}</span>` : '');
 
     // 영역 필터 (건수는 필터와 상관없이 열린 할 일 기준)
@@ -389,7 +394,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       if (!items.length && key !== 'today') continue;
       // 오늘 묶음에는 마감이 오늘이라 저절로 들어온 일도 있어서, 위 "오늘 N/5"(내가 고른 것)와 건수가 다를 수 있다
       const forced = key === 'today' ? items.filter(t => t.today !== today && t.slot?.date !== today).length : 0;
-      const sub = forced ? `마감이 오늘인 ${forced}건 포함` : sub0;
+      const extras = key === 'today' ? items.filter(t => t.extra === today).length : 0;
+      const sub = [forced ? `마감이 오늘인 ${forced}건 포함` : '', extras ? `이번만 초과 ${extras}건 포함` : ''].filter(Boolean).join(' · ') || sub0;
       html += `<section class="pl-sec pl-sec-${key}">
         <h3 class="pl-sec-title">${name} <span class="pl-sec-n">${items.length}</span>${sub ? `<small>${sub}</small>` : ''}</h3>
         ${items.length
@@ -543,8 +549,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         <ul class="pl-ul">
           ${chk.chosen.map(c => `<li class="pl-row" data-id="${esc(c.id)}"><div class="pl-main"><span class="pl-title">${esc(c.title)}</span><span class="pl-meta"><span class="pl-area pl-a-${esc(c.area)}">${esc(c.area)}</span></span></div><button class="btn-secondary" data-swap="${esc(c.id)}">${T.isDailyDue(c, todayStr()) ? '오늘은 쉬고 넣기' : '이걸 빼고 넣기'}</button></li>`).join('')}
         </ul>
+        <p class="modal-hint">또는 하나도 빼지 않고 이번만 더 하기</p>
+        <button class="btn-secondary" data-extra>이번만 초과해서 넣기 (오늘 +${T.extraFor(tasks(), todayStr()).length + 1})</button>
       </div>`);
     ov.addEventListener('click', e => {
+      if (e.target.closest('[data-extra]')) {
+        closeModal('pl-modal-cap');
+        run(() => T.planSetToday(t, todayStr(), { now: nowStamp(), extra: true }), 'pin-extra', '이번만 초과로 넣었어요');
+        return;
+      }
       const b = e.target.closest('[data-swap]');
       if (!b) return;
       const out = byId(b.dataset.swap);
