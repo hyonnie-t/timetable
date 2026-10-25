@@ -544,7 +544,7 @@ export function planPrepSync(planner, data, today, { horizonDays = 7, now } = {}
 // 애매한 기간 — "한 달 내", "이번 주 중", "10월 중" 처럼 날짜를 못 박지 않은 마감
 //   그 기간의 끝날짜를 due 로, 말 그대로를 dueText 로 저장한다 → 마감 지남·이번 주 같은 묶음 계산은 그대로 쓴다.
 // ------------------------------------------------------------
-export const FUZZY_PRESETS = ['이번 주 중', '다음 주 중', '2주 내', '이번 달 중', '다음 달 중', '한 달 내', '3개월 내', '올해 안'];
+export const FUZZY_PRESETS = ['오늘', '내일', '이번 주 중', '다음 주 중', '2주 내', '이번 달 중', '다음 달 중', '한 달 내', '3개월 내', '올해 안'];
 
 function monthEnd_(y, m) { return `${y}-${String(m).padStart(2, '0')}-${String(daysInMonth_(y, m)).padStart(2, '0')}`; }
 
@@ -562,7 +562,9 @@ export function resolveFuzzy(label, today) {
   if (!isDateStr(today)) return null;
   const [y, m] = today.split('-').map(Number);
   let due = null, k;
-  if (t === '이번 주 중') { const fri = addDays(mondayOf_(today), 4); due = fri >= today ? fri : addDays(mondayOf_(today), 6); }
+  if (t === '오늘') due = today;
+  else if (t === '내일') due = addDays(today, 1);
+  else if (t === '이번 주 중') { const fri = addDays(mondayOf_(today), 4); due = fri >= today ? fri : addDays(mondayOf_(today), 6); }
   else if (t === '다음 주 중') due = addDays(mondayOf_(today), 7 + 4);
   else if (t === '이번 달 중') due = monthEnd_(y, m);
   else if (t === '다음 달 중') due = monthEnd_(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
@@ -669,6 +671,30 @@ export function parseQuickInput(text, today) {
   }
   if (dur && !out.slot) out.durationMin = dur;   // 칸 없이 걸리는 시간만 말한 경우 — 나중에 칸에 놓을 때 쓴다
   return out;
+}
+
+// 제목에서 영역 짐작 — 맞는 말이 없으면 null (그때는 고른 영역을 그대로 쓴다)
+// 앞에 있는 영역이 먼저다: "대학원 수업 과제"는 수업이 아니라 대학원.
+const AREA_HINTS = [
+  ['학생회', /학생회|학생자치|자치회|임원|부회장|전교회장/],
+  ['대학원', /대학원|논문|학회|학위|지도교수|리포트|보고서\s*제출|발표\s*자료|녹화\s*강의|원우/],
+  ['독서', /독서|서평|책\s*읽|도서/],
+  ['연수', /연수|워크숍|워크샵|직무연수|이수/],
+  ['투자', /투자|주식|ETF|매수|매도|코인|종목/i],
+  ['수업', /수업|차시|수행평가|활동지|학습지|채점|주제\s*\d+|시험|출제|평가|학급|단원|교과|진도|결시/],
+  ['학교', /공문|기안|품의|출장|결재|업무계획|회의|담임|생기부|생활기록부|나이스|NEIS|성적|학부모|상담|행정/i],
+];
+
+// 오늘 직접 적어 넣은 할 일 — 목록 맨 위 "방금 추가"에 모은다 (반복·수업 준비처럼 저절로 생긴 건 뺀다)
+export function isFresh(t, today) {
+  return t.status === 'open' && t.kind !== 'watch' && !t.ruleId && !t.prepDue && (t.src || 'app') === 'app'
+    && String(t.createdAt || '').startsWith(today);
+}
+
+export function guessArea(title) {
+  const s = String(title ?? '').normalize('NFC');
+  const hit = AREA_HINTS.find(([, re]) => re.test(s));
+  return hit ? hit[0] : null;
 }
 
 // ------------------------------------------------------------

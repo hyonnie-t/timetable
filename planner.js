@@ -16,6 +16,7 @@ const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 const LOG_MAX = 80;
 const UNDO_MS = 6000;
 const SECTIONS = [
+  ['fresh', '방금 추가', '오늘 적어 넣은 일 · 맨 위에 모아 둬요'],
   ['overdue', '⚠ 마감 지남', '오늘 결정해야 하는 일'],
   ['today', '오늘', ''],
   ['week', '이번 주', '앞으로 7일 안'],
@@ -26,6 +27,7 @@ const SECTIONS = [
 
 // 긴 묶음은 처음에 이만큼만 보여 주고 "더 보기"로 펼친다 (없는 묶음은 전부 보인다)
 const SEC_LIMIT = { later: 5 };
+const FRESH_MAX = 6;
 // 효니가 끌어서 순서를 정하는 묶음 (나머지는 마감순이라 끌 수 없다)
 const DRAGGABLE = ['undated', 'watch'];
 
@@ -212,6 +214,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (p.dueText) bits.push(`${p.dueText} → ${fmtMD(p.due)}까지`);
     else if (p.due) bits.push(`마감 ${fmtMD(p.due)}`);
     else bits.push('날짜 없음');
+    const guess = T.guessArea(p.title);
+    if (guess) bits.push(`영역 ${guess}`);
     hint.textContent = `→ ${p.title || '(제목을 적어 주세요)'} · ${bits.join(' · ')}`;
   }
 
@@ -236,7 +240,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       }
     }
     const id = T.newTaskId();
-    const area = root().querySelector('#pl-add-area').value;
+    const area = T.guessArea(p.title) || root().querySelector('#pl-add-area').value;
     run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot }, { id, now: nowStamp() }), 'add',
       note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
     input.value = '';
@@ -285,6 +289,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const all = tasks();
     const visible = filterArea ? all.filter(t => t.area === filterArea) : all;
     const c = T.classify(visible, today);
+    // 오늘 적어 넣은 일은 날짜가 있든 없든 맨 위(최근 것이 먼저)로 — 원래 묶음에서는 뺀다
+    c.fresh = visible.filter(t => T.isFresh(t, today)).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || b.id.localeCompare(a.id)).slice(0, FRESH_MAX);
+    const freshIds = new Set(c.fresh.map(t => t.id));
+    for (const k of ['overdue', 'today', 'week', 'later', 'undated']) c[k] = c[k].filter(t => !freshIds.has(t.id));
     const cap = settings().todayCap;
     const chosen = T.chosenFor(all, today).length;
 

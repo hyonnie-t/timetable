@@ -22,6 +22,23 @@ function schoolData(extra = {}) {
   };
 }
 
+describe('제목에서 영역 짐작', () => {
+  test('말이 맞으면 그 영역', () => {
+    assert.equal(T.guessArea('수업 준비 역사 A 제일 빨리 든 날 언제니? 그날 주제32 수업 있는 날로 해줘'), '수업');
+    assert.equal(T.guessArea('학생회 임원 회의 자료'), '학생회');
+    assert.equal(T.guessArea('서평 쓰기'), '독서');
+    assert.equal(T.guessArea('공문 기안'), '학교');
+  });
+  test('앞선 영역이 먼저 — 대학원 수업 과제는 대학원', () => {
+    assert.equal(T.guessArea('대학원 수업 과제'), '대학원');
+  });
+  test('못 짐작하면 null (고른 영역을 쓴다)', () => {
+    assert.equal(T.guessArea('병원 예약'), null);
+    assert.equal(T.guessArea(''), null);
+    assert.equal(T.guessArea(undefined), null);
+  });
+});
+
 describe('한 줄 입력 해석', () => {
   test('내일 + 시각 + 걸리는 시간 → 칸', () => {
     const r = T.parseQuickInput('내일 15시 학생회 회의 1시간', TODAY);
@@ -570,5 +587,22 @@ describe('수업 준비 자동 만들기', () => {
 
     const edited = PE.applyPatch(planner, { [`tasks/${id}/due`]: '2026-10-24' });
     assert.deepEqual(T.planPrepSync(edited, d, TODAY, { now: NOW }), {});
+  });
+});
+
+describe('기간에 오늘·내일, 방금 추가', () => {
+  test('오늘·내일을 기간으로 고를 수 있다', () => {
+    assert.deepEqual(T.resolveFuzzy('오늘', '2026-10-25'), { due: '2026-10-25', dueText: '오늘' });
+    assert.deepEqual(T.resolveFuzzy('내일', '2026-10-25'), { due: '2026-10-26', dueText: '내일' });
+    assert.ok(T.FUZZY_PRESETS.includes('오늘') && T.FUZZY_PRESETS.includes('내일'));
+  });
+  test('오늘 직접 적은 일만 방금 추가로 본다 (반복·수업 준비·끝낸 일 제외)', () => {
+    const base = { status: 'open', kind: 'once', src: 'app', createdAt: '2026-10-25 09:00:00' };
+    assert.equal(T.isFresh(base, '2026-10-25'), true);
+    assert.equal(T.isFresh({ ...base, createdAt: '2026-10-24 09:00:00' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, ruleId: 'r1' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, src: 'prep', prepDue: '2026-10-26' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, status: 'done' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, kind: 'watch' }, '2026-10-25'), false);
   });
 });
