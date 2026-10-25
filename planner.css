@@ -108,6 +108,16 @@
   transition: border-color .12s, background .12s;
 }
 .pl-check:hover::before { border-color: var(--accent); background: var(--current-bg); }
+/* 매일 하는 일: 오늘 몫을 끝낸 동그라미는 채워서 보인다 */
+.pl-check.on::before {
+  content: '✓'; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 13px; font-weight: 700; background: var(--accent); border-color: var(--accent);
+}
+.pl-tag-daily { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.pl-finish { padding: 6px 10px; font-size: 12px; align-self: center; white-space: nowrap; }
+.pl-f.pl-f-check { flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 4px 8px; flex: 0 0 100%; font-size: 13px; color: var(--text); text-align: left; }
+.pl-f.pl-f-check input { width: auto; flex: 0 0 auto; margin: 0; padding: 0; }
+.pl-f.pl-f-check .pl-hint { flex: 1 1 100%; margin: 0; min-height: 0; text-align: left; font-size: 12px; color: var(--text2); }
 .pl-check-off { cursor: default; }
 .pl-check-off::before { display: none; }
 .pl-pin.on { color: var(--warn); }
