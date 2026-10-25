@@ -53,6 +53,14 @@ export function weekdayKey(s) {
   return DOW_KEY[new Date(toUtc_(s)).getUTCDay()];
 }
 
+// 주차별 화면의 기준 월요일 — 토·일요일에는 지나간 주가 아니라 다가오는 주의 월요일을 준다
+// (일요일 저녁에 "이번 주 월요일" 수업이 지난주 것으로 보이던 문제. 주중에는 그 주 월요일)
+export function weekMondayOf(dateStr, offsetWeeks = 0) {
+  const dow = new Date(toUtc_(dateStr)).getUTCDay();
+  const toMon = dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow;   // 일: 내일, 토: 모레, 주중: 그 주 월요일
+  return addDays(dateStr, toMon + offsetWeeks * 7);
+}
+
 export function timeToMin(hhmm) {
   if (!hhmm) return 0;
   const [h, m] = String(hhmm).split(':').map(Number);

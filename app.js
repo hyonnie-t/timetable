@@ -69,11 +69,9 @@ function dateToStr(date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
 
+// 주차별 탭의 월~금 — 토·일요일에는 다가오는 주를 먼저 보인다 (엔진 weekMondayOf)
 function getWeekDates(offsetWeeks = 0) {
-  const now  = new Date();
-  const dow  = now.getDay();
-  const mon  = new Date(now);
-  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + offsetWeeks * 7);
+  const mon = parseDateStr_(PE.weekMondayOf(todayStr(), offsetWeeks));
   return Array.from({ length: 5 }, (_, i) => {
     const d = new Date(mon);
     d.setDate(mon.getDate() + i);
@@ -1080,10 +1078,13 @@ function renderWeekly() {
   }
 
   function fullHTML() {
-    const labels = ['이번 주', '다음 주', '다다음 주'];
+    // 주말에는 첫 탭이 다가오는 주라서 이름을 바꾸고, 어느 주인지 날짜도 붙인다 (예: 다음 주 10/26~)
+    const weekend = [0, 6].includes(new Date().getDay());
+    const labels = weekend ? ['다음 주', '다다음 주', '그다음 주'] : ['이번 주', '다음 주', '다다음 주'];
     let tabs = '<div class="week-tabs">';
     labels.forEach((l, i) => {
-      tabs += `<button class="week-tab${i === activeWeek ? ' active' : ''}" onclick="window.weekSwitch(${i})">${l}</button>`;
+      const m = getWeekDates(i)[0];
+      tabs += `<button class="week-tab${i === activeWeek ? ' active' : ''}" onclick="window.weekSwitch(${i})">${l} <small class="week-tab-date">${m.getMonth() + 1}/${m.getDate()}~</small></button>`;
     });
     tabs += '</div>';
     return tabs + `<div id="week-content">${renderWeekGrid(activeWeek)}</div>`;
