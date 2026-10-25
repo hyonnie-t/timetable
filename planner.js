@@ -695,7 +695,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const first = fixed || null;
     const min0 = first?.slot?.min || 60;
     const date0 = opts.date || first?.slot?.date || (first?.due && first.due >= today ? first.due : today);
-    let start0 = opts.start ?? suggestStart(date0, min0, first?.id);
+    let start0 = opts.start ?? (first?.slot ? timeToMin(first.slot.start) : suggestStart(date0, min0, first?.id));
     if (start0 == null) start0 = 9 * 60;
     const mins = MIN_CHOICES.includes(min0) ? MIN_CHOICES : [...MIN_CHOICES, min0].sort((a, b) => a - b);
     const minLabel = m => (m % 60 === 0 ? `${m / 60}시간` : m > 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`);
