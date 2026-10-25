@@ -97,7 +97,17 @@ export function normalizeTask(raw, { now = '' } = {}) {
   // 애매한 기간("한 달 내")으로 정한 마감 — due 는 그 기간의 끝날짜, dueText 는 화면에 보일 말
   const dueText = String(raw.dueText ?? '').trim();
   if (dueText && t.due) t.dueText = dueText.slice(0, MAX_DUETEXT);
+  // 매일 하는 일 — 마감(없으면 끝낼 때까지) 날마다 오늘 할 일에 뜬다. dailyDone 은 "오늘 몫 끝"을 누른 마지막 날짜
+  if (raw.daily === true && kind === 'once') {
+    t.daily = true;
+    if (isDateStr(raw.dailyDone)) t.dailyDone = raw.dailyDone;
+  }
   return t;
+}
+
+// date 에 "오늘 몫"이 남은 매일 할 일인가 (마감이 지났으면 아님 — 마감 지남 묶음으로 간다)
+export function isDailyDue(t, date) {
+  return t.status === 'open' && t.daily === true && t.kind !== 'watch' && (!t.due || t.due >= date) && t.dailyDone !== date;
 }
 
 // 칸 없이 null 필드는 DB에 남지 않으므로(Firebase), 화면용으로 항상 같은 모양을 얻는다
@@ -131,11 +141,24 @@ export function planAddTask(input, { id, now }) {
 export function planEditTask(task, changes, { now }) {
   const merged = normalizeTask({ ...task, ...changes }, { now });
   const fields = {};
-  for (const k of ['title', 'area', 'kind', 'due', 'dueText', 'today', 'slot', 'link', 'note']) {
+  for (const k of ['title', 'area', 'kind', 'due', 'dueText', 'today', 'slot', 'link', 'note', 'daily']) {
     if (!(k in changes)) continue;
     fields[k] = merged[k] ?? null;
   }
+  if ('daily' in changes) fields.dailyDone = merged.dailyDone ?? null;   // 매일을 끄면 "오늘 몫 끝" 기록도 지운다
   return taskPatch_(task.id, fields, now);
+}
+
+// 매일 하는 일의 "오늘 몫 끝" — 그날만 오늘 묶음에서 빠지고 다음 날 다시 뜬다 (끝낸 게 아니다)
+export function planDailyDone(task, date, { now }) {
+  if (!isDateStr(date)) throw new Error('날짜가 올바르지 않습니다');
+  if (task.daily !== true) throw new Error('매일 하는 일이 아닙니다');
+  return taskPatch_(task.id, { dailyDone: date }, now);
+}
+
+export function planDailyUndo(task, date, { now }) {
+  if (task.dailyDone !== date) return {};
+  return taskPatch_(task.id, { dailyDone: null }, now);
 }
 
 export function planComplete(task, { now }) {
@@ -178,7 +201,8 @@ export function planSetSlot(task, slot, { now }) {
 // ------------------------------------------------------------
 // 오늘 하려고 "골라 둔" 건수 (마감만 오늘인 것은 고른 게 아니라 세지 않는다)
 export function chosenFor(tasks, date) {
-  return tasks.filter(t => t.status === 'open' && t.kind !== 'watch' && (t.today === date || t.slot?.date === date));
+  // 매일 하는 일은 오늘 몫을 안 끝냈으면 고른 것으로 센다 (하루 분량이 상한을 넘지 않게)
+  return tasks.filter(t => t.status === 'open' && t.kind !== 'watch' && (t.today === date || t.slot?.date === date || isDailyDue(t, date)));
 }
 
 // task 를 date 의 오늘 할 일로 고를 수 있나. 상한을 넘으면 빼야 할 후보(chosen)를 같이 돌려준다
@@ -232,6 +256,7 @@ export function classify(tasks, today) {
     if (t.status === 'archived') { out.archived.push(t); continue; }
     if (t.status === 'done') { out.done.push(t); continue; }
     if (t.kind === 'watch') { out.watch.push(t); continue; }
+    if (isDailyDue(t, today)) { out.today.push(t); continue; }   // 매일 하는 일: 마감 전이고 오늘 몫이 남았으면 오늘
     if (t.today === today || t.slot?.date === today || t.due === today) { out.today.push(t); continue; }
     const when = t.slot?.date || t.due || null;
     if ((t.due && t.due < today) || (t.slot && t.slot.date < today) || (t.today && t.today < today)) { out.overdue.push(t); continue; }
@@ -609,11 +634,12 @@ function mdToDate_(m, d, today) {
 
 export function parseQuickInput(text, today) {
   let s = ` ${String(text ?? '').normalize('NFC').trim()} `;
-  let date = null, startMin = null, dur = null, until = false;
+  let date = null, startMin = null, dur = null, until = false, daily = false;
   // 패턴에 맞고 fn 이 false 를 돌려주지 않으면 그 부분을 제목에서 떼어 낸다 (해석 못 한 값은 제목에 남긴다)
   const eat = (re, fn) => { const m = re.exec(s); if (!m || fn(m) === false) return false; s = s.replace(re, ' '); return true; };
 
   until = eat(/까지/, () => true);
+  daily = eat(/(?<![가-힣])매일(?![가-힣])/, () => true);   // "매일" 만 단독으로 쓴 말 ("매일같이"·"매일경제"는 그대로 둔다)
 
   // 걸리는 시간: 1시간 30분 / 2시간 / 45분
   eat(/(\d+)\s*시간(?:\s*(\d+)\s*분)?/, m => { dur = Number(m[1]) * 60 + Number(m[2] || 0); });
@@ -664,9 +690,10 @@ export function parseQuickInput(text, today) {
   const title = s.replace(/\s+/g, ' ').trim();
   const out = { title, due: null, slot: null };
   if (fuzzy) { out.due = fuzzy.due; out.dueText = fuzzy.dueText; }
+  if (daily) out.daily = true;   // 매일 하는 일은 하루짜리 칸을 만들지 않는다 (날짜는 마감일)
   if (date) {
     out.due = date;
-    if (startMin != null && !until) {
+    if (startMin != null && !until && !daily) {
       const min = dur || 60;
       if (startMin + min <= 24 * 60) out.slot = { date, start: minToTime(startMin), min };
     }

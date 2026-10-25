@@ -211,7 +211,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const p = T.parseQuickInput(input.value, todayStr());
     if (!input.value.trim()) { hint.textContent = ''; return; }
     const bits = [];
-    if (p.slot) bits.push(`${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`);
+    if (p.daily) bits.push(p.dueText ? `${p.dueText} → ${fmtMD(p.due)}까지 매일` : p.due ? `${fmtMD(p.due)}까지 매일` : '끝낼 때까지 매일');
+    else if (p.slot) bits.push(`${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`);
     else if (p.dueText) bits.push(`${p.dueText} → ${fmtMD(p.due)}까지`);
     else if (p.due) bits.push(`마감 ${fmtMD(p.due)}`);
     else bits.push('날짜 없음');
@@ -242,8 +243,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     }
     const id = T.newTaskId();
     const area = T.guessArea(p.title) || root().querySelector('#pl-add-area').value;
-    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot }, { id, now: nowStamp() }), 'add',
-      note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
+    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily }, { id, now: nowStamp() }), 'add',
+      note ? `${note} 칸은 비우고 저장했어요` : p.daily ? '매일 할 일로 추가했어요' : '추가했어요');
     input.value = '';
     updateHint();
   }
@@ -264,7 +265,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const rows = lines.map(line => {
       const p = T.parseQuickInput(line, today);
       const area = T.guessArea(p.title) || defArea;
-      const when = p.slot ? `${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`
+      const when = p.daily ? (p.due ? `${fmtMD(p.due)}까지 매일` : '끝낼 때까지 매일')
+        : p.slot ? `${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`
         : p.due ? `${p.dueText ? `${p.dueText} → ` : '마감 '}${fmtMD(p.due)}` : '날짜 없음';
       return { line, p, area, when, ok: !!p.title };
     });
@@ -303,7 +305,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       for (const r of picked) {
         let slot = r.p.slot;
         if (slot && !T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings }).ok) { slot = null; dropped++; }
-        Object.assign(patch, T.planAddTask({ title: r.p.title, area: r.area, due: r.p.due, dueText: r.p.dueText, slot }, { id: T.newTaskId(), now }));
+        Object.assign(patch, T.planAddTask({ title: r.p.title, area: r.area, due: r.p.due, dueText: r.p.dueText, slot, daily: r.p.daily }, { id: T.newTaskId(), now }));
       }
       closeModal('pl-modal-bulk');
       run(() => patch, 'bulk-add', `${picked.length}개 추가했어요${dropped ? ` (겹치는 ${dropped}개는 시간 칸을 비웠어요)` : ''}`);
@@ -318,11 +320,16 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const pinned = t.today === today || t.slot?.date === today;
     const over = section === 'overdue';
     const note = (t.note || '').replace(/\s+/g, ' ').trim();
+    // 매일 하는 일: 동그라미는 «오늘 몫 끝»(내일 다시 뜸), 완전히 끝내는 건 «다 끝냄» 버튼
+    const isDaily = t.status === 'open' && t.daily === true && t.kind !== 'watch';
+    const dailyDoneToday = isDaily && t.dailyDone === today;
     return `
       <li class="pl-row pl-r-${esc(t.area)}${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
         ${t.status === 'open' && DRAGGABLE.includes(section)
         ? `<span class="pl-grip" title="끌어서 순서 바꾸기" aria-label="끌어서 순서 바꾸기">⋮⋮</span>` : ''}
-        ${t.status === 'open'
+        ${isDaily
+        ? `<button class="pl-check${dailyDoneToday ? ' on' : ''}" data-act="${dailyDoneToday ? 'daily-undo' : 'daily-done'}" aria-label="${dailyDoneToday ? '오늘 몫 끝냄, 누르면 되돌리기' : '오늘 몫 끝'}" title="${dailyDoneToday ? '오늘 몫 끝냈어요 · 누르면 되돌리기' : '오늘 몫 끝 (내일 다시 떠요)'}"></button>`
+        : t.status === 'open'
         ? `<button class="pl-check" data-act="done" aria-label="완료로 표시" title="완료"></button>`
         : `<span class="pl-check pl-check-off" aria-hidden="true">${t.status === 'done' ? '✓' : '▣'}</span>`}
         <div class="pl-main" data-act="edit" role="button" tabindex="0">
@@ -332,14 +339,16 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
             <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
             ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}${t.dueText && !t.slot ? ' pl-due-fuzzy' : ''}">${t.dueText && !t.slot ? '<lucian-clock size="14" tone="line"></lucian-clock> ' : ''}${esc(label)}</span>` : ''}
             ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
+            ${isDaily ? `<span class="pl-tag pl-tag-daily">${dailyDoneToday ? '매일 · 오늘 몫 끝' : '매일'}</span>` : ''}
             ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="원본 열기">원본 ↗</a>` : ''}
           </span>
         </div>
         ${t.status === 'open' && t.kind !== 'watch'
         ? `<button class="pl-place${t.slot ? ' on' : ''}" data-act="place" aria-label="시간 칸에 놓기" title="누르면 시간 칸을 고르고, 끌어서 시간표에 놓을 수도 있어요"><lucian-calendar size="20"></lucian-calendar></button>` : ''}
-        ${t.status === 'open' && t.kind !== 'watch'
+        ${t.status === 'open' && t.kind !== 'watch' && !isDaily
         ? `<button class="pl-pin${pinned ? ' on' : ''}" data-act="pin" aria-label="오늘 할 일로" title="${pinned ? '오늘 할 일에서 빼기' : '오늘 할 일로'}">${pinned ? '★' : '☆'}</button>`
         : ''}
+        ${isDaily ? `<button class="pl-finish btn-secondary" data-act="done" title="끝까지 다 했을 때 — 목록에서 완전히 빠져요">다 끝냄</button>` : ''}
         ${t.status !== 'open' ? `<button class="pl-restore btn-secondary" data-act="${t.status === 'done' ? 'undo' : 'restore'}">${t.status === 'done' ? '되돌리기' : '복원'}</button>` : ''}
       </li>`;
   }
@@ -433,7 +442,11 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (act === 'done') {
       run(() => T.planComplete(t, { now }), 'done');
       showUndo(t);
-    } else if (act === 'undo') run(() => T.planUndoComplete(t, { now }), 'undo', '되돌렸어요');
+    } else if (act === 'daily-done') {
+      run(() => T.planDailyDone(t, today, { now }), 'daily-done');
+      showUndo(t, { label: '오늘 몫 끝 · 내일 다시 떠요', undo: () => T.planDailyUndo({ ...t, dailyDone: today }, today, { now: nowStamp() }) });
+    } else if (act === 'daily-undo') run(() => T.planDailyUndo(t, today, { now }), 'daily-undo', '오늘 몫을 되돌렸어요');
+    else if (act === 'undo') run(() => T.planUndoComplete(t, { now }), 'undo', '되돌렸어요');
     else if (act === 'restore') run(() => T.planRestore(t, { now }), 'restore', '복원했어요');
     else if (act === 'edit') openEdit(t);
     else if (act === 'pin') togglePin(t, today, now);
@@ -486,14 +499,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   }
 
   // ---------- 되돌리기 줄 ----------
-  function showUndo(t) {
+  // opts.label 은 제목 뒤에 붙는 말(기본 «완료»), opts.undo 는 되돌리기 patch 를 만드는 함수(기본 완료 취소)
+  function showUndo(t, opts = {}) {
     hideUndo();
     const bar = document.createElement('div');
     bar.className = 'pl-undo';
     bar.id = 'pl-undo';
-    bar.innerHTML = `<span>“${esc(t.title.length > 24 ? t.title.slice(0, 24) + '…' : t.title)}” 완료</span><button type="button">되돌리기</button>`;
+    bar.innerHTML = `<span>“${esc(t.title.length > 24 ? t.title.slice(0, 24) + '…' : t.title)}” ${esc(opts.label || '완료')}</span><button type="button">되돌리기</button>`;
     bar.querySelector('button').addEventListener('click', () => {
-      run(() => T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() }), 'undo');
+      run(opts.undo || (() => T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() })), 'undo');
       hideUndo();
     });
     document.body.appendChild(bar);
@@ -527,7 +541,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       <div class="modal-body">
         <p class="modal-hint">“${esc(t.title)}”를 오늘 하려면 아래에서 하나를 빼 주세요. 뺀 일은 사라지지 않고 원래 마감일 목록으로 돌아가요.</p>
         <ul class="pl-ul">
-          ${chk.chosen.map(c => `<li class="pl-row" data-id="${esc(c.id)}"><div class="pl-main"><span class="pl-title">${esc(c.title)}</span><span class="pl-meta"><span class="pl-area pl-a-${esc(c.area)}">${esc(c.area)}</span></span></div><button class="btn-secondary" data-swap="${esc(c.id)}">이걸 빼고 넣기</button></li>`).join('')}
+          ${chk.chosen.map(c => `<li class="pl-row" data-id="${esc(c.id)}"><div class="pl-main"><span class="pl-title">${esc(c.title)}</span><span class="pl-meta"><span class="pl-area pl-a-${esc(c.area)}">${esc(c.area)}</span></span></div><button class="btn-secondary" data-swap="${esc(c.id)}">${T.isDailyDue(c, todayStr()) ? '오늘은 쉬고 넣기' : '이걸 빼고 넣기'}</button></li>`).join('')}
         </ul>
       </div>`);
     ov.addEventListener('click', e => {
@@ -536,7 +550,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       const out = byId(b.dataset.swap);
       const now = nowStamp(), today = todayStr();
       closeModal('pl-modal-cap');
-      run(() => ({ ...unpinPatch(out, today, now), ...T.planSetToday(t, today, { now }) }), 'swap');
+      // 매일 하는 일은 «오늘 몫 끝»으로 오늘만 비켜 준다 (내일은 다시 뜬다)
+      run(() => ({ ...unpinPatch(out, today, now), ...(T.isDailyDue(out, today) ? T.planDailyDone(out, today, { now }) : {}), ...T.planSetToday(t, today, { now }) }), 'swap');
     });
   }
 
@@ -649,6 +664,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
             </select>
           </label>
         </div>
+        <label class="pl-f pl-f-check"><input id="pl-e-daily" type="checkbox"${t.daily ? ' checked' : ''}> 매일 하기 <span class="pl-hint">마감 전까지 날마다 오늘 할 일에 떠요 (마감이 없으면 끝낼 때까지). 오늘 몫을 끝내면 내일 다시 떠요</span></label>
         <div class="pl-f pl-slot-edit">시간 칸 <span class="pl-hint">${t.slot ? '날짜·시각을 바로 고치고 저장하세요' : '비워 두면 시간 칸 없이 둬요'}</span>
           <div class="pl-f-row">
             <label class="pl-f">날짜<input id="pl-e-sdate" type="date" value="${esc(t.slot?.date || '')}"></label>
@@ -685,6 +701,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       const changes = {
         title: $('#pl-e-title').value, area: $('#pl-e-area').value, kind: $('#pl-e-kind').value,
         due, dueText: due ? ($('#pl-e-fuzzy').value || null) : null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
+        daily: $('#pl-e-daily').checked && $('#pl-e-kind').value === 'once',
       };
       const sd = $('#pl-e-sdate').value, ss = $('#pl-e-sstart').value, sm = Number($('#pl-e-smin').value);
       if (sd && ss) {
@@ -970,9 +987,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
         .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '' }));
     },
+    // 미니창의 동그라미 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
     completeTask(id) {
       const t = byId(id);
-      if (t) run(() => T.planComplete(t, { now: nowStamp() }), 'done');
+      if (!t) return;
+      const today = todayStr(), now = nowStamp();
+      if (T.isDailyDue(t, today)) run(() => T.planDailyDone(t, today, { now }), 'daily-done');
+      else run(() => T.planComplete(t, { now }), 'done');
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     destroy() {

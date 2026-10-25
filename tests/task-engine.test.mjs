@@ -630,3 +630,98 @@ describe('여러 줄 붙여넣기 (splitBulkLines)', () => {
     assert.equal(b.slot.date, '2026-10-24');
   });
 });
+
+// 코발트 레드 책 읽기처럼 마감은 남았지만 사실상 매일 하는 일 (2026-10-25 효니 요청)
+describe('매일 하는 일 (daily)', () => {
+  const daily = (f = {}) => task('d', { daily: true, due: '2026-10-28', ...f });
+  const ids = list => list.map(t => t.id);
+
+  test('저장: daily 는 할 일(once)에만, dailyDone 은 그대로 보존', () => {
+    const t = T.normalizeTask({ title: '책 읽기', daily: true, due: '2026-10-28', dailyDone: '2026-10-22' }, { now: NOW });
+    assert.equal(t.daily, true);
+    assert.equal(t.dailyDone, '2026-10-22');
+    assert.equal(T.normalizeTask({ title: '지켜보기', kind: 'watch', daily: true }, { now: NOW }).daily, undefined);
+    assert.equal(T.normalizeTask({ title: '그냥', due: '2026-10-28' }, { now: NOW }).daily, undefined);
+  });
+
+  test('마감 전이고 오늘 몫이 남았으면 오늘 묶음 (마감이 며칠 남아도)', () => {
+    const c = T.classify([daily(), task('p', { due: '2026-10-28' })], TODAY);
+    assert.deepEqual(ids(c.today), ['d']);
+    assert.deepEqual(ids(c.week), ['p']);   // 같은 마감의 보통 할 일은 이번 주
+  });
+
+  test('오늘 몫을 끝내면 그날은 이번 주로 빠지고, 다음 날 다시 오늘', () => {
+    const done = daily({ dailyDone: TODAY });
+    assert.deepEqual(ids(T.classify([done], TODAY).today), []);
+    assert.deepEqual(ids(T.classify([done], TODAY).week), ['d']);
+    assert.deepEqual(ids(T.classify([done], '2026-10-24').today), ['d']);
+  });
+
+  test('마감이 지나면 오늘이 아니라 마감 지남, 마감 당일은 오늘', () => {
+    assert.deepEqual(ids(T.classify([daily()], '2026-10-29').overdue), ['d']);
+    assert.deepEqual(ids(T.classify([daily({ dailyDone: '2026-10-28' })], '2026-10-28').today), ['d']);
+  });
+
+  test('마감 없는 매일은 끝낼 때까지 날마다 오늘', () => {
+    const t = daily({ due: null });
+    assert.deepEqual(ids(T.classify([t], TODAY).today), ['d']);
+    assert.deepEqual(ids(T.classify([t], '2027-03-01').today), ['d']);
+  });
+
+  test('완전히 끝내거나 보관하면 매일이어도 오늘에서 빠진다', () => {
+    assert.equal(T.classify([daily({ status: 'done' })], TODAY).today.length, 0);
+    assert.equal(T.classify([daily({ status: 'archived' })], TODAY).today.length, 0);
+  });
+
+  test('오늘 상한에 센다 — 오늘 몫을 끝내면 자리가 난다', () => {
+    const list = [daily(), task('a', { today: TODAY }), task('b', { today: TODAY })];
+    assert.equal(T.chosenFor(list, TODAY).length, 3);
+    assert.equal(T.checkTodayAdd(list, task('n'), TODAY, { todayCap: 3 }).ok, false);
+    const rested = [daily({ dailyDone: TODAY }), ...list.slice(1)];
+    assert.equal(T.chosenFor(rested, TODAY).length, 2);
+    assert.equal(T.checkTodayAdd(rested, task('n'), TODAY, { todayCap: 3 }).ok, true);
+    assert.equal(T.chosenFor(rested, '2026-10-24').length, 1);   // 내일은 다시 센다
+  });
+
+  test('오늘 몫 끝 / 되돌리기 patch — planner 경로 안, 끝낸 것(status)은 건드리지 않는다', () => {
+    const p = T.planDailyDone(daily(), TODAY, { now: NOW });
+    assert.deepEqual(p, { 'tasks/d/dailyDone': TODAY, 'tasks/d/updatedAt': NOW });
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+    assert.deepEqual(T.planDailyUndo(daily({ dailyDone: TODAY }), TODAY, { now: NOW }), { 'tasks/d/dailyDone': null, 'tasks/d/updatedAt': NOW });
+    assert.deepEqual(T.planDailyUndo(daily({ dailyDone: '2026-10-22' }), TODAY, { now: NOW }), {});   // 다른 날 기록은 그대로
+    assert.throws(() => T.planDailyDone(task('x'), TODAY, { now: NOW }), /매일/);
+    assert.throws(() => T.planDailyDone(daily(), '내일', { now: NOW }), /날짜/);
+  });
+
+  test('고치기: 매일을 켜고 끄기 (끄면 오늘 몫 기록도 지운다)', () => {
+    const on = T.planEditTask(task('d', { due: '2026-10-28' }), { daily: true }, { now: NOW });
+    assert.equal(on['tasks/d/daily'], true);
+    const off = T.planEditTask(daily({ dailyDone: TODAY }), { daily: false }, { now: NOW });
+    assert.equal(off['tasks/d/daily'], null);
+    assert.equal(off['tasks/d/dailyDone'], null);
+    const keep = T.planEditTask(daily({ dailyDone: TODAY }), { title: '제목만' }, { now: NOW });
+    assert.equal('tasks/d/dailyDone' in keep, false);
+  });
+
+  test('한 줄 입력: "매일"을 읽고, 하루짜리 칸은 만들지 않는다', () => {
+    const a = T.parseQuickInput('코발트 레드 읽기 10/28까지 매일', TODAY);
+    assert.equal(a.title, '코발트 레드 읽기');
+    assert.equal(a.due, '2026-10-28');
+    assert.equal(a.daily, true);
+    const b = T.parseQuickInput('매일 20시 독서 10/28', TODAY);
+    assert.equal(b.daily, true);
+    assert.equal(b.slot, null);
+    assert.equal(b.due, '2026-10-28');
+    const c = T.parseQuickInput('매일 책 읽기 한 달 내', TODAY);
+    assert.equal(c.daily, true);
+    assert.equal(c.dueText, '한 달 내');
+    assert.equal(T.parseQuickInput('매일 책 읽기', TODAY).due, null);
+  });
+
+  test('한 줄 입력: 낱말의 일부인 "매일"은 그대로 둔다', () => {
+    const p = T.parseQuickInput('매일경제 스크랩 10/28', TODAY);
+    assert.equal(p.daily, undefined);
+    assert.equal(p.title, '매일경제 스크랩');
+    assert.equal(T.parseQuickInput('매일같이 확인 10/28', TODAY).daily, undefined);
+  });
+});
