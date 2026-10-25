@@ -54,6 +54,34 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     return T.slotConflict(dataOf(), getTasks(), d, hhmm(start), min, { ignoreId: task?.id ?? null, settings: getSettings() });
   }
 
+  // 그날 끝낸 일 — 칸에 놓았던 건 그 칸에, 칸이 없던 건 끝낸 시각 앞 30분에 흐리게 보여 "오늘 뭐 했나"를 돌아보게 한다
+  function doneBlocks(tasks, d) {
+    const list = [];
+    for (const t of tasks) {
+      if (t.status !== 'done') continue;
+      let start, min, label;
+      if (t.slot?.date === d) { start = timeToMin(t.slot.start); min = t.slot.min; label = `${t.slot.start}–${hhmm(start + min)}`; }
+      else if (!t.slot && String(t.doneAt || '').startsWith(d)) {
+        const end = timeToMin(String(t.doneAt).slice(11, 16));
+        min = 30; start = Math.max(startMin, end - min); label = `${hhmm(end)}에 끝냄`;
+        if (end < startMin || end > endMin) continue;
+      } else continue;
+      if (start + min > endMin) min = endMin - start;
+      if (min <= 0 || start < startMin) continue;
+      list.push({ t, start, min, label });
+    }
+    // 겹치는 건 나란히 (가로 칸 나누기)
+    list.sort((a, b) => a.start - b.start);
+    const laneEnd = [];
+    for (const b of list) {
+      let i = laneEnd.findIndex(e => e <= b.start);
+      if (i < 0) { i = laneEnd.length; laneEnd.push(0); }
+      laneEnd[i] = b.start + b.min; b.lane = i;
+    }
+    list.forEach(b => { b.lanes = Math.max(1, laneEnd.length); });
+    return list;
+  }
+
   // ---------- 그리기 ----------
   function render() {
     if (busy) { pending = true; return; }
@@ -84,6 +112,15 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
       </div>`;
     }).join('');
 
+    // 끌어 놓을 일 — 목록이 안 보이는 좁은 화면에서도 여기서 바로 시간표로 끌 수 있게 (머리줄에 이미 보이는 건 뺀다)
+    const trayAll = open.filter(t => t.kind !== 'watch' && !t.slot && !dates.includes(t.due))
+      .sort((a, b) => (b.today === td) - (a.today === td) || (a.due || '9999').localeCompare(b.due || '9999') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const tray = trayAll.length ? `<div class="pl-cal-tray" aria-label="시간표에 놓을 일">
+      <span class="pl-tray-t">끌어 놓기</span>
+      ${trayAll.slice(0, 8).map(t => `<button type="button" class="pl-chip-due pl-tray-chip pl-r-${esc(t.area)}" data-id="${esc(t.id)}" title="${esc(t.title)} — 끌어서 시간 칸에 놓기">${esc(t.title)}</button>`).join('')}
+      ${trayAll.length > 8 ? `<span class="pl-chip-more">+${trayAll.length - 8}</span>` : ''}
+    </div>` : '';
+
     const hourLabels = [];
     for (let m = Math.ceil(startMin / 60) * 60; m < endMin; m += 60) hourLabels.push(`<span style="top:${yOf(m)}px">${pad(m / 60)}</span>`);
 
@@ -91,6 +128,12 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
       const blocks = T.busyBlocks(dataOf(), d).map(b => {
         const top = Math.max(0, yOf(b.start)), h = Math.max(10, yOf(b.end) - yOf(b.start));
         return `<div class="pl-blk pl-blk-${b.kind}" style="top:${top}px;height:${h}px" title="${esc(b.label)} ${hhmm(b.start)}–${hhmm(b.end)}"><b>${b.p}</b> ${esc(b.label)}</div>`;
+      }).join('');
+      const done = doneBlocks(tasks, d).map(b => {
+        const top = yOf(b.start), h = Math.max(14, b.min * HOUR_PX / 60);
+        const w = 100 / b.lanes;
+        return `<div class="pl-blk pl-blk-done pl-r-${esc(b.t.area)}" style="top:${top}px;height:${h}px;left:calc(${b.lane * w}% + 2px);width:calc(${w}% - 4px);right:auto"
+          title="✓ ${esc(b.t.title)} — ${esc(b.label)}"><div class="pl-blk-t">✓ ${esc(b.t.title)}</div></div>`;
       }).join('');
       const mine = open.filter(t => t.slot?.date === d).map(t => {
         const s = timeToMin(t.slot.start);
@@ -108,7 +151,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
         if (nm >= startMin && nm <= endMin) now = `<div class="pl-now" style="top:${yOf(nm)}px"></div>`;
       }
       const off = ((60 - startMin % 60) % 60) * HOUR_PX / 60;
-      return `<div class="pl-col${d === td ? ' today' : ''}" data-date="${d}" style="height:${H}px;background-position:0 ${off}px">${blocks}${mine}${now}</div>`;
+      return `<div class="pl-col${d === td ? ' today' : ''}" data-date="${d}" style="height:${H}px;background-position:0 ${off}px">${blocks}${done}${mine}${now}</div>`;
     }).join('');
 
     root.innerHTML = `
@@ -122,11 +165,12 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
           <button type="button" data-cal="mode" data-mode="week" class="${mode === 'week' ? 'on' : ''}">주</button>
         </div>
       </div>
+      ${tray}
       <div class="pl-cal-heads" style="${cols}"><div></div>${heads}</div>
       <div class="pl-cal-scroll"><div class="pl-cal-grid" style="${cols}">
         <div class="pl-hours" style="height:${H}px">${hourLabels.join('')}</div>${colHtml}
       </div></div>
-      <div class="pl-cal-help">빈 칸을 누르면 할 일을 놓아요 · 블록을 끌면 옮기고, 아래 끝을 끌면 길이가 바뀌어요 · 회색은 수업(겹쳐 놓을 수 없어요)</div>`;
+      <div class="pl-cal-help">빈 칸을 누르면 할 일을 놓아요 · 블록을 끌면 옮기고, 아래 끝을 끌면 길이가 바뀌어요 · 회색은 수업(겹쳐 놓을 수 없어요) · 흐린 ✓ 칸은 끝낸 일</div>`;
 
     const sc = root.querySelector('.pl-cal-scroll');
     if (keepTop != null && !firstScroll) sc.scrollTop = keepTop;

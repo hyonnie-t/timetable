@@ -589,3 +589,20 @@ describe('수업 준비 자동 만들기', () => {
     assert.deepEqual(T.planPrepSync(edited, d, TODAY, { now: NOW }), {});
   });
 });
+
+describe('기간에 오늘·내일, 방금 추가', () => {
+  test('오늘·내일을 기간으로 고를 수 있다', () => {
+    assert.deepEqual(T.resolveFuzzy('오늘', '2026-10-25'), { due: '2026-10-25', dueText: '오늘' });
+    assert.deepEqual(T.resolveFuzzy('내일', '2026-10-25'), { due: '2026-10-26', dueText: '내일' });
+    assert.ok(T.FUZZY_PRESETS.includes('오늘') && T.FUZZY_PRESETS.includes('내일'));
+  });
+  test('오늘 직접 적은 일만 방금 추가로 본다 (반복·수업 준비·끝낸 일 제외)', () => {
+    const base = { status: 'open', kind: 'once', src: 'app', createdAt: '2026-10-25 09:00:00' };
+    assert.equal(T.isFresh(base, '2026-10-25'), true);
+    assert.equal(T.isFresh({ ...base, createdAt: '2026-10-24 09:00:00' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, ruleId: 'r1' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, src: 'prep', prepDue: '2026-10-26' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, status: 'done' }, '2026-10-25'), false);
+    assert.equal(T.isFresh({ ...base, kind: 'watch' }, '2026-10-25'), false);
+  });
+});

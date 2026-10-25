@@ -244,6 +244,15 @@
   border: 1px dashed var(--rail); border-radius: 6px; background: color-mix(in srgb, var(--rail) 12%, #fff); color: var(--text);
   font-family: inherit;
 }
+.pl-cal-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 8px; max-height: 96px; overflow-y: auto; }
+.pl-tray-t { font-size: 11px; font-weight: 700; color: var(--text3); }
+.pl-tray-chip { display: inline-block; width: auto; max-width: 46%; margin-top: 0; }
+.pl-blk-done {
+  --rail: var(--accent2);
+  background: color-mix(in srgb, var(--rail) 10%, transparent); border: 1px dashed color-mix(in srgb, var(--rail) 55%, transparent);
+  color: var(--text2); opacity: .6; pointer-events: none; z-index: 1;
+}
+.pl-blk-done .pl-blk-t { font-weight: 600; text-decoration: line-through; text-decoration-thickness: 1px; }
 .pl-chip-more { display: block; font-size: 10px; color: var(--text3); margin-top: 2px; }
 
 .pl-cal-scroll { max-height: min(640px, calc(100vh - 250px)); min-height: 300px; overflow-y: auto; border-top: 1px solid var(--border); position: relative; }
