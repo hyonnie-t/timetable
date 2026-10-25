@@ -35,6 +35,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
   let busy = false;          // 끌고 있는 동안은 다시 그리지 않는다 (끌던 블록이 사라지지 않게)
   let pending = false;
   let firstScroll = true;
+  let late = false;          // 밤(22시~자정) 칸 펼침
 
   const dataOf = () => getData() || {};
   const findTask = id => getTasks().find(t => t.id === id);
@@ -87,10 +88,14 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     if (busy) { pending = true; return; }
     pending = false;
     const cfg = T.resolveSettings(getSettings());
-    startMin = timeToMin(cfg.dayStart); endMin = timeToMin(cfg.dayEnd);
     const dates = datesShown();
     const tasks = getTasks();
     const open = tasks.filter(t => t.status === 'open');
+    // 22시 넘어 일하는 날은 예외 — 밤 칸을 펴면 자정까지, 그 시간에 놓인 일이 있으면 저절로 펴진다
+    const dayEndMin = timeToMin(cfg.dayEnd);
+    const hasLate = open.some(t => t.slot && dates.includes(t.slot.date) && timeToMin(t.slot.start) + t.slot.min > dayEndMin);
+    const lateOn = late || hasLate;
+    startMin = timeToMin(cfg.dayStart); endMin = lateOn ? T.LATE_LIMIT : dayEndMin;
     const td = today();
     const H = Math.round((endMin - startMin) * HOUR_PX / 60);
     const cols = `grid-template-columns: 42px repeat(${dates.length}, minmax(0, 1fr))`;
@@ -160,6 +165,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
         <button type="button" class="pl-cal-nav pl-cal-today" data-cal="today">오늘</button>
         <button type="button" class="pl-cal-nav" data-cal="next" aria-label="다음">›</button>
         <div class="pl-cal-label">${label}</div>
+        <button type="button" class="pl-cal-nav pl-cal-late${lateOn ? ' on' : ''}" data-cal="late" aria-pressed="${lateOn}" title="${hasLate ? '밤 시간에 놓인 일이 있어요' : '22시 넘어서도 일할 때 펼쳐요'}"${hasLate ? ' disabled' : ''}>밤 ${lateOn ? '▴' : '▾'}</button>
         <div class="pl-cal-mode" role="group" aria-label="보기 방식">
           <button type="button" data-cal="mode" data-mode="day" class="${mode === 'day' ? 'on' : ''}">하루</button>
           <button type="button" data-cal="mode" data-mode="week" class="${mode === 'week' ? 'on' : ''}">주</button>
@@ -337,6 +343,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     if (b.dataset.cal === 'prev') date = addDays(date, -step);
     else if (b.dataset.cal === 'next') date = addDays(date, step);
     else if (b.dataset.cal === 'today') date = today();
+    else if (b.dataset.cal === 'late') late = !late;
     else if (b.dataset.cal === 'mode') mode = b.dataset.mode === 'week' ? 'week' : 'day';
     firstScroll = true;
     render();

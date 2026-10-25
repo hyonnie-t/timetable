@@ -13,6 +13,7 @@ import { isDateStr, addDays, weekdayKey, timeToMin, scheduleOn, calendarEvent, c
 
 export const AREAS = ['수업', '학생회', '학교', '대학원', '독서', '연수', '투자', '기타'];
 export const KINDS = ['once', 'watch'];
+export const LATE_LIMIT = 1440;   // 늦은 밤 예외 — 칸은 자정까지 놓을 수 있다
 export const DEFAULT_SETTINGS = { todayCap: 5, dayStart: '07:00', dayEnd: '22:00' };
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -295,7 +296,8 @@ const overlap_ = (aS, aE, bS, bE) => aS < bE && bS < aE;
 export function slotConflict(data, tasks, date, start, min, { ignoreId = null, settings = DEFAULT_SETTINGS } = {}) {
   const s = resolveSettings(settings);
   const a = timeToMin(start), b = a + min;
-  if (a < timeToMin(s.dayStart) || b > timeToMin(s.dayEnd)) return { ok: false, reason: 'range' };
+  // 하루 칸 끝(dayEnd) 너머는 예외로 허용 — 자정(24:00)까지. 그날 안에서 끝나야 한다
+  if (a < timeToMin(s.dayStart) || b > LATE_LIMIT) return { ok: false, reason: 'range' };
   for (const blk of busyBlocks(data, date)) {
     if (overlap_(a, b, blk.start, blk.end)) return { ok: false, reason: 'class', with: blk };
   }
