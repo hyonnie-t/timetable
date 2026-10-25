@@ -202,7 +202,13 @@ export function planSetSlot(task, slot, { now }) {
 // 오늘 하려고 "골라 둔" 건수 (마감만 오늘인 것은 고른 게 아니라 세지 않는다)
 export function chosenFor(tasks, date) {
   // 매일 하는 일은 오늘 몫을 안 끝냈으면 고른 것으로 센다 (하루 분량이 상한을 넘지 않게)
-  return tasks.filter(t => t.status === 'open' && t.kind !== 'watch' && (t.today === date || t.slot?.date === date || isDailyDue(t, date)));
+  // «이번만 초과»로 넣은 일(extra)은 상한 밖이라 여기서 세지 않는다 — extraFor 가 따로 센다
+  return tasks.filter(t => t.status === 'open' && t.kind !== 'watch' && t.extra !== date && (t.today === date || t.slot?.date === date || isDailyDue(t, date)));
+}
+
+// 상한을 넘겨 «이번만 초과»로 넣은 일 (그날만 유효하다)
+export function extraFor(tasks, date) {
+  return tasks.filter(t => t.status === 'open' && t.kind !== 'watch' && t.extra === date && (t.today === date || t.slot?.date === date));
 }
 
 // task 를 date 의 오늘 할 일로 고를 수 있나. 상한을 넘으면 빼야 할 후보(chosen)를 같이 돌려준다
@@ -213,9 +219,10 @@ export function checkTodayAdd(tasks, task, date, settings = DEFAULT_SETTINGS) {
   return { ok: true, cap, chosen };
 }
 
-export function planSetToday(task, date, { now }) {
+// extra: true 면 상한 밖 «이번만 초과»로 넣는다. 오늘에서 빼거나 상한 안으로 넣을 때는 extra 를 지운다
+export function planSetToday(task, date, { now, extra = false }) {
   if (date != null && !isDateStr(date)) throw new Error('날짜가 올바르지 않습니다');
-  return taskPatch_(task.id, { today: date }, now);
+  return taskPatch_(task.id, { today: date, extra: extra && date ? date : null }, now);
 }
 
 // ------------------------------------------------------------

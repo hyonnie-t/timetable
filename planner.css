@@ -10,6 +10,8 @@
   border: 1px solid var(--accent2);
 }
 .pl-count.full { background: #fff4e5; color: var(--warn); border-color: var(--warn); }
+.pl-count.extra { background: #eef4ff; color: var(--accent); border-color: var(--accent2); }
+.pl-count.auto { background: #f4f4f4; color: var(--text2); border-color: #ccc; }
 .pl-count.over { background: #fdecec; color: var(--danger); border-color: var(--danger); }
 
 /* 빠른 입력 */
