@@ -608,3 +608,25 @@ describe('기간에 오늘·내일, 방금 추가', () => {
     assert.equal(T.isFresh({ ...base, kind: 'watch' }, '2026-10-25'), false);
   });
 });
+
+describe('여러 줄 붙여넣기 (splitBulkLines)', () => {
+  test('글머리표·번호·체크박스를 떼고 빈 줄은 버린다', () => {
+    const text = '- 논문 읽기 10/30까지\n\n2. 고사원안 검토\n- [ ] 서평 쓰기\n   \n• 회의 내일 15시\r\n(3) 자치 활동 기재록';
+    assert.deepEqual(T.splitBulkLines(text),
+      ['논문 읽기 10/30까지', '고사원안 검토', '서평 쓰기', '회의 내일 15시', '자치 활동 기재록']);
+  });
+  test('제목이 숫자로 시작해도 번호로 오해하지 않는다', () => {
+    assert.deepEqual(T.splitBulkLines('2학년 수행 결시자 응시 기회\n10/30 고사원안 제출'),
+      ['2학년 수행 결시자 응시 기회', '10/30 고사원안 제출']);
+  });
+  test('한 줄이면 그대로, 최대 50줄', () => {
+    assert.deepEqual(T.splitBulkLines('학생회 안건 정리'), ['학생회 안건 정리']);
+    assert.equal(T.splitBulkLines(Array.from({ length: 60 }, (_, i) => `일 ${i}`).join('\n')).length, 50);
+    assert.deepEqual(T.splitBulkLines(''), []);
+  });
+  test('줄마다 parseQuickInput 으로 날짜가 읽힌다', () => {
+    const [a, b] = T.splitBulkLines('- 논문 읽기 10/30까지\n- 회의 내일 15시 1시간').map(l => T.parseQuickInput(l, TODAY));
+    assert.equal(a.due, '2026-10-30');
+    assert.equal(b.slot.date, '2026-10-24');
+  });
+});
