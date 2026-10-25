@@ -699,6 +699,16 @@ export function guessArea(title) {
   return hit ? hit[0] : null;
 }
 
+// 여러 줄 붙여넣기 — 줄마다 할 일 하나. 글머리표(-, •, *)·번호(1. / 1))·체크박스([ ], ☐)는 떼고 빈 줄은 버린다(최대 max줄).
+// Claude·노션·공문에서 뽑은 목록을 입력칸에 통째로 붙일 때 쓴다. 각 줄의 날짜·영역 해석은 parseQuickInput 그대로.
+export function splitBulkLines(text, max = 50) {
+  const LEAD = /^\s*(?:[-*•·▪■□☐✓✔]|\[[ xX]?\]|\d{1,2}[.)]|\(\d{1,2}\))\s+/;
+  return String(text ?? '').normalize('NFC').split(/\r?\n/)
+    .map(s => s.replace(LEAD, '').replace(LEAD, '').trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
 // ------------------------------------------------------------
 // 쓰기 경로 검사 — planner 밖(v2 진도 데이터 등)을 건드리는 patch 는 DB에 보내지 않는다
 // ------------------------------------------------------------

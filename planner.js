@@ -189,6 +189,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     });
     el.querySelector('#pl-add').addEventListener('submit', e => { e.preventDefault(); addFromInput(); });
     el.querySelector('#pl-add-input').addEventListener('input', updateHint);
+    el.querySelector('#pl-add-input').addEventListener('paste', onPasteBulk);
     el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
     el.addEventListener('click', onClick);
     el.addEventListener('pointerdown', e => {
@@ -245,6 +246,70 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       note ? `${note} 칸은 비우고 저장했어요` : '추가했어요');
     input.value = '';
     updateHint();
+  }
+
+  // ---------- 여러 줄 붙여넣기 → 한 번에 추가 ----------
+  // Claude·노션·공문에서 뽑은 목록을 입력칸에 통째로 붙이면 줄마다 하나씩 미리 보여 주고, 체크한 것만 저장한다.
+  // 한 줄짜리 붙여넣기는 평소대로 입력칸에 들어간다. 날짜·영역 해석은 한 줄 입력과 같은 규칙(parseQuickInput·guessArea).
+  function onPasteBulk(e) {
+    const lines = T.splitBulkLines(e.clipboardData?.getData('text') || '');
+    if (lines.length < 2) return;
+    e.preventDefault();
+    openBulkModal(lines);
+  }
+
+  function openBulkModal(lines) {
+    const today = todayStr();
+    const defArea = root()?.querySelector('#pl-add-area')?.value;
+    const rows = lines.map(line => {
+      const p = T.parseQuickInput(line, today);
+      const area = T.guessArea(p.title) || defArea;
+      const when = p.slot ? `${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`
+        : p.due ? `${p.dueText ? `${p.dueText} → ` : '마감 '}${fmtMD(p.due)}` : '날짜 없음';
+      return { line, p, area, when, ok: !!p.title };
+    });
+    const ov = openModal('pl-modal-bulk', `
+      <div class="modal-header"><h2>여러 줄 붙여넣기</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <p class="modal-hint">${rows.length}줄을 할 일로 나눴어요. 넣을 것만 체크하고 추가를 누르세요. 날짜·영역은 한 줄 입력과 같은 규칙으로 읽었어요.</p>
+        <ul class="pl-bulk">
+          ${rows.map((r, i) => `
+            <li class="pl-bulk-row${r.ok ? '' : ' pl-bulk-bad'}">
+              <label><input type="checkbox" data-i="${i}" ${r.ok ? 'checked' : 'disabled'}>
+                <span class="pl-bulk-title">${esc(r.p.title || r.line)}</span>
+                <span class="pl-bulk-meta"><span class="pl-area pl-a-${esc(r.area)}">${esc(r.area)}</span><span>${esc(r.when)}</span></span>
+              </label>
+            </li>`).join('')}
+        </ul>
+      </div>
+      <div class="modal-footer pl-e-foot">
+        <button class="btn-secondary" data-close>취소</button>
+        <button class="btn-primary" data-bulk-add>추가</button>
+      </div>`, { small: false });
+    const syncBtn = () => {
+      const n = ov.querySelectorAll('input[data-i]:checked').length;
+      const b = ov.querySelector('[data-bulk-add]');
+      b.textContent = `${n}개 추가`; b.disabled = n === 0;
+    };
+    syncBtn();
+    ov.addEventListener('change', syncBtn);
+    ov.addEventListener('click', e => {
+      if (!e.target.closest('[data-bulk-add]')) return;
+      const picked = [...ov.querySelectorAll('input[data-i]:checked')].map(c => rows[+c.dataset.i]);
+      if (!picked.length) return;
+      const now = nowStamp();
+      const patch = {};
+      let dropped = 0;
+      for (const r of picked) {
+        let slot = r.p.slot;
+        if (slot && !T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings }).ok) { slot = null; dropped++; }
+        Object.assign(patch, T.planAddTask({ title: r.p.title, area: r.area, due: r.p.due, dueText: r.p.dueText, slot }, { id: T.newTaskId(), now }));
+      }
+      closeModal('pl-modal-bulk');
+      run(() => patch, 'bulk-add', `${picked.length}개 추가했어요${dropped ? ` (겹치는 ${dropped}개는 시간 칸을 비웠어요)` : ''}`);
+      const input = root()?.querySelector('#pl-add-input');
+      if (input) { input.value = ''; updateHint(); }
+    });
   }
 
   // ---------- 그리기 ----------
@@ -453,7 +518,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     return ov;
   }
   function closeModal(id) { document.getElementById(id)?.remove(); }
-  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules'].forEach(closeModal); };
+  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules', 'pl-modal-bulk'].forEach(closeModal); };
   document.addEventListener('keydown', onKey);
 
   function openCapModal(t, chk) {
