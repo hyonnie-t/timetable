@@ -184,6 +184,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       today: todayStr,
       onSetSlot: setSlot,
       onOpen: openEdit,
+      onDone: t => completeTask(t.id),
       onEmpty: (date, start) => openPlaceModal({ date, start }),
       toast,
     });
@@ -979,6 +980,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     });
   }
 
+  // 미니창·달력 블록의 완료 버튼 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
+  function completeTask(id) {
+    const t = byId(id);
+    if (!t) return;
+    const today = todayStr(), now = nowStamp();
+    if (T.isDailyDue(t, today)) run(() => T.planDailyDone(t, today, { now }), 'daily-done');
+    else run(() => T.planComplete(t, { now }), 'done');
+  }
+
   return {
     // 할 일 탭이 보일 때마다 app.js 가 부른다
     render() {
@@ -996,18 +1006,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     // 미니창용: 오늘 고른 일(칸에 놓은 건 시각 순, 나머지는 그 뒤). 끝낸 일은 빠진다.
     todayItems() {
       const today = todayStr();
-      return T.chosenFor(tasks(), today)
+      // 목록의 «오늘» 묶음과 같게 — 고른 일뿐 아니라 «이번만 초과»·마감이 오늘인 일도 미니창에서 끝낼 수 있게
+      return T.classify(tasks(), today).today
         .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
         .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '' }));
     },
     // 미니창의 동그라미 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
-    completeTask(id) {
-      const t = byId(id);
-      if (!t) return;
-      const today = todayStr(), now = nowStamp();
-      if (T.isDailyDue(t, today)) run(() => T.planDailyDone(t, today, { now }), 'daily-done');
-      else run(() => T.planComplete(t, { now }), 'done');
-    },
+    completeTask,
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     destroy() {
       subs.clear();

@@ -28,7 +28,7 @@ export function weekDates(date, weekend = false) {
   return Array.from({ length: weekend ? 7 : 5 }, (_, k) => addDays(mon, k));
 }
 
-export function createCalendar({ root, getTasks, getData, getSettings, today, onSetSlot, onOpen, onEmpty, toast }) {
+export function createCalendar({ root, getTasks, getData, getSettings, today, onSetSlot, onOpen, onDone, onEmpty, toast }) {
   let date = today();
   let mode = 'day';
   let startMin = 420, endMin = 1320;
@@ -145,6 +145,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
         const top = yOf(s), h = Math.max(14, t.slot.min * HOUR_PX / 60);
         return `<div class="pl-blk pl-blk-task pl-r-${esc(t.area)}" data-id="${esc(t.id)}" tabindex="0" role="button"
           style="top:${top}px;height:${h}px" title="${esc(t.title)} ${t.slot.start}–${hhmm(s + t.slot.min)}">
+          <button type="button" class="pl-blk-chk" data-done="${esc(t.id)}" aria-label="완료" title="완료"></button>
           <div class="pl-blk-t">${esc(t.title)}</div>
           ${h >= 34 ? `<div class="pl-blk-m">${t.slot.start}–${hhmm(s + t.slot.min)}</div>` : ''}
           <span class="pl-rs" aria-hidden="true"></span>
@@ -317,6 +318,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
   root.addEventListener('pointerdown', e => {
     const chip = e.target.closest('.pl-chip-due');
     if (chip) { const t = findTask(chip.dataset.id); if (t) { e.preventDefault(); startPlaceDrag(e, t, 60, () => onOpen(t), chip); } return; }
+    if (e.target.closest('.pl-blk-chk')) { e.stopPropagation(); return; }   // 완료 버튼은 끌기가 아니라 누르기만
     const blk = e.target.closest('.pl-blk-task');
     if (blk && !blk.classList.contains('pl-blk-preview')) { startBlock(e, blk, e.target.closest('.pl-rs') ? 'resize' : 'move'); return; }
     const col = e.target.closest('.pl-col');
@@ -337,6 +339,8 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     if (e.key === 'Enter' && e.target.matches('.pl-blk-task')) { const t = findTask(e.target.dataset.id); if (t) onOpen(t); }
   });
   root.addEventListener('click', e => {
+    const dn = e.target.closest('.pl-blk-chk');
+    if (dn) { const t = findTask(dn.dataset.done); if (t) onDone(t); return; }
     const b = e.target.closest('[data-cal]');
     if (!b) return;
     const step = mode === 'day' ? 1 : 7;
