@@ -326,9 +326,11 @@ describe('하루 칸 — 수업과 겹침', () => {
     assert.equal(T.slotConflict(d, [other2], TODAY, '13:30', 30).ok, true);   // 다른 날
   });
 
-  test('하루 범위(07~22시) 밖은 못 놓는다', () => {
+  test('하루 시작 전은 못 놓고, 22시 넘어 자정까지는 예외로 놓을 수 있다', () => {
     assert.equal(T.slotConflict(d, [], TODAY, '06:30', 30).reason, 'range');
-    assert.equal(T.slotConflict(d, [], TODAY, '21:30', 60).reason, 'range');
+    assert.equal(T.slotConflict(d, [], TODAY, '21:30', 60).ok, true);
+    assert.equal(T.slotConflict(d, [], TODAY, '23:00', 60).ok, true);
+    assert.equal(T.slotConflict(d, [], TODAY, '23:30', 60).reason, 'range');
     assert.equal(T.slotConflict(d, [], TODAY, '21:00', 60).ok, true);
     assert.equal(T.slotConflict(d, [], TODAY, '06:30', 30, { settings: { dayStart: '06:00' } }).ok, true);
   });

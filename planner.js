@@ -2,7 +2,7 @@
 // 저장은 users/{uid}/planner/ 아래만 (진도 데이터 v2 와 분리). 계산은 모두 engine/task-engine.js 가 한다.
 // 데이터가 바뀌는 길은 commit() 하나뿐이고, 그 안에서 assertPlannerPatch 로 planner 밖 경로 쓰기를 막는다.
 import { db, ref, update, onValue } from './firebase.js';
-import { applyPatch, addDays, DOW_KEY } from './engine/progress-engine.js';
+import { applyPatch, addDays, timeToMin, DOW_KEY } from './engine/progress-engine.js';
 import * as T from './engine/task-engine.js';
 import { createCalendar, reasonText } from './planner-cal.js';
 // 움직이는 아이콘(Lucian Icons, MIT) — 프로젝트 안에 복사해 쓴다 (외부 로드 없음)
@@ -586,7 +586,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
         </div>
         <label class="pl-f">링크${t.link ? ` <a class="pl-open-link" href="${esc(t.link)}" target="_blank" rel="noopener">원본 열기 ↗</a>` : ''}<input id="pl-e-link" type="url" placeholder="https://" value="${esc(t.link || '')}"></label>
         <label class="pl-f">메모<textarea id="pl-e-note" rows="8" maxlength="6000" placeholder="진행 상황, 해야 할 세부 내용을 적어 두세요">${esc(t.note || '')}</textarea></label>
-        ${t.slot ? `<div class="pl-f pl-slot-line">칸: ${esc(fmtMD(t.slot.date))} ${esc(t.slot.start)} (${t.slot.min}분) <button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button></div>` : ''}
+        ${t.slot ? `<div class="pl-f pl-slot-line">칸: ${esc(fmtMD(t.slot.date))} ${esc(t.slot.start)} (${t.slot.min}분) <button type="button" class="btn-secondary" id="pl-e-moveslot">시간 바꾸기</button> <button type="button" class="btn-secondary" id="pl-e-clearslot">칸 비우기</button></div>` : ''}
         <div class="pl-e-err" id="pl-e-err"></div>
       </div>
       <div class="modal-footer pl-e-foot">
@@ -615,6 +615,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       run(() => patch, 'edit', '저장했어요');
     });
     $('#pl-e-arch')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planArchive(t, { now: nowStamp() }), 'archive', '보관했어요'); });
+    $('#pl-e-moveslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); openPlaceModal({ task: t }); });
     $('#pl-e-clearslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
     $('#pl-e-del').addEventListener('click', () => {
       if (!confirm(`“${t.title}”를 완전히 지울까요? (보관은 나중에 복원할 수 있어요)`)) return;
@@ -683,6 +684,12 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           <label class="pl-f">시작<input id="pl-p-start" type="time" step="900" value="${T.minToTime(start0)}"></label>
           <label class="pl-f">걸리는 시간<select id="pl-p-min">${mins.map(m => `<option value="${m}"${m === min0 ? ' selected' : ''}>${minLabel(m)}</option>`).join('')}</select></label>
         </div>
+        <div class="pl-p-nudge" role="group" aria-label="시작 시각 조금씩 옮기기">
+          <button type="button" class="btn-secondary" data-nudge="-60">−1시간</button>
+          <button type="button" class="btn-secondary" data-nudge="-15">−15분</button>
+          <button type="button" class="btn-secondary" data-nudge="15">+15분</button>
+          <button type="button" class="btn-secondary" data-nudge="60">+1시간</button>
+        </div>
         <div class="pl-p-free" id="pl-p-free"></div>
         <div class="pl-e-err" id="pl-p-msg"></div>
       </div>
@@ -707,8 +714,16 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       $('#pl-p-free').textContent = free.length ? `이날 빈 시간: ${free.slice(0, 5).map(fmtRange).join(' · ')}` : '이날은 빈 시간이 없어요';
       const c = T.slotConflict(getSchoolData() || {}, tasks(), s.date, s.start, s.min, { ignoreId: t?.id, settings: store.settings });
       if (!c.ok) { msg.textContent = reasonText(c); return false; }
+      if (timeToMin(s.start) + s.min > timeToMin(T.resolveSettings(store.settings).dayEnd)) msg.textContent = '하루 칸 끝 시간을 넘겨요 — 늦은 밤 예외로 놓아요';
       return true;
     }
+    ov.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click', () => {
+      const cur = $('#pl-p-start').value;
+      if (!cur) return;
+      const m = Math.min(Math.max(timeToMin(cur) +Number(b.dataset.nudge), 0), 1440 - Number($('#pl-p-min').value));
+      $('#pl-p-start').value = T.minToTime(m);
+      refresh();
+    }));
     ['#pl-p-task', '#pl-p-date', '#pl-p-start', '#pl-p-min'].forEach(sel => $(sel).addEventListener('change', () => {
       if (sel === '#pl-p-task' && picked()?.slot) { const sl = picked().slot; $('#pl-p-date').value = sl.date; $('#pl-p-start').value = sl.start; $('#pl-p-min').value = String(sl.min); }
       refresh();
