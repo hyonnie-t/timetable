@@ -267,8 +267,6 @@ body {
 }
 
 .exam-dday-step { font-size: 10px; color: var(--text2); }
-.exam-dday-pace { font-size: 10px; font-weight: 700; color: var(--text3); }
-.exam-dday-pace.ahead { color: var(--accent); }
 
 /* ============================================================
    배너

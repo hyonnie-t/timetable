@@ -22,10 +22,11 @@ const DEMO = new URLSearchParams(location.search).get('demo');
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
+  // 2학년은 임용 채점 대비로 11/30까지 포트폴리오·수행평가를 마무리한다(기말고사 12/14보다 앞당김).
   // 3학년은 기말고사가 아니라 마지막 수업일(2026년 마지막 평일 12/31, 방학 전주까지)까지 센다
   { label: '3학년',   subject: '역사',  start: '2026-12-31', includeStart: true,  classes: ['305', '306', '307', '308'], endLabel: '마지막 수업' },
-  { label: '2학년 A', subject: '역사A', start: '2026-12-14', includeStart: false, classes: ['201 A', '202 A', '203 A'] },
-  { label: '2학년 B', subject: '역사B', start: '2026-12-14', includeStart: false, classes: ['201 B', '202 B', '203 B', '204 B'] },
+  { label: '2학년 A', subject: '역사A', start: '2026-11-30', includeStart: true,  classes: ['201 A', '202 A', '203 A'], endLabel: '마무리' },
+  { label: '2학년 B', subject: '역사B', start: '2026-11-30', includeStart: true,  classes: ['201 B', '202 B', '203 B', '204 B'], endLabel: '마무리' },
 ];
 
 // ============================================================
@@ -680,15 +681,12 @@ function renderToday() {
         const key = PE.lessonKey(cls, g.subject);
         return { cls, left: remainingLessonsUntilExam(cls, g), step: PE.nextStep(userData, key, nowPos_(), ledger(key)), end: examEndStep(cls, g) };
       });
-      const minStep = Math.min(...infos.map(i => i.step));
       const itemsHtml = infos.map(i => {
-        const ahead = i.step - minStep;
         return `
         <span class="exam-dday-item">
           <span class="exam-dday-class">${i.cls.replace(' ', '')}</span>
           <span class="exam-dday-count">D-${i.left}</span>
-          <span class="exam-dday-step">${i.step}차시${i.end ? ` → ${i.end}차시` : ''}</span>
-          <span class="exam-dday-pace${ahead ? ' ahead' : ''}">${ahead ? `진도 +${ahead}` : '진도 기준'}</span>
+          <span class="exam-dday-step">${i.end ? `${i.end}차시까지` : '수업 끝'}</span>
         </span>`;
       }).join('');
       return `
@@ -699,7 +697,7 @@ function renderToday() {
     }).join('');
     el.innerHTML += `
       <div class="exam-dday-card">
-        <div class="exam-dday-title">남은 역사 수업 · D-수업 수 / 다음 차시 → 마지막 차시 / 진도는 가장 느린 반 대비</div>
+        <div class="exam-dday-title">남은 역사 수업 · 남은 수업 수 / 그날까지 가는 차시</div>
         ${rowsHtml}
       </div>`;
   }
