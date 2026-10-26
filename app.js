@@ -2391,7 +2391,7 @@ function showLogin() {
 // ============================================================
 // PiP 창은 별도 document 라 style.css 의 @import 폰트가 적용되지 않는다 → 따로 불러온다
 const PIP_FONT_URL = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap';
-const PIP_HEIGHT   = { full: 280, compact: 150 };
+const PIP_HEIGHT   = { full: 320, compact: 190 };
 
 const PIP_CSS = `
   html, body { margin:0; padding:0; height:100%; background:#fff; }
@@ -2434,12 +2434,33 @@ const PIP_CSS = `
   .pip-todo-t { flex:1 1 auto; min-width:0; }
   .pip-todo-time { font-family:'Space Mono', monospace; font-size:10px; color:#999; margin-right:4px; }
   .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
+  .pip-todo-chk.daily { border-style:dashed; }
+  .pip-daily { color:#2d6a4f; font-weight:700; margin-right:3px; }
+  .pip-over { margin:6px 4px 0; font-size:10.5px; font-weight:700; color:#c0392b; }
+  .pip-row-todos { flex-basis:100%; margin-top:2px; border-top:1px dashed rgba(0,0,0,.1); }
+  .pip-row-todos .pip-todo { padding:4px 0 2px; border-bottom:none; }
+  #pip-foot { flex:0 0 auto; border-top:1px solid #e8e6e0; padding:5px 8px 6px; }
+  #pip-msg { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px; padding:3px 6px; border-radius:6px; background:#f0faf4; color:#2d6a4f; font-size:10.5px; }
+  #pip-msg[hidden] { display:none; }
+  #pip-msg button { flex-shrink:0; border:none; background:none; color:#2d6a4f; font-size:10.5px; font-weight:700; cursor:pointer; text-decoration:underline; padding:0; }
+  #pip-add { width:100%; padding:4px 7px; border:1px solid #e8e6e0; border-radius:6px; font-size:11.5px; }
+  #pip-add:focus { outline:none; border-color:#2d6a4f; }
 `;
 
 let pipCompact     = localStorage.getItem('pipCompact') === '1';
 let pipScrolledFor = null; // 마지막으로 자동 스크롤한 교시 — 30초 갱신마다 스크롤을 뺏지 않도록
 
-function pipRowsHtml() {
+// 시각을 정한 할 일은 그 시각이 속한 교시 줄 아래에 붙인다 (쉬는 시간은 앞 교시에). used 에 붙인 id 를 모은다
+function pipTodosForPeriod(items, periods, periodList, p, used) {
+  const i = periodList.indexOf(p);
+  const from = parseTimeToMin(periods[p].start);
+  const to   = i + 1 < periodList.length ? parseTimeToMin(periods[periodList[i + 1]].start) : parseTimeToMin(periods[p].end);
+  const mine = items.filter(t => t.start && parseTimeToMin(t.start) >= from && parseTimeToMin(t.start) < to);
+  mine.forEach(t => used.add(t.id));
+  return mine.length ? `<div class="pip-row-todos">${mine.map(pipTodoRow).join('')}</div>` : '';
+}
+
+function pipRowsHtml(items = [], used = new Set()) {
   if (!userData) return `<div class="pip-empty">데이터를 불러오는 중…</div>`;
 
   const now      = new Date();
@@ -2491,22 +2512,35 @@ function pipRowsHtml() {
     return `
       <div class="pip-row${isCur ? ' current' : ''}${p === focusP ? ' focus' : ''}" data-p="${p}">
         <span class="pip-p">${p}</span>
-        <div class="pip-info">${body}</div>
+        <div class="pip-info">${body}${pipTodosForPeriod(items, periods, periodList, p, used)}</div>
       </div>`;
   }).join('');
 }
 
 // 관리자만: 오늘 고른 할 일 (간단히 보기에서는 앞의 3개만)
-function pipTodoHtml() {
-  const items = planner?.todayItems?.();
-  if (!items?.length) return '';
-  const shown = pipCompact ? items.slice(0, 3) : items;
-  const more  = items.length - shown.length;
-  return `<div class="pip-todo-h">오늘 할 일 ${items.length}</div>` + shown.map(t => `
+function pipTodoRow(t) {
+  const tip = t.daily ? '매일 하는 일 · 누르면 오늘 몫 끝(내일 다시 떠요)' : '완료';
+  return `
     <div class="pip-todo">
-      <button type="button" class="pip-todo-chk" data-id="${escapeHtml(t.id)}" aria-label="완료" title="완료"></button>
-      <span class="pip-todo-t">${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
-    </div>`).join('') + (more > 0 ? `<div class="pip-empty">외 ${more}개</div>` : '');
+      <button type="button" class="pip-todo-chk${t.daily ? ' daily' : ''}" data-id="${escapeHtml(t.id)}" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}"></button>
+      <span class="pip-todo-t">${t.daily ? '<span class="pip-daily" title="매일">↻</span>' : ''}${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
+    </div>`;
+}
+
+// 교시 줄에 붙지 않은 오늘 할 일 + 마감 지난 일 알림.
+// 간단히 보기에서는 지금에 가까운 순(앞으로 올 시각 → 지난 시각 → 시각 없음)으로 앞의 3개만
+function pipTodoHtml(items, used) {
+  const over = planner?.overdueCount?.() || 0;
+  const overHtml = over ? `<div class="pip-over">⚠ 마감 지난 일 ${over}개 · 할 일 탭에서 정해 주세요</div>` : '';
+  const rest = items.filter(t => !used.has(t.id));
+  if (!rest.length) return overHtml;
+  const nowStr = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+  const rank = t => (!t.start ? 2 : t.start >= nowStr ? 0 : 1);
+  const sorted = rest.slice().sort((a, b) => rank(a) - rank(b) || a.start.localeCompare(b.start));
+  const shown = pipCompact ? sorted.slice(0, 3) : sorted;
+  const more  = sorted.length - shown.length;
+  return overHtml + `<div class="pip-todo-h">오늘 할 일 ${items.length}${used.size ? ` · ${used.size}개는 위 교시에` : ''}</div>`
+    + shown.map(pipTodoRow).join('') + (more > 0 ? `<div class="pip-empty">외 ${more}개</div>` : '');
 }
 
 function renderPipWidget() {
@@ -2520,13 +2554,28 @@ function renderPipWidget() {
   }
   const bodyEl = doc.getElementById('pip-body');
   if (bodyEl) {
-    bodyEl.innerHTML = pipRowsHtml() + pipTodoHtml();
+    const items = planner?.todayItems?.() || [];
+    const used  = new Set();
+    bodyEl.innerHTML = pipRowsHtml(items, used) + pipTodoHtml(items, used);
     // 지금(또는 다음) 교시가 바뀌었을 때만 그 줄이 보이게 스크롤
     const focusRow = bodyEl.querySelector('.pip-row.focus');
     const focusP   = focusRow?.dataset.p ?? null;
     if (focusRow && focusP !== pipScrolledFor) focusRow.scrollIntoView({ block: 'center' });
     pipScrolledFor = focusP;
   }
+}
+
+// 미니창 아래 안내 줄 — undo 가 있으면 «되돌리기» 버튼을 붙이고 8초 뒤 사라진다
+let pipMsgTimer = null;
+function pipMessage(text, undo) {
+  const el = pipWindow?.document.getElementById('pip-msg');
+  if (!el) return;
+  el.innerHTML = `<span></span>${undo ? '<button type="button">되돌리기</button>' : ''}`;
+  el.firstChild.textContent = text;
+  el.hidden = false;
+  el.querySelector('button')?.addEventListener('click', () => { undo(); el.hidden = true; });
+  clearTimeout(pipMsgTimer);
+  pipMsgTimer = setTimeout(() => { el.hidden = true; }, 8000);
 }
 
 function setPipCompact(on) {
@@ -2579,6 +2628,10 @@ window.openPipWidget = async function() {
         <button id="pip-mode" type="button"></button>
       </div>
       <div id="pip-body"></div>
+      <div id="pip-foot">
+        <div id="pip-msg" hidden></div>
+        <input id="pip-add" type="text" placeholder="할 일 추가 (예: 내일 학부모 상담)" autocomplete="off">
+      </div>
     </div>
   `;
   doc.getElementById('pip-mode').addEventListener('click', () => setPipCompact(!pipCompact));
@@ -2588,7 +2641,17 @@ window.openPipWidget = async function() {
   pipRefreshTimer = setInterval(renderPipWidget, 30000);
   doc.getElementById('pip-body').addEventListener('click', e => {
     const chk = e.target.closest('.pip-todo-chk');
-    if (chk) planner?.completeTask?.(chk.dataset.id);
+    if (!chk) return;
+    const done = planner?.completeTask?.(chk.dataset.id, { silent: true });
+    if (done) pipMessage(`“${done.title.length > 14 ? done.title.slice(0, 14) + '…' : done.title}” ${done.label}`, done.undo);
+  });
+  // 한 줄 입력 — 할 일 탭의 입력칸과 같은 규칙 (한글 입력 중 Enter 는 무시)
+  const addEl = doc.getElementById('pip-add');
+  addEl.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing || !addEl.value.trim()) return;
+    const r = planner?.addByText?.(addEl.value);
+    if (r?.ok) addEl.value = '';
+    if (r) pipMessage(r.msg);
   });
   const pipUnsub = planner?.subscribe?.(renderPipWidget);   // 다른 기기·할 일 탭에서 바뀌면 바로 반영
 

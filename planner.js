@@ -226,9 +226,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   function addFromInput() {
     const input = root()?.querySelector('#pl-add-input');
     if (!input) return;
+    if (addByText(input.value).ok) input.value = '';
+    updateHint();
+  }
+
+  // 한 줄 입력으로 추가 — 목록의 입력칸과 미니창이 같이 쓴다. { ok, msg } 를 돌려 준다
+  function addByText(text) {
     const today = todayStr();
-    const p = T.parseQuickInput(input.value, today);
-    if (!p.title) { toast('할 일 제목을 적어 주세요', true); return; }
+    const p = T.parseQuickInput(text, today);
+    if (!p.title) { toast('할 일 제목을 적어 주세요', true); return { ok: false, msg: '할 일 제목을 적어 주세요' }; }
     let slot = p.slot, note = '';
     if (slot) {
       const c = T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings });
@@ -243,11 +249,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       }
     }
     const id = T.newTaskId();
-    const area = T.guessArea(p.title) || root().querySelector('#pl-add-area').value;
-    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily }, { id, now: nowStamp() }), 'add',
-      note ? `${note} 칸은 비우고 저장했어요` : p.daily ? '매일 할 일로 추가했어요' : '추가했어요');
-    input.value = '';
-    updateHint();
+    const area = T.guessArea(p.title) || root()?.querySelector('#pl-add-area')?.value || '기타';
+    const msg = note ? `${note} 칸은 비우고 저장했어요` : p.daily ? '매일 할 일로 추가했어요' : '추가했어요';
+    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily }, { id, now: nowStamp() }), 'add', msg);
+    return { ok: true, msg };
   }
 
   // ---------- 여러 줄 붙여넣기 → 한 번에 추가 ----------
@@ -990,15 +995,25 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
   }
 
   // 미니창·달력 블록의 완료 버튼 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
-  function completeTask(id) {
+  // silent 면 이 창의 되돌리기 줄은 띄우지 않고, 호출한 쪽(미니창)이 쓸 { title, label, undo } 를 돌려 준다
+  function completeTask(id, { silent = false } = {}) {
     const t = byId(id);
-    if (!t) return;
+    if (!t) return null;
     const today = todayStr(), now = nowStamp();
-    if (T.isDailyDue(t, today)) run(() => T.planDailyDone(t, today, { now }), 'daily-done');
-    else {
+    let opts;
+    if (T.isDailyDue(t, today)) {
+      run(() => T.planDailyDone(t, today, { now }), 'daily-done');
+      opts = { label: '오늘 몫 끝 · 내일 다시 떠요', undo: () => T.planDailyUndo({ ...t, dailyDone: today }, today, { now: nowStamp() }) };
+    } else {
       run(() => T.planComplete(t, { now }), 'done');
-      showUndo(t, doneUndoOpts(t, now));
+      opts = doneUndoOpts(t, now);
     }
+    if (!silent) showUndo(t, opts);
+    return {
+      title: t.title,
+      label: opts.label || '완료',
+      undo: () => run(opts.undo || (() => T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() })), 'undo'),
+    };
   }
 
   return {
@@ -1021,8 +1036,12 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       // 목록의 «오늘» 묶음과 같게 — 고른 일뿐 아니라 «이번만 초과»·마감이 오늘인 일도 미니창에서 끝낼 수 있게
       return T.classify(tasks(), today).today
         .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
-        .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '' }));
+        .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '', daily: T.isDailyDue(t, today) }));
     },
+    // 미니창용: 마감이 지난 채 남은 일 수
+    overdueCount() { return T.classify(tasks(), todayStr()).overdue.length; },
+    // 미니창 입력칸 — 목록의 한 줄 입력과 같은 규칙
+    addByText,
     // 미니창의 동그라미 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
     completeTask,
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
