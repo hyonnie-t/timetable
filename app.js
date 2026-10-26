@@ -160,12 +160,14 @@ function ledger(key) {
   return rows;
 }
 
-// 효니가 확인한 "참고"(warn) 항목 — 이 기기에서만 숨긴다. 내용(msg)이 바뀌면 다시 뜬다. 확인 필요(error)는 숨기지 않는다.
-const healthAckKey_ = i => `${i.code}|${i.msg}`;
-function healthAcked_() {
-  try { return new Set(JSON.parse(localStorage.getItem('ttHealthAck') || '[]')); }
-  catch (e) { return new Set(); }
+// 효니가 확인한 "참고"(warn) 항목 — userData.healthAck/{해시}=true 로 DB에 저장해 모든 기기가 같이 숨긴다.
+// 내용(msg)이 바뀌면 해시가 달라져 다시 뜬다. 확인 필요(error)는 숨기지 않는다.
+function healthAckKey_(i) {
+  let h = 5381;
+  for (const c of `${i.code}|${i.msg}`) h = ((h * 33) ^ c.codePointAt(0)) >>> 0;
+  return 'h' + h.toString(36);
 }
+function healthAcked_() { return new Set(Object.keys(userData?.healthAck || {})); }
 
 function health(all) {
   const today = todayStr();
@@ -180,17 +182,21 @@ function health(all) {
   return healthCache.issues.filter(i => i.level === 'error' || !acked.has(healthAckKey_(i)));
 }
 
-window.ackHealth = function(idx, undo) {
-  const i = health(true)[idx];
+window.ackHealth = async function(idx, undo) {
+  const all = health(true);
+  const i = all[idx];
   if (!i || i.level === 'error') return;
-  const acked = healthAcked_();
-  if (undo) acked.delete(healthAckKey_(i)); else acked.add(healthAckKey_(i));
+  const patch = {};
+  patch[`healthAck/${healthAckKey_(i)}`] = undo ? null : true;
   // 사라진 옛 항목은 정리해서 목록이 계속 커지지 않게 한다
-  const live = new Set(health(true).map(healthAckKey_));
-  try { localStorage.setItem('ttHealthAck', JSON.stringify([...acked].filter(k => live.has(k)))); } catch (e) {}
+  const live = new Set(all.map(healthAckKey_));
+  for (const k of Object.keys(userData.healthAck || {})) if (!live.has(k)) patch[`healthAck/${k}`] = null;
+  try { await commit_(patch); }
+  catch (e) { showToast('저장 실패: ' + e.message, true); return; }
   window.openDataDiag();
   if (currentTab === 'today') renderToday();
 };
+
 
 function nowPos_() {
   const n = new Date();
@@ -270,7 +276,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-10-26-health-ack';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-26-health-ack2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -1930,7 +1936,7 @@ window.openDataDiag = function() {
           : ` <button class="btn-secondary" style="padding:2px 8px;font-size:12px" onclick="window.ackHealth(${idx}${done ? ',true' : ''})">${done ? '다시 보기' : '확인함'}</button>`;
         return `<li class="diag-${i.level}"${done ? ' style="opacity:.55"' : ''}><b>${done ? '확인함' : (levelLabel[i.level] || i.level)}</b> ${escapeHtml(i.msg)}${btn}</li>`;
       }).join('')}</ul>
-      <p class="modal-hint">"확인함"을 누르면 오늘 탭 안내가 사라져요(이 기기에서만, 내용이 바뀌면 다시 떠요).</p>`
+      <p class="modal-hint">"확인함"을 누르면 오늘 탭 안내가 사라져요(모든 기기에서, 내용이 바뀌면 다시 떠요).</p>`
     : `<p class="modal-hint">✅ 자체 점검에서 문제를 찾지 못했어.</p>`;
 
   const keyRows = keys.map(k => {
