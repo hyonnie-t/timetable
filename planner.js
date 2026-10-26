@@ -163,7 +163,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
             </div>
             <form class="pl-add" id="pl-add" autocomplete="off">
               <input class="pl-add-input" id="pl-add-input" type="text" maxlength="200"
-                     placeholder="예) 내일 15시 회의 1시간 · 논문 읽기 10/30까지 · 서평 한 달 내" />
+                     placeholder="할 일을 적고 Enter" />
               <select class="pl-add-area" id="pl-add-area" aria-label="영역">
                 ${T.AREAS.map(a => `<option value="${a}"${a === addArea ? ' selected' : ''}>${a}</option>`).join('')}
               </select>
@@ -190,6 +190,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     });
     el.querySelector('#pl-add').addEventListener('submit', e => { e.preventDefault(); addFromInput(); });
     el.querySelector('#pl-add-input').addEventListener('input', updateHint);
+    updateHint();
     el.querySelector('#pl-add-input').addEventListener('paste', onPasteBulk);
     el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
     el.addEventListener('click', onClick);
@@ -210,7 +211,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     const hint = root()?.querySelector('#pl-hint');
     if (!input || !hint) return;
     const p = T.parseQuickInput(input.value, todayStr());
-    if (!input.value.trim()) { hint.textContent = ''; return; }
+    hint.classList.toggle('pl-hint-tip', !input.value.trim());
+    if (!input.value.trim()) { hint.textContent = '예) 내일 15시 회의 1시간 · 논문 읽기 10/30까지 · 매일 스트레칭'; return; }
     const bits = [];
     if (p.daily) bits.push(p.dueText ? `${p.dueText} → ${fmtMD(p.due)}까지 매일` : p.due ? `${fmtMD(p.due)}까지 매일` : '끝낼 때까지 매일');
     else if (p.slot) bits.push(`${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`);
@@ -350,9 +352,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
           </span>
         </div>
         ${t.status === 'open' && t.kind !== 'watch'
-        ? `<button class="pl-place${t.slot ? ' on' : ''}" data-act="place" aria-label="시간 칸에 놓기" title="누르면 시간 칸을 고르고, 끌어서 시간표에 놓을 수도 있어요"><lucian-calendar size="20"></lucian-calendar></button>` : ''}
+        ? `<button class="pl-place${t.slot ? ' on' : ''}" data-act="place" aria-label="시간 칸에 놓기" title="누르면 시간 칸을 고르고, 끌어서 시간표에 놓을 수도 있어요"><lucian-calendar size="20"></lucian-calendar><span class="pl-bl">${t.slot ? '시간 칸' : '시간 정하기'}</span></button>` : ''}
         ${t.status === 'open' && t.kind !== 'watch' && !isDaily
-        ? `<button class="pl-pin${pinned ? ' on' : ''}" data-act="pin" aria-label="오늘 할 일로" title="${pinned ? '오늘 할 일에서 빼기' : '오늘 할 일로'}">${pinned ? '★' : '☆'}</button>`
+        ? `<button class="pl-pin${pinned ? ' on' : ''}" data-act="pin" aria-label="오늘 할 일로" title="${pinned ? '오늘 할 일에서 빼기' : '오늘 할 일로'}">${pinned ? '★' : '☆'}<span class="pl-bl">${pinned ? '오늘 빼기' : '오늘 하기'}</span></button>`
         : ''}
         ${isDaily ? `<button class="pl-finish btn-secondary" data-act="done" title="끝까지 다 했을 때 — 목록에서 완전히 빠져요">다 끝냄</button>` : ''}
         ${t.status !== 'open' ? `<button class="pl-restore btn-secondary" data-act="${t.status === 'done' ? 'undo' : 'restore'}">${t.status === 'done' ? '되돌리기' : '복원'}</button>` : ''}

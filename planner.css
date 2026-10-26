@@ -374,3 +374,18 @@
 .pl-rule-list .pl-row { align-items: center; }
 .pl-rule-list .pl-row button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .pl-rule-h { font-size: 14px; font-weight: 800; margin: 18px 0 8px; }
+
+/* 목록 줄의 «시간 칸»·«오늘» 버튼 — 아이콘만으론 뜻을 몰라서 글자를 같이 붙인다 */
+.pl-place, .pl-pin {
+  width: auto; min-width: 48px; height: auto; min-height: 44px; padding: 4px 6px; border-radius: 10px;
+  flex-direction: column; gap: 2px; align-self: center;
+}
+.pl-pin { font-size: 17px; }
+.pl-bl { font-size: 10.5px; line-height: 1.1; font-weight: 600; white-space: nowrap; font-family: inherit; }
+.pl-hint.pl-hint-tip { color: var(--text3); font-size: 11.5px; }
+
+/* 머리글 — 그림은 얇은 띠로 줄이고 숫자 표시는 한 줄로 */
+.pl-left .pl-head { min-height: 76px; padding: 10px 14px; align-items: center; margin-bottom: 10px;
+  background: linear-gradient(90deg, var(--bg) 35%, rgba(245,244,240,0) 70%), url('images/planner_header.webp') right 55% / min(440px, 80%) auto no-repeat; }
+.pl-left .pl-counter { align-self: center; flex-direction: row; flex-wrap: wrap; align-items: center; }
+@media (max-width: 480px) { .pl-left .pl-head { min-height: 68px; } }
