@@ -22,7 +22,8 @@ const DEMO = new URLSearchParams(location.search).get('demo');
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
-  { label: '3학년',   subject: '역사',  start: '2026-10-28', includeStart: true,  classes: ['305', '306', '307', '308'] },
+  // 3학년은 기말고사가 아니라 마지막 수업일(2026년 마지막 평일 12/31, 방학 전주까지)까지 센다
+  { label: '3학년',   subject: '역사',  start: '2026-12-31', includeStart: true,  classes: ['305', '306', '307', '308'], endLabel: '마지막 수업' },
   { label: '2학년 A', subject: '역사A', start: '2026-12-14', includeStart: false, classes: ['201 A', '202 A', '203 A'] },
   { label: '2학년 B', subject: '역사B', start: '2026-12-14', includeStart: false, classes: ['201 B', '202 B', '203 B', '204 B'] },
 ];
@@ -234,6 +235,13 @@ function getSpecialLesson(dateStr, p, key) {
 function remainingLessonsUntilExam(cls, g) {
   const key = PE.lessonKey(cls, g.subject);
   return PE.remainingUntil(userData, key, todayStr(), g.start, g.includeStart, ledger(key));
+}
+
+// 시험(마지막 수업) 전 마지막 수업이 몇 차시일지 (다음 수업 차시 + 남은 수업 - 1)
+function examEndStep(cls, g) {
+  const key = PE.lessonKey(cls, g.subject);
+  const rest = remainingLessonsUntilExam(cls, g);
+  return rest > 0 ? PE.nextStep(userData, key, nowPos_(), ledger(key)) + rest - 1 : null;
 }
 
 function parseDateStr_(dateStr) {
@@ -668,20 +676,30 @@ function renderToday() {
   if (examGroups.length) {
     const rowsHtml = examGroups.map(g => {
       const [, exM, exD] = g.start.split('-').map(Number);
-      const itemsHtml = g.classes.map(cls => `
+      const infos = g.classes.map(cls => {
+        const key = PE.lessonKey(cls, g.subject);
+        return { cls, left: remainingLessonsUntilExam(cls, g), step: PE.nextStep(userData, key, nowPos_(), ledger(key)), end: examEndStep(cls, g) };
+      });
+      const minStep = Math.min(...infos.map(i => i.step));
+      const itemsHtml = infos.map(i => {
+        const ahead = i.step - minStep;
+        return `
         <span class="exam-dday-item">
-          <span class="exam-dday-class">${cls.replace(' ', '')}</span>
-          <span class="exam-dday-count">D-${remainingLessonsUntilExam(cls, g)}</span>
-        </span>`).join('');
+          <span class="exam-dday-class">${i.cls.replace(' ', '')}</span>
+          <span class="exam-dday-count">D-${i.left}</span>
+          <span class="exam-dday-step">${i.step}차시${i.end ? ` → ${i.end}차시` : ''}</span>
+          <span class="exam-dday-pace${ahead ? ' ahead' : ''}">${ahead ? `진도 +${ahead}` : '진도 기준'}</span>
+        </span>`;
+      }).join('');
       return `
         <div class="exam-dday-row">
-          <div class="exam-dday-label">${g.label}<small>${exM}/${exD}</small></div>
+          <div class="exam-dday-label">${g.label}<small>${exM}/${exD}${g.endLabel ? ' ' + g.endLabel : ''}</small></div>
           <div class="exam-dday-items">${itemsHtml}</div>
         </div>`;
     }).join('');
     el.innerHTML += `
       <div class="exam-dday-card">
-        <div class="exam-dday-title">기말고사까지 남은 역사 수업</div>
+        <div class="exam-dday-title">남은 역사 수업 · D-수업 수 / 다음 차시 → 마지막 차시 / 진도는 가장 느린 반 대비</div>
         ${rowsHtml}
       </div>`;
   }
