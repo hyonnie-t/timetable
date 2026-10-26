@@ -202,6 +202,37 @@ export function planPostpone(task, newDate, { now }) {
   return taskPatch_(task.id, { due: newDate, dueText: null, today: null, slot: null }, now);
 }
 
+// 한 건을 둘로 나눈다 — 새 건은 마감·기간·오늘·영역·매일·링크·메모를 원래 건 그대로 따르고, 시간 칸만 비운다.
+// 칸에 놓인 일이면 firstMin(분)만 원래 칸에 남기고 나머지는 새 건이 나중에 칸에 놓을 몫이 된다.
+// 제목은 «논문 읽기 (1)» / «논문 읽기 (2)» — 이미 번호가 있으면 그 다음 번호를 붙인다.
+const SPLIT_NO_RE = /\s*\((\d{1,3})\)$/;
+export function splitTitles(title) {
+  const m = String(title).match(SPLIT_NO_RE);
+  if (!m) return { first: `${title} (1)`, second: `${title} (2)` };
+  return { first: title, second: `${title.replace(SPLIT_NO_RE, '')} (${Number(m[1]) + 1})` };
+}
+
+// keepToday / keepDaily: false 면 새 건은 «오늘 표시» / «매일 하기»를 따르지 않는다 (오늘 할 일 상한을 넘기지 않으려고 화면이 정한다)
+export function planSplitTask(task, { id, now, firstMin = null, keepToday = true, keepDaily = true }) {
+  if (!isValidId(id)) throw new Error('할 일 id가 올바르지 않습니다');
+  if (task.status !== 'open') throw new Error('끝내지 않은 일만 나눌 수 있습니다');
+  if (task.kind === 'watch') throw new Error('지켜보기는 나눌 수 없습니다');
+  const titles = splitTitles(task.title);
+  if (titles.first.length > MAX_TITLE || titles.second.length > MAX_TITLE) throw new Error(`제목은 ${MAX_TITLE}자까지라 나눌 수 없습니다`);
+  const fields = { title: titles.first };
+  if (task.slot) {
+    const min = Number(firstMin);
+    if (!Number.isInteger(min) || min < 5 || min % 5 !== 0 || min > task.slot.min - 5) throw new Error('원래 칸에 남길 시간은 5분 단위로, 칸보다 짧아야 합니다');
+    fields.slot = { date: task.slot.date, start: task.slot.start, min };
+  }
+  const copy = { ...task, title: titles.second, slot: null, createdAt: now, src: 'app' };
+  if (!keepToday) copy.today = null;
+  if (!keepDaily) delete copy.daily;
+  for (const k of ['id', 'status', 'doneAt', 'archivedAt', 'order', 'extra', 'dailyDone', 'ruleId', 'prepDue']) delete copy[k];
+  const patch = { ...taskPatch_(task.id, fields, now), [`tasks/${id}`]: normalizeTask(copy, { now }) };
+  return { patch, newId: id, undo: { ...taskPatch_(task.id, { title: task.title, slot: task.slot ?? null }, now), [`tasks/${id}`]: null } };
+}
+
 // 칸 놓기/빼기 (검사는 slotConflict 로 먼저 한다)
 export function planSetSlot(task, slot, { now }) {
   const clean = cleanSlot_(slot);

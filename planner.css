@@ -183,6 +183,7 @@
 @media (max-width: 520px) { .pl-f-row2 > .pl-f, .pl-f-row3 > .pl-f { flex-basis: 100%; } }
 .pl-e-err { color: var(--danger); font-size: 12px; min-height: 16px; }
 .pl-e-foot { align-items: center; }
+.pl-e-foot button { white-space: nowrap; }
 .pl-spacer { flex: 1; }
 .pl-skip { font-size: 13px; }
 
