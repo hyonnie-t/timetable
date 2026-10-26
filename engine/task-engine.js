@@ -328,7 +328,7 @@ export function busyBlocks(data, date) {
     } else if (cellKey(cell)) {
       kind = 'class'; label = `${cell.class} ${cell.subject}`;
     }
-    if (kind) blocks.push({ p, start: timeToMin(t.start), end: timeToMin(t.end), kind, label });
+    if (kind) blocks.push({ p, start: timeToMin(t.start), end: timeToMin(t.end), kind, label, ...(kind === 'class' ? { cls: cell.class, subject: cell.subject } : {}) });
   }
   return blocks;
 }

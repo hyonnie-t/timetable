@@ -293,6 +293,7 @@ describe('하루 칸 — 수업과 겹침', () => {
     const b = T.busyBlocks(d, TODAY);
     assert.deepEqual(b.map(x => [x.p, x.start, x.end, x.kind]), [[2, 595, 640, 'class'], [4, 705, 750, 'class']]);
     assert.equal(b[0].label, '102 역사');
+    assert.deepEqual([b[0].cls, b[0].subject], ['102', '역사']);   // 달력이 차시·주제를 찾는 데 쓴다
   });
 
   test('휴업일은 블록이 없고, 행사 교시는 막힌다', () => {

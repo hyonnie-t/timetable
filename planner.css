@@ -294,9 +294,19 @@
 .pl-hours span:first-child { transform: none; }
 .pl-col {
   position: relative; min-width: 0;
-  background-image: linear-gradient(var(--border) 1px, transparent 1px);
-  background-size: 100% 56px;
+  /* 1시간 실선 + 30분 점선(옅게) — 하루 보기(.q15)에는 15분 점선(더 옅게)도. 한 시간 높이 56px(HOUR_PX)과 맞춰 둔다 */
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='28'%3E%3Crect width='3' height='1' fill='%23cdcbc1'/%3E%3C/svg%3E");
+  background-size: 100% 56px, 6px 28px;
   border-left: 1px solid var(--border);
+}
+.pl-col.q15 {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='28'%3E%3Crect width='3' height='1' fill='%23cdcbc1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='14'%3E%3Crect width='2' height='1' fill='%23e3e1d9'/%3E%3C/svg%3E");
+  background-size: 100% 56px, 6px 28px, 4px 14px;
 }
 .pl-col.today { background-color: #fbfdfb; }
 .pl-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 4; pointer-events: none; }
@@ -306,6 +316,8 @@
   position: absolute; left: 2px; right: 2px; border-radius: 8px; padding: 3px 6px; font-size: 11px; line-height: 1.3;
   overflow: hidden; box-sizing: border-box;
 }
+.pl-blk-l, .pl-blk-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-blk-sub { font-size: 10.5px; color: #55544d; font-weight: 600; }
 .pl-blk-class { background: #ecebe6; color: #6b6a64; border: 1px solid #dddcd5; pointer-events: none; }
 .pl-blk-event { background: repeating-linear-gradient(135deg, #f1efe9, #f1efe9 6px, #e8e5dc 6px, #e8e5dc 12px); color: #6b6a64; border: 1px solid #dddcd5; pointer-events: none; }
 .pl-blk-task {
@@ -320,6 +332,14 @@
 .pl-blk-chk:hover { background: color-mix(in srgb, var(--rail) 25%, #fff); }
 .pl-blk-task .pl-blk-t { padding-right: 20px; }
 @media (pointer: coarse) { .pl-blk-chk { width: 24px; height: 24px; } .pl-blk-task .pl-blk-t { padding-right: 26px; } }
+/* 칸에서 빼 목록으로 되돌리기 — 완료 동그라미 왼쪽 */
+.pl-blk-un { position: absolute; top: 2px; right: 24px; width: 18px; height: 18px; padding: 0; border: 1px solid var(--rail); border-radius: 50%; background: #fff; color: var(--rail); font-size: 11px; line-height: 1; cursor: pointer; z-index: 3; }
+.pl-blk-un:hover { background: color-mix(in srgb, var(--rail) 25%, #fff); }
+.pl-blk-task .pl-blk-t { padding-right: 42px; }
+@media (pointer: coarse) { .pl-blk-un { width: 24px; height: 24px; right: 30px; font-size: 13px; } .pl-blk-task .pl-blk-t { padding-right: 56px; } }
+.pl-unplace-zone { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; padding: 12px 20px; border: 2px dashed var(--accent); border-radius: 14px; background: #fff; color: var(--accent); font-weight: 700; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.18); pointer-events: auto; }
+.pl-unplace-zone.on { background: var(--accent); color: #fff; }
+.pl-left.pl-drop-on { outline: 3px dashed var(--accent); outline-offset: -3px; border-radius: 12px; }
 .pl-blk-m { font-family: var(--mono); font-size: 10px; color: var(--text2); }
 .pl-blk-task.dragging { z-index: 6; opacity: .92; box-shadow: 0 8px 20px rgba(0,0,0,.25); cursor: grabbing; }
 .pl-blk-task.bad, .pl-blk-preview.bad { background: #fdecec; border-color: var(--danger); }
