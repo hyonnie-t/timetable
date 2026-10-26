@@ -681,12 +681,17 @@ function renderToday() {
         const key = PE.lessonKey(cls, g.subject);
         return { cls, left: remainingLessonsUntilExam(cls, g), step: PE.nextStep(userData, key, nowPos_(), ledger(key)), end: examEndStep(cls, g) };
       });
+      // 가장 빠듯한 반(그날까지 가는 차시가 가장 작은 반)을 기준으로 다른 반이 몇 차시 더 할 수 있는지
+      const ends = infos.map(i => i.end).filter(e => e != null);
+      const minEnd = ends.length ? Math.min(...ends) : null;
       const itemsHtml = infos.map(i => {
+        const slack = i.end != null && minEnd != null ? i.end - minEnd : 0;
         return `
         <span class="exam-dday-item">
           <span class="exam-dday-class">${i.cls.replace(' ', '')}</span>
           <span class="exam-dday-count">D-${i.left}</span>
           <span class="exam-dday-step">${i.end ? `${i.end}차시까지` : '수업 끝'}</span>
+          <span class="exam-dday-slack${slack ? ' has' : ''}">${slack ? `+${slack}차시 여유` : '가장 빠듯'}</span>
         </span>`;
       }).join('');
       return `
@@ -697,7 +702,7 @@ function renderToday() {
     }).join('');
     el.innerHTML += `
       <div class="exam-dday-card">
-        <div class="exam-dday-title">남은 역사 수업 · 남은 수업 수 / 그날까지 가는 차시</div>
+        <div class="exam-dday-title">남은 역사 수업 · 남은 수업 수 / 그날까지 가는 차시 / 여유 = 가장 빠듯한 반보다 더 할 수 있는 차시</div>
         ${rowsHtml}
       </div>`;
   }
