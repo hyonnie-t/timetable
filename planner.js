@@ -448,7 +448,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     else if (!t) return;
     else if (act === 'done') {
       run(() => T.planComplete(t, { now }), 'done');
-      showUndo(t);
+      showUndo(t, doneUndoOpts(t, now));
     } else if (act === 'daily-done') {
       run(() => T.planDailyDone(t, today, { now }), 'daily-done');
       showUndo(t, { label: '오늘 몫 끝 · 내일 다시 떠요', undo: () => T.planDailyUndo({ ...t, dailyDone: today }, today, { now: nowStamp() }) });
@@ -519,6 +519,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     });
     document.body.appendChild(bar);
     undo = { timer: setTimeout(hideUndo, UNDO_MS) };
+  }
+  // 일찍 끝내 칸이 줄었으면 안내 문구에 알리고, 되돌리면 칸도 원래 길이로
+  function doneUndoOpts(t, now) {
+    const cut = T.earlyEndSlot(t, now);
+    if (!cut) return {};
+    return {
+      label: `완료 · 칸을 ${cut.min}분으로 줄였어요`,
+      undo: () => ({ ...T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() }), ...T.planSetSlot(t, t.slot, { now: nowStamp() }) }),
+    };
   }
   function hideUndo() {
     if (undo) { clearTimeout(undo.timer); undo = null; }
@@ -986,7 +995,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
     if (!t) return;
     const today = todayStr(), now = nowStamp();
     if (T.isDailyDue(t, today)) run(() => T.planDailyDone(t, today, { now }), 'daily-done');
-    else run(() => T.planComplete(t, { now }), 'done');
+    else {
+      run(() => T.planComplete(t, { now }), 'done');
+      showUndo(t, doneUndoOpts(t, now));
+    }
   }
 
   return {
