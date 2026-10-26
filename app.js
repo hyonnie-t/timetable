@@ -160,15 +160,37 @@ function ledger(key) {
   return rows;
 }
 
-function health() {
-  const today = todayStr();
-  if (healthCache?.rev === dataRev && healthCache.today === today) return healthCache.issues;
-  let issues;
-  try { issues = PE.checkHealth(userData, { today }); }
-  catch (e) { issues = [{ level: 'error', code: 'check-failed', msg: '자체 점검 실패: ' + e.message }]; }
-  healthCache = { rev: dataRev, today, issues };
-  return issues;
+// 효니가 확인한 "참고"(warn) 항목 — 이 기기에서만 숨긴다. 내용(msg)이 바뀌면 다시 뜬다. 확인 필요(error)는 숨기지 않는다.
+const healthAckKey_ = i => `${i.code}|${i.msg}`;
+function healthAcked_() {
+  try { return new Set(JSON.parse(localStorage.getItem('ttHealthAck') || '[]')); }
+  catch (e) { return new Set(); }
 }
+
+function health(all) {
+  const today = todayStr();
+  if (!(healthCache?.rev === dataRev && healthCache.today === today)) {
+    let issues;
+    try { issues = PE.checkHealth(userData, { today }); }
+    catch (e) { issues = [{ level: 'error', code: 'check-failed', msg: '자체 점검 실패: ' + e.message }]; }
+    healthCache = { rev: dataRev, today, issues };
+  }
+  if (all) return healthCache.issues;
+  const acked = healthAcked_();
+  return healthCache.issues.filter(i => i.level === 'error' || !acked.has(healthAckKey_(i)));
+}
+
+window.ackHealth = function(idx, undo) {
+  const i = health(true)[idx];
+  if (!i || i.level === 'error') return;
+  const acked = healthAcked_();
+  if (undo) acked.delete(healthAckKey_(i)); else acked.add(healthAckKey_(i));
+  // 사라진 옛 항목은 정리해서 목록이 계속 커지지 않게 한다
+  const live = new Set(health(true).map(healthAckKey_));
+  try { localStorage.setItem('ttHealthAck', JSON.stringify([...acked].filter(k => live.has(k)))); } catch (e) {}
+  window.openDataDiag();
+  if (currentTab === 'today') renderToday();
+};
 
 function nowPos_() {
   const n = new Date();
@@ -248,7 +270,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-10-19-engine2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-26-health-ack';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -1895,14 +1917,20 @@ function visibleStr(str) {
 
 window.openDataDiag = function() {
   document.getElementById('modal-datadiag')?.remove();
-  const issues = health();
+  const issues = health(true);
+  const acked  = healthAcked_();
   const keys   = PE.allKeys(userData);
   const me     = deviceInfo();
   const levelLabel = { error: '확인 필요', warn: '참고' };
 
   const issueHtml = issues.length
-    ? `<ul class="diag-issues">${issues.map(i =>
-        `<li class="diag-${i.level}"><b>${levelLabel[i.level] || i.level}</b> ${escapeHtml(i.msg)}</li>`).join('')}</ul>`
+    ? `<ul class="diag-issues">${issues.map((i, idx) => {
+        const done = i.level !== 'error' && acked.has(healthAckKey_(i));
+        const btn  = i.level === 'error' ? ''
+          : ` <button class="btn-secondary" style="padding:2px 8px;font-size:12px" onclick="window.ackHealth(${idx}${done ? ',true' : ''})">${done ? '다시 보기' : '확인함'}</button>`;
+        return `<li class="diag-${i.level}"${done ? ' style="opacity:.55"' : ''}><b>${done ? '확인함' : (levelLabel[i.level] || i.level)}</b> ${escapeHtml(i.msg)}${btn}</li>`;
+      }).join('')}</ul>
+      <p class="modal-hint">"확인함"을 누르면 오늘 탭 안내가 사라져요(이 기기에서만, 내용이 바뀌면 다시 떠요).</p>`
     : `<p class="modal-hint">✅ 자체 점검에서 문제를 찾지 못했어.</p>`;
 
   const keyRows = keys.map(k => {
