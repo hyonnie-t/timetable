@@ -88,7 +88,7 @@ function demoSeed(today) {
 // 만들기 — app.js 가 부른다
 //   uid, demo, getSchoolData()(시간표 데이터: 수업과 겹침 검사용), toast(msg, isErr)
 // ------------------------------------------------------------
-export function createPlanner({ uid, demo = false, getSchoolData = () => null, toast = () => {} }) {
+export function createPlanner({ uid, demo = false, getSchoolData = () => null, getLessonInfo = null, toast = () => {} }) {
   let store = demo ? demoSeed(todayStr()) : { tasks: {}, rules: {}, settings: {} };
   let loaded = demo;
   let loadError = '';
@@ -180,10 +180,12 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       root: el.querySelector('#pl-cal'),
       getTasks: tasks,
       getData: getSchoolData,
+      getLessonInfo,
       getSettings: () => store.settings,
       today: todayStr,
       onSetSlot: setSlot,
       onOpen: openEdit,
+      onUnplace: unplaceTask,
       onDone: t => completeTask(t.id),
       onEmpty: (date, start) => openPlaceModal({ date, start }),
       toast,
@@ -805,6 +807,16 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, t
       if (!chk.ok) { toast(`오늘 할 일이 ${chk.cap}개예요. 하나를 빼야 오늘 칸에 놓을 수 있어요`, true); cal?.render(); return; }
     }
     run(() => T.planSetSlot(t, slot, { now: nowStamp() }), 'slot', okMsg);
+  }
+
+  // 시간 칸에서 빼 목록으로 되돌린다 (마감·영역은 그대로) — 되돌리기 줄로 원래 칸을 살릴 수 있다
+  function unplaceTask(t) {
+    if (!t?.slot) return;
+    const prev = t.slot, now = nowStamp();
+    run(() => T.planSetSlot(t, null, { now }), 'unplace').then(() => {
+      if (byId(t.id)?.slot) return;   // 저장이 안 됐으면 되돌리기 줄을 띄우지 않는다
+      showUndo(t, { label: '목록으로 되돌렸어요', undo: () => T.planSetSlot({ ...t, slot: null }, prev, { now: nowStamp() }) });
+    });
   }
 
   const MIN_CHOICES = [15, 30, 45, 60, 90, 120, 180];

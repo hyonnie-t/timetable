@@ -498,6 +498,7 @@ async function startPlanner_() {
       uid: currentUser.uid,
       demo: !!DEMO,
       getSchoolData: () => userData,
+      getLessonInfo: (dateStr, p, cls, subject) => lessonCellInfo(dateStr, p, { class: cls, subject }),
       toast: showToast,
     });
     document.getElementById('tab-btn-tasks').style.display = '';

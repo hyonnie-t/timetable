@@ -1,6 +1,6 @@
 // 달력 시간표 — 「할 일」 탭 오른쪽(좁으면 따로 보기)에 붙는 하루/주 칸.
 // 수업·학사일정은 회색 고정 블록, 할 일은 영역 색 블록. 끌어서 옮기고, 아래 끝을 끌어 길이를 바꾸고,
-// 목록의 달력 버튼이나 마감 칩을 끌어다 놓으면 그 시간 칸(slot)이 된다. 15분 단위.
+// 목록의 달력 버튼이나 마감 칩을 끌어다 놓으면 그 시간 칸(slot)이 된다. 15분 단위. 놓은 블록은 ↩ 버튼이나 왼쪽 목록으로 끌어서 칸에서 뺀다.
 // 저장은 하지 않는다 — 바뀐 칸을 onSetSlot 으로 planner.js 에 넘기고, 겹침 검사는 task-engine 의 slotConflict 가 한다.
 import { addDays, timeToMin } from './engine/progress-engine.js';
 import * as T from './engine/task-engine.js';
@@ -28,7 +28,7 @@ export function weekDates(date, weekend = false) {
   return Array.from({ length: weekend ? 7 : 5 }, (_, k) => addDays(mon, k));
 }
 
-export function createCalendar({ root, getTasks, getData, getSettings, today, onSetSlot, onOpen, onDone, onEmpty, toast }) {
+export function createCalendar({ root, getTasks, getData, getLessonInfo, getSettings, today, onSetSlot, onOpen, onUnplace, onDone, onEmpty, toast }) {
   let date = today();
   let mode = 'day';
   let startMin = 420, endMin = 1320;
@@ -132,7 +132,15 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     const colHtml = dates.map(d => {
       const blocks = T.busyBlocks(dataOf(), d).map(b => {
         const top = Math.max(0, yOf(b.start)), h = Math.max(10, yOf(b.end) - yOf(b.start));
-        return `<div class="pl-blk pl-blk-${b.kind}" style="top:${top}px;height:${h}px" title="${esc(b.label)} ${hhmm(b.start)}–${hhmm(b.end)}"><b>${b.p}</b> ${esc(b.label)}</div>`;
+        // 수업 블록에는 그 시간의 차시·주제를 붙인다 (특별 수업이면 그 이름)
+        let sub = '';
+        if (b.kind === 'class' && getLessonInfo) {
+          try {
+            const li = getLessonInfo(d, b.p, b.cls, b.subject);
+            sub = li?.special ? `특별 · ${li.special.label}` : [li?.step ? `${li.step}차시` : '', li?.topic || ''].filter(Boolean).join(' ');
+          } catch (_) { sub = ''; }
+        }
+        return `<div class="pl-blk pl-blk-${b.kind}" style="top:${top}px;height:${h}px" title="${esc(b.label)}${sub ? ' — ' + esc(sub) : ''} ${hhmm(b.start)}–${hhmm(b.end)}"><div class="pl-blk-l"><b>${b.p}</b> ${esc(b.label)}</div>${sub && h >= 30 ? `<div class="pl-blk-sub">${esc(sub)}</div>` : ''}</div>`;
       }).join('');
       const done = doneBlocks(tasks, d).map(b => {
         const top = yOf(b.start), h = Math.max(14, b.min * HOUR_PX / 60);
@@ -145,6 +153,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
         const top = yOf(s), h = Math.max(14, t.slot.min * HOUR_PX / 60);
         return `<div class="pl-blk pl-blk-task pl-r-${esc(t.area)}" data-id="${esc(t.id)}" tabindex="0" role="button"
           style="top:${top}px;height:${h}px" title="${esc(t.title)} ${t.slot.start}–${hhmm(s + t.slot.min)}">
+          <button type="button" class="pl-blk-un" data-unplace="${esc(t.id)}" aria-label="목록으로 되돌리기" title="시간 칸에서 빼 목록으로 되돌리기">↩</button>
           <button type="button" class="pl-blk-chk" data-done="${esc(t.id)}" aria-label="완료" title="완료"></button>
           <div class="pl-blk-t">${esc(t.title)}</div>
           ${h >= 34 ? `<div class="pl-blk-m">${t.slot.start}–${hhmm(s + t.slot.min)}</div>` : ''}
@@ -157,7 +166,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
         if (nm >= startMin && nm <= endMin) now = `<div class="pl-now" style="top:${yOf(nm)}px"></div>`;
       }
       const off = ((60 - startMin % 60) % 60) * HOUR_PX / 60;
-      return `<div class="pl-col${d === td ? ' today' : ''}" data-date="${d}" style="height:${H}px;background-position:0 ${off}px">${blocks}${done}${mine}${now}</div>`;
+      return `<div class="pl-col${d === td ? ' today' : ''}${mode === 'day' ? ' q15' : ''}" data-date="${d}" style="height:${H}px;background-position:0 ${off}px">${blocks}${done}${mine}${now}</div>`;
     }).join('');
 
     root.innerHTML = `
@@ -177,7 +186,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
       <div class="pl-cal-scroll"><div class="pl-cal-grid" style="${cols}">
         <div class="pl-hours" style="height:${H}px">${hourLabels.join('')}</div>${colHtml}
       </div></div>
-      <div class="pl-cal-help">빈 칸을 누르면 할 일을 놓아요 · 블록을 끌면 옮기고, 아래 끝을 끌면 길이가 바뀌어요 · 회색은 수업(겹쳐 놓을 수 없어요) · 흐린 ✓ 칸은 끝낸 일</div>`;
+      <div class="pl-cal-help">빈 칸을 누르면 할 일을 놓아요 · 블록을 끌면 옮기고, 아래 끝을 끌면 길이가 바뀌어요 · ↩ 나 왼쪽 목록으로 끌면 칸에서 빠져요 · 회색은 수업(겹쳐 놓을 수 없어요) · 흐린 ✓ 칸은 끝낸 일</div>`;
 
     const sc = root.querySelector('.pl-cal-scroll');
     if (keepTop != null && !firstScroll) sc.scrollTop = keepTop;
@@ -214,17 +223,40 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     if (!t?.slot || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
     const s0 = { date: t.slot.date, start: timeToMin(t.slot.start), min: t.slot.min };
-    let cur = { ...s0 }, moved = false, bad = false;
+    let cur = { ...s0 }, moved = false, bad = false, unplacing = false, ghost = null, zone = null;
     const x0 = e.clientX, y0 = e.clientY;
     const ownCol = blk.closest('.pl-col');
     try { blk.setPointerCapture(e.pointerId); } catch (_) { /* 캡처가 안 돼도 이어진다 */ }
     busy = true;
 
+    // 왼쪽 목록(또는 목록이 안 보이는 좁은 화면의 아래쪽 띠)에 놓으면 칸에서 뺀다 — 옮기기 끌기에서만 (길이 바꾸기는 해당 없음)
+    const canUnplace = !!onUnplace && kind === 'move';
+    const listVisible = !!document.querySelector('.pl-left')?.offsetParent;
+    const cleanup = () => { ghost?.remove(); zone?.remove(); ghost = zone = null; document.querySelector('.pl-left.pl-drop-on')?.classList.remove('pl-drop-on'); };
     const move = ev => {
       if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < MOVE_PX) return;
-      moved = true;
+      if (!moved) {
+        moved = true;
+        if (canUnplace && !listVisible) {
+          zone = document.createElement('div');
+          zone.className = 'pl-unplace-zone';
+          zone.textContent = '↩ 여기에 놓으면 목록으로 되돌아가요';
+          document.body.appendChild(zone);
+        }
+      }
       blk.classList.add('dragging');
       edgeScroll(ev.clientY);
+      const hit = canUnplace ? document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.pl-left, .pl-unplace-zone') : null;
+      unplacing = !!hit;
+      zone?.classList.toggle('on', unplacing);
+      document.querySelector('.pl-left')?.classList.toggle('pl-drop-on', unplacing);
+      if (unplacing) {
+        if (!ghost) { ghost = document.createElement('div'); ghost.className = 'pl-ghost'; ghost.textContent = t.title; document.body.appendChild(ghost); }
+        ghost.style.left = `${ev.clientX + 12}px`; ghost.style.top = `${ev.clientY + 12}px`;
+        blk.style.opacity = '.35'; blk.classList.remove('bad');
+        return;
+      }
+      ghost?.remove(); ghost = null; blk.style.opacity = '';
       const dy = (ev.clientY - y0) * 60 / HOUR_PX;
       if (kind === 'resize') {
         cur.min = Math.max(SNAP, snap(s0.min + dy));
@@ -246,10 +278,14 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
       blk.removeEventListener('pointermove', move);
       blk.removeEventListener('pointerup', end);
       blk.removeEventListener('pointercancel', end);
+      blk.removeEventListener('lostpointercapture', lost);
       blk.classList.remove('dragging');
+      const drop = unplacing;
+      cleanup();
       endBusy();
       if (ev.type === 'pointercancel') { render(); return; }
       if (!moved) { onOpen(t); return; }
+      if (drop) { blk.style.opacity = ''; onUnplace(t); return; }
       const c = check(t, cur.date, cur.start, cur.min);
       if (!c.ok) { toast(`${reasonText(c)} — 원래 자리로 돌렸어요`, true); render(); return; }
       if (cur.date === s0.date && cur.start === s0.start && cur.min === s0.min) { render(); return; }
@@ -258,6 +294,9 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     blk.addEventListener('pointermove', move);
     blk.addEventListener('pointerup', end);
     blk.addEventListener('pointercancel', end);
+    // 손을 떼기 전에 캡처가 풀리면(창 전환 등) 취소로 처리해 띠·그림자가 남지 않게 한다. pointerup 뒤의 정상 해제는 end 가 리스너를 이미 뗐다.
+    const lost = () => end({ type: 'pointercancel' });
+    blk.addEventListener('lostpointercapture', lost);
   }
 
   // 목록의 달력 버튼·마감 칩에서 시작하는 끌기 — 달력이 보일 때만. 움직이지 않으면 onClick(눌렀다 뗌)을 부른다.
@@ -318,7 +357,7 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
   root.addEventListener('pointerdown', e => {
     const chip = e.target.closest('.pl-chip-due');
     if (chip) { const t = findTask(chip.dataset.id); if (t) { e.preventDefault(); startPlaceDrag(e, t, 60, () => onOpen(t), chip); } return; }
-    if (e.target.closest('.pl-blk-chk')) { e.stopPropagation(); return; }   // 완료 버튼은 끌기가 아니라 누르기만
+    if (e.target.closest('.pl-blk-chk, .pl-blk-un')) { e.stopPropagation(); return; }   // 완료 버튼은 끌기가 아니라 누르기만
     const blk = e.target.closest('.pl-blk-task');
     if (blk && !blk.classList.contains('pl-blk-preview')) { startBlock(e, blk, e.target.closest('.pl-rs') ? 'resize' : 'move'); return; }
     const col = e.target.closest('.pl-col');
@@ -340,6 +379,8 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     if (e.key === 'Enter' && e.target.matches('.pl-blk-task')) { const t = findTask(e.target.dataset.id); if (t) onOpen(t); }
   });
   root.addEventListener('click', e => {
+    const un = e.target.closest('.pl-blk-un');
+    if (un) { const t = findTask(un.dataset.unplace); if (t) onUnplace?.(t); return; }
     const dn = e.target.closest('.pl-blk-chk');
     if (dn) { const t = findTask(dn.dataset.done); if (t) onDone(t); return; }
     const dOpen = e.target.closest('[data-done-open]');   // 끝낸 일의 흐린 칸 — 눌러서 시간을 고치거나 완료를 취소
