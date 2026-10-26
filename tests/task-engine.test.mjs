@@ -757,3 +757,25 @@ describe('이번만 초과 (extra)', () => {
     assert.equal(T.extraFor([], TODAY).length, 0);
   });
 });
+
+describe('일찍 끝낸 일의 칸 줄이기', () => {
+  const slotTask = () => task('s1', { slot: { date: TODAY, start: '10:00', min: 60 } });
+  test('칸이 끝나기 전에 끝내면 끝낸 시각까지로 줄인다 (5분 올림)', () => {
+    const p = T.planComplete(slotTask(), { now: `${TODAY} 10:32:00` });
+    assert.equal(p['tasks/s1/status'], 'done');
+    assert.deepEqual(p['tasks/s1/slot'], { date: TODAY, start: '10:00', min: 35 });
+  });
+  test('칸이 끝난 뒤에 끝내면 그대로 둔다', () => {
+    const p = T.planComplete(slotTask(), { now: `${TODAY} 11:20:00` });
+    assert.ok(!('tasks/s1/slot' in p));
+  });
+  test('시작 전에 끝내도 최소 5분은 남긴다', () => {
+    const p = T.planComplete(slotTask(), { now: `${TODAY} 09:40:00` });
+    assert.equal(p['tasks/s1/slot'].min, 5);
+  });
+  test('다른 날 칸이나 칸 없는 일은 건드리지 않는다', () => {
+    const other = task('s2', { slot: { date: '2026-10-24', start: '10:00', min: 60 } });
+    assert.ok(!('tasks/s2/slot' in T.planComplete(other, { now: `${TODAY} 10:10:00` })));
+    assert.ok(!('tasks/s3/slot' in T.planComplete(task('s3'), { now: `${TODAY} 10:10:00` })));
+  });
+});

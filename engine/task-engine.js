@@ -161,9 +161,21 @@ export function planDailyUndo(task, date, { now }) {
   return taskPatch_(task.id, { dailyDone: null }, now);
 }
 
+// 오늘 칸에 놓은 일을 칸이 끝나기 전에 끝냈으면 칸을 끝낸 시각까지로 줄인다 (5분 단위 올림, 최소 5분)
+export function earlyEndSlot(task, now) {
+  const s = task.slot;
+  if (!s || !isDateStr(s.date) || String(now).slice(0, 10) !== s.date) return null;
+  const used = timeToMin(String(now).slice(11, 16)) - timeToMin(s.start);
+  const min = Math.max(5, Math.ceil(used / 5) * 5);
+  return min < s.min ? { date: s.date, start: s.start, min } : null;
+}
+
 export function planComplete(task, { now }) {
   if (task.status === 'done') return {};
-  return taskPatch_(task.id, { status: 'done', doneAt: now }, now);
+  const fields = { status: 'done', doneAt: now };
+  const trimmed = earlyEndSlot(task, now);
+  if (trimmed) fields.slot = trimmed;
+  return taskPatch_(task.id, fields, now);
 }
 
 export function planUndoComplete(task, { now }) {
