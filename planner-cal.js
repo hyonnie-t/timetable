@@ -137,8 +137,8 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
       const done = doneBlocks(tasks, d).map(b => {
         const top = yOf(b.start), h = Math.max(14, b.min * HOUR_PX / 60);
         const w = 100 / b.lanes;
-        return `<div class="pl-blk pl-blk-done pl-r-${esc(b.t.area)}" style="top:${top}px;height:${h}px;left:calc(${b.lane * w}% + 2px);width:calc(${w}% - 4px);right:auto"
-          title="✓ ${esc(b.t.title)} — ${esc(b.label)}"><div class="pl-blk-t">✓ ${esc(b.t.title)}</div></div>`;
+        return `<div class="pl-blk pl-blk-done pl-r-${esc(b.t.area)}" data-done-open="${esc(b.t.id)}" tabindex="0" role="button" style="top:${top}px;height:${h}px;left:calc(${b.lane * w}% + 2px);width:calc(${w}% - 4px);right:auto"
+          title="✓ ${esc(b.t.title)} — ${esc(b.label)} (눌러서 시간 고치기·완료 취소)"><div class="pl-blk-t">✓ ${esc(b.t.title)}</div></div>`;
       }).join('');
       const mine = open.filter(t => t.slot?.date === d).map(t => {
         const s = timeToMin(t.slot.start);
@@ -336,11 +336,14 @@ export function createCalendar({ root, getTasks, getData, getSettings, today, on
     }
   });
   root.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('[data-done-open]')) { const t = findTask(e.target.dataset.doneOpen); if (t) onOpen(t); return; }
     if (e.key === 'Enter' && e.target.matches('.pl-blk-task')) { const t = findTask(e.target.dataset.id); if (t) onOpen(t); }
   });
   root.addEventListener('click', e => {
     const dn = e.target.closest('.pl-blk-chk');
     if (dn) { const t = findTask(dn.dataset.done); if (t) onDone(t); return; }
+    const dOpen = e.target.closest('[data-done-open]');   // 끝낸 일의 흐린 칸 — 눌러서 시간을 고치거나 완료를 취소
+    if (dOpen) { const t = findTask(dOpen.dataset.doneOpen); if (t) onOpen(t); return; }
     const b = e.target.closest('[data-cal]');
     if (!b) return;
     const step = mode === 'day' ? 1 : 7;
