@@ -720,6 +720,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       <div class="modal-footer pl-e-foot">
         <button class="btn-del" id="pl-e-del" type="button">삭제</button>
         <span class="pl-spacer"></span>
+        ${t.status === 'open' && t.kind !== 'watch' ? `<button class="btn-secondary" id="pl-e-split" type="button" title="이 일을 둘로 나눠요 · 마감·기간은 그대로 따라가요">나누기</button>` : ''}
         ${t.status === 'open' ? `<button class="btn-secondary" id="pl-e-arch" type="button">보관</button>` : ''}
         ${t.status === 'done' ? '<button class="btn-secondary" id="pl-e-undone" type="button">완료 취소</button>'
           : t.status === 'open' ? `<button class="btn-done" id="pl-e-done" type="button">${T.isDailyDue(t, todayStr()) ? '오늘 몫 끝' : '✓ 완료'}</button>` : ''}
@@ -784,6 +785,29 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (!cur) { if (!$('#pl-e-sdate').value) $('#pl-e-sdate').value = todayStr(); $('#pl-e-sstart').value = T.minToTime(Math.max(0, Math.min(9 * 60 + Number(b.dataset.enudge), 1440 - Number($('#pl-e-smin').value)))); return; }
       $('#pl-e-sstart').value = T.minToTime(Math.min(Math.max(timeToMin(cur) + Number(b.dataset.enudge), 0), 1440 - Number($('#pl-e-smin').value)));
     }));
+    // 둘로 나누기 — 새 건이 마감·기간·오늘을 그대로 따르고 제목에 (1)(2)가 붙는다. 칸에 놓인 일은 원래 칸에 남길 시간만 묻는다
+    $('#pl-e-split')?.addEventListener('click', () => {
+      let firstMin = null;
+      if (t.slot) {
+        if (t.slot.min < 10) { $('#pl-e-err').textContent = '칸이 10분보다 짧아서 나눌 수 없어요'; return; }
+        const def = Math.max(5, Math.floor(t.slot.min / 2 / 5) * 5);
+        const ans = prompt(`지금 칸(${t.slot.min}분)에 남길 시간을 분으로 적어 주세요. 나머지는 새 일(2)로 목록에 들어가요.`, String(def));
+        if (ans == null) return;
+        firstMin = Number(ans);
+      }
+      // 새 건이 «오늘 할 일»로 세어질 날(오늘 표시·오늘 몫)에 상한이 차 있으면 그 표시는 따르지 않는다 — 상한을 슬쩍 넘지 않게
+      const day = todayStr(), probe = { ...t, id: '', slot: null, extra: null, dailyDone: null };
+      const full = d => !T.checkTodayAdd(tasks(), probe, d, store.settings).ok;
+      const keepToday = !(t.today && full(t.today));
+      const keepDaily = !(t.daily && T.isDailyDue(probe, day) && full(day));
+      let r;
+      try { r = T.planSplitTask(t, { id: T.newTaskId(), now: nowStamp(), firstMin, keepToday, keepDaily }); }
+      catch (e) { $('#pl-e-err').textContent = e.message; return; }
+      closeModal('pl-modal-edit');
+      if (!keepToday || !keepDaily) toast('오늘 할 일이 가득 차서 새 일은 오늘 표시 없이 목록에 넣었어요');
+      run(() => r.patch, 'split');
+      showUndo(t, { label: '둘로 나눴어요', undo: () => r.undo });
+    });
     $('#pl-e-arch')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planArchive(t, { now: nowStamp() }), 'archive', '보관했어요'); });
     $('#pl-e-clearslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
     $('#pl-e-del').addEventListener('click', () => {

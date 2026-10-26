@@ -780,3 +780,64 @@ describe('일찍 끝낸 일의 칸 줄이기', () => {
     assert.ok(!('tasks/s3/slot' in T.planComplete(task('s3'), { now: `${TODAY} 10:10:00` })));
   });
 });
+
+describe('한 건 나누기 (planSplitTask)', () => {
+  const base = () => task('a1', { title: '논문 읽기', area: '대학원', due: '2026-10-30', dueText: '이번 주', daily: true, link: 'https://x.kr', note: '메모', today: TODAY });
+  test('새 건은 마감·기간·오늘·영역·매일·링크·메모를 따르고 제목에 번호가 붙는다', () => {
+    const r = T.planSplitTask(base(), { id: 'a2', now: NOW });
+    assert.equal(r.patch['tasks/a1/title'], '논문 읽기 (1)');
+    const n = r.patch['tasks/a2'];
+    assert.equal(n.title, '논문 읽기 (2)');
+    assert.deepEqual([n.area, n.due, n.dueText, n.today, n.daily, n.link, n.note, n.slot, n.status], ['대학원', '2026-10-30', '이번 주', TODAY, true, 'https://x.kr', '메모', null, 'open']);
+  });
+  test('이미 번호가 있으면 다음 번호, 원래 제목은 그대로', () => {
+    const r = T.planSplitTask(task('b1', { title: '서평 (2)' }), { id: 'b2', now: NOW });
+    assert.ok(!('tasks/b1/title' in r.patch) || r.patch['tasks/b1/title'] === '서평 (2)');
+    assert.equal(r.patch['tasks/b2'].title, '서평 (3)');
+  });
+  test('칸에 놓인 일은 원래 칸을 firstMin 으로 줄이고 새 건은 칸이 없다', () => {
+    const t = task('c1', { slot: { date: TODAY, start: '10:00', min: 90 } });
+    const r = T.planSplitTask(t, { id: 'c2', now: NOW, firstMin: 45 });
+    assert.deepEqual(r.patch['tasks/c1/slot'], { date: TODAY, start: '10:00', min: 45 });
+    assert.equal(r.patch['tasks/c2'].slot, null);
+  });
+  test('firstMin 이 칸 이상이거나 5분 단위가 아니면 오류', () => {
+    const t = task('c1', { slot: { date: TODAY, start: '10:00', min: 60 } });
+    for (const m of [60, 0, 7, null]) assert.throws(() => T.planSplitTask(t, { id: 'c2', now: NOW, firstMin: m }));
+  });
+  test('끝난 일·지켜보기는 나눌 수 없다', () => {
+    assert.throws(() => T.planSplitTask(task('d1', { status: 'done' }), { id: 'd2', now: NOW }));
+    assert.throws(() => T.planSplitTask(task('d1', { kind: 'watch' }), { id: 'd2', now: NOW }));
+  });
+  test('되돌리기 patch 는 새 건을 지우고 제목·칸을 원래대로', () => {
+    const t = task('e1', { title: '회의록', slot: { date: TODAY, start: '10:00', min: 60 } });
+    const r = T.planSplitTask(t, { id: 'e2', now: NOW, firstMin: 30 });
+    const after = PE.applyPatch({ tasks: { e1: { ...t } } }, r.patch);
+    assert.equal(Object.keys(after.tasks).length, 2);
+    const back = PE.applyPatch(after, r.undo);
+    assert.deepEqual(Object.keys(back.tasks), ['e1']);
+    assert.equal(back.tasks.e1.title, '회의록');
+    assert.deepEqual(back.tasks.e1.slot, t.slot);
+  });
+  test('planner 밖을 건드리지 않는다', () => {
+    const r = T.planSplitTask(base(), { id: 'a2', now: NOW });
+    T.assertPlannerPatch(r.patch); T.assertPlannerPatch(r.undo);
+  });
+});
+
+describe('한 건 나누기 — 보고에서 나온 경계', () => {
+  test('keepToday/keepDaily false 면 새 건은 오늘 표시·매일을 따르지 않는다', () => {
+    const t = task('f1', { today: TODAY, daily: true, due: '2026-10-30' });
+    const n = T.planSplitTask(t, { id: 'f2', now: NOW, keepToday: false, keepDaily: false }).patch['tasks/f2'];
+    assert.equal(n.today, null);
+    assert.ok(!n.daily);
+    assert.equal(n.due, '2026-10-30');
+  });
+  test('번호가 세 자리여도 다음 번호로 이어진다', () => {
+    assert.equal(T.splitTitles('x (99)').second, 'x (100)');
+    assert.equal(T.splitTitles('x (100)').second, 'x (101)');
+  });
+  test('제목이 너무 길면 나눌 수 없다', () => {
+    assert.throws(() => T.planSplitTask(task('g1', { title: 'ㄱ'.repeat(198) }), { id: 'g2', now: NOW }));
+  });
+});
