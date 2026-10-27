@@ -841,3 +841,43 @@ describe('한 건 나누기 — 보고에서 나온 경계', () => {
     assert.throws(() => T.planSplitTask(task('g1', { title: 'ㄱ'.repeat(198) }), { id: 'g2', now: NOW }));
   });
 });
+
+describe('쿨메신저 받은편지함', () => {
+  const planner = { inbox: {
+    b: { title: ' 급식   자료 ', from: '강혜림', dueText: '12월 전', due: '2026-12-01', at: '2026-10-27 11:00:00' },
+    a: { title: '부담임 회신', from: '조준희', at: '2026-10-27 10:00:00' },
+    x: { from: '제목 없음' },
+  } };
+  test('제목이 있는 후보만 시간순으로 읽는다', () => {
+    const l = T.listInbox(planner);
+    assert.deepEqual(l.map(i => i.id), ['a', 'b']);
+    assert.equal(l[1].title, '급식 자료');
+  });
+  test('담기는 할 일을 만들고 후보를 지운다', () => {
+    const item = T.listInbox(planner)[1];
+    const p = T.planInboxAccept(item, { now: NOW });
+    assert.equal(p['tasks/c_b'].title, '급식 자료');
+    assert.equal(p['tasks/c_b'].src, 'coolmessenger');
+    assert.equal(p['inbox/b'], null);
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+  });
+  test('이미 담긴 후보는 할 일을 다시 만들지 않는다', () => {
+    const item = T.listInbox(planner)[1];
+    assert.deepEqual(T.planInboxAccept(item, { now: NOW, existing: [{ id: 'c_b' }] }), { 'inbox/b': null });
+  });
+  test('없는 날짜·보이지 않는 글자는 걸러진다', () => {
+    const l = T.listInbox({ inbox: {
+      d1: { title: '날짜 이상', due: '2026-02-30' },
+      d2: { title: '​‮' },
+      d3: { title: 'a b‮c', from: 'x​y' },
+    } });
+    assert.deepEqual(l.map(i => i.id), ['d1', 'd3']);
+    assert.equal(l[0].due, null);
+    assert.equal(l[1].title, 'a b c');
+  });
+  test('무시는 후보만 지운다', () => {
+    const p = T.planInboxDismiss({ id: 'a' });
+    assert.deepEqual(p, { 'inbox/a': null });
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+  });
+});

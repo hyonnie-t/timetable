@@ -789,7 +789,48 @@ export function splitBulkLines(text, max = 50) {
 // ------------------------------------------------------------
 // 쓰기 경로 검사 — planner 밖(v2 진도 데이터 등)을 건드리는 patch 는 DB에 보내지 않는다
 // ------------------------------------------------------------
-const PATCH_PATH_RE = /^(?:tasks\/[A-Za-z0-9_-]{1,64}(?:\/[A-Za-z]{1,20})?|rules\/[A-Za-z0-9_-]{1,64}(?:\/(?:[A-Za-z]{1,20}|skip\/\d{4}-\d{2}-\d{2}))?|settings(?:\/[A-Za-z]{1,20})?|prepSkip\/[A-Za-z0-9_-]{1,64}|log\/[A-Za-z0-9_-]{1,64})$/;
+const PATCH_PATH_RE = /^(?:tasks\/[A-Za-z0-9_-]{1,64}(?:\/[A-Za-z]{1,20})?|rules\/[A-Za-z0-9_-]{1,64}(?:\/(?:[A-Za-z]{1,20}|skip\/\d{4}-\d{2}-\d{2}))?|settings(?:\/[A-Za-z]{1,20})?|prepSkip\/[A-Za-z0-9_-]{1,64}|inbox\/[A-Za-z0-9_-]{1,64}|log\/[A-Za-z0-9_-]{1,64})$/;
+
+// ------------------------------------------------------------
+// 쿨메신저 받은편지함 — 예약 작업이 후보를 inbox 에 넣고, 효니가 «담기»를 누르면 정상 할 일로 등록한다
+// ------------------------------------------------------------
+const INVISIBLE_RE = /[\u0000-\u001f\u007f​-‏‪-‮⁠-⁤﻿]/g;
+const cleanText_ = s => String(s ?? '').normalize('NFC').replace(INVISIBLE_RE, ' ').replace(/\s+/g, ' ').trim();
+const isRealDate_ = s => isDateStr(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+
+// 같은 후보를 두 기기에서 담아도 같은 키에 쓰도록 할 일 id 를 후보 id 에서 정한다
+export const inboxTaskId = item => `c_${item.id}`.slice(0, 64);
+
+export function listInbox(planner) {
+  return Object.entries(planner?.inbox || {})
+    .filter(([id, v]) => ID_RE.test(id) && v && typeof v.title === 'string' && cleanText_(v.title))
+    .map(([id, v]) => ({
+      id,
+      title: cleanText_(v.title).slice(0, MAX_TITLE),
+      from: cleanText_(v.from).slice(0, 30),
+      due: isRealDate_(v.due) ? v.due : null,
+      dueText: cleanText_(v.dueText).slice(0, MAX_DUETEXT),
+      at: String(v.at ?? ''),
+    }))
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+}
+
+export function planInboxAccept(item, { now, existing = [] }) {
+  const id = inboxTaskId(item);
+  // 이미 담긴 후보(다른 기기에서 먼저 담음)는 할 일을 다시 만들지 않고 후보만 지운다
+  if (existing.some(t => t.id === id)) return planInboxDismiss(item);
+  const patch = planAddTask({
+    title: item.title, area: '학교', due: item.due, dueText: item.dueText,
+    note: item.from ? `쿨메신저 · ${item.from}` : '쿨메신저', src: 'coolmessenger',
+  }, { id, now });
+  patch[`inbox/${item.id}`] = null;
+  return patch;
+}
+
+export function planInboxDismiss(item) {
+  if (!ID_RE.test(item?.id || '')) throw new Error('후보 id가 올바르지 않습니다');
+  return { [`inbox/${item.id}`]: null };
+}
 
 export function assertPlannerPatch(patch) {
   for (const path of Object.keys(patch)) {

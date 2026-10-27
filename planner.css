@@ -410,3 +410,10 @@
   background: linear-gradient(90deg, var(--bg) 35%, rgba(245,244,240,0) 70%), url('images/planner_header.webp') right 55% / min(440px, 80%) auto no-repeat; }
 .pl-left .pl-counter { align-self: center; flex-direction: row; flex-wrap: wrap; align-items: center; }
 @media (max-width: 480px) { .pl-left .pl-head { min-height: 68px; } }
+
+/* 쿨메신저 후보 */
+.pl-sec-inbox { background: var(--accent-soft, rgba(99,102,241,.08)); border-radius: 14px; padding: 10px 12px; }
+.pl-inbox-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-inbox-main { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-inbox-title { font-weight: 600; overflow-wrap: anywhere; }
+.pl-inbox-main small { color: var(--text3); }
