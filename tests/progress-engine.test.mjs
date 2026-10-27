@@ -530,3 +530,18 @@ describe('주차별 기준 월요일 (weekMondayOf)', () => {
     assert.equal(E.weekMondayOf('2027-01-02'), '2027-01-04');   // 토
   });
 });
+
+describe('그날만 바뀌는 교시 시간 (2026-10-28~30 기말고사 주간)', () => {
+  const data = { periods: { 2: { start: '09:55', end: '10:40' }, 3: { start: '10:50', end: '11:35' } } };
+  test('평소에는 data.periods', () => {
+    assert.deepEqual(E.periodsOn(data, '2026-10-27'), data.periods);
+    assert.deepEqual(E.periodsOn(data, '2026-11-02'), data.periods);
+  });
+  test('수요일 3교시는 11:00~11:40, 목·금은 10:55~11:40', () => {
+    assert.deepEqual(E.periodsOn(data, '2026-10-28')[3], { start: '11:00', end: '11:40' });
+    assert.deepEqual(E.periodsOn(data, '2026-10-29')[3], { start: '10:55', end: '11:40' });
+    assert.deepEqual(E.periodsOn(data, '2026-10-30')[3], { start: '10:55', end: '11:40' });
+    assert.deepEqual(E.periodsOn(data, '2026-10-28')[2], { start: '10:00', end: '10:45' });
+    assert.deepEqual(E.periodsOn(data, '2026-10-29')[4], { start: '11:50', end: '12:30' });
+  });
+});
