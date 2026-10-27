@@ -107,9 +107,9 @@ function getBasePeriods() {
   return Object.keys(p).length ? p : DEFAULT_PERIODS;
 }
 
-// 그날 교시 시간 — 시험 기간처럼 그날만 바뀌는 시정표가 있으면 그걸 쓴다
+// 그날 교시 시간 — 시험 기간처럼 그날만 바뀌는 시정표, 요일별 마지막 교시(월·수·금 6교시)를 반영한다
 function getPeriods(date = todayStr()) {
-  return PE.PERIOD_OVERRIDES[date] || getBasePeriods();
+  return PE.periodsOn({ ...userData, periods: getBasePeriods() }, date);
 }
 
 function getCurrentPeriod() {
@@ -1089,7 +1089,7 @@ function renderWeekly() {
 
   function renderWeekGrid(offsetWeeks) {
     const dates      = getWeekDates(offsetWeeks);
-    const periods    = getPeriods();
+    const periods    = getBasePeriods();
     const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
     const today      = todayStr();
 
@@ -1110,7 +1110,9 @@ function renderWeekly() {
         const isToday = dateStr === today;
         const ev      = getCalendarEvent(dateStr, String(p));
 
-        if (ev) {
+        if (!getPeriods(dateStr)[p]) {
+          html += `<td class="empty-cell no-period${isToday ? ' today-col' : ''}"></td>`;
+        } else if (ev) {
           html += `<td class="event-cell${isToday ? ' today-col' : ''}">
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;

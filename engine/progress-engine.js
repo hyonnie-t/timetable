@@ -86,8 +86,18 @@ export const PERIOD_OVERRIDES = {
   '2026-10-30': EXAM_2026_2_BASE,
 };
 
+// 요일별 마지막 교시 — 월·수·금은 6교시까지만 있다.
+// 단, 그날 시간표(요일 바꾸기·하루 바꾸기 포함)에 그 뒤 교시 수업이 있으면 남긴다.
+export const LAST_PERIOD_BY_DAY = { mon: 6, wed: 6, fri: 6 };
+
 export function periodsOn(data, date) {
-  return PERIOD_OVERRIDES[date] || data?.periods || {};
+  const base = PERIOD_OVERRIDES[date] || data?.periods || {};
+  const last = isDateStr(date) ? LAST_PERIOD_BY_DAY[weekdayKey(date)] : undefined;
+  if (!last) return base;
+  const sched = data?.timetables || data?.dayOverrides ? scheduleOn(data, date) : {};
+  const out = {};
+  for (const [p, t] of Object.entries(base)) if (Number(p) <= last || cellKey(sched[p])) out[p] = t;
+  return out;
 }
 
 // ------------------------------------------------------------
