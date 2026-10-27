@@ -101,9 +101,15 @@ function cleanPeriods_(p) {
   return out;
 }
 
-function getPeriods() {
+// 평소 교시 시간 (교시 시간 설정 창·시간표 편집기용)
+function getBasePeriods() {
   const p = cleanPeriods_(userData?.periods);
   return Object.keys(p).length ? p : DEFAULT_PERIODS;
+}
+
+// 그날 교시 시간 — 시험 기간처럼 그날만 바뀌는 시정표가 있으면 그걸 쓴다
+function getPeriods(date = todayStr()) {
+  return PE.PERIOD_OVERRIDES[date] || getBasePeriods();
 }
 
 function getCurrentPeriod() {
@@ -1759,7 +1765,7 @@ window.startSemester = async function() {
 // 지난 날짜는 옛 시간표 그대로라 지난 수업 차시·장부가 바뀌지 않는다.
 // ============================================================
 window.openTimetableEditor = function() {
-  const periods    = getPeriods();
+  const periods    = getBasePeriods();
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
   const schedule   = currentWeek();
   const days       = ['mon','tue','wed','thu','fri'];
@@ -1838,7 +1844,7 @@ window.saveTimetable = async function() {
 // 교시 시간 편집기
 // ============================================================
 window.openPeriodsEditor = function() {
-  const periods    = getPeriods();
+  const periods    = getBasePeriods();
   const periodList = Object.keys(periods).map(Number).sort((a,b) => a-b);
 
   let html = `

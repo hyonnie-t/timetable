@@ -68,6 +68,29 @@ export function timeToMin(hhmm) {
 }
 
 // ------------------------------------------------------------
+// 교시 시간 — 평소엔 data.periods, 시험 기간처럼 그날만 바뀌는 날은 아래 표를 쓴다
+// ------------------------------------------------------------
+const EXAM_2026_2_BASE = {
+  1: { start: '09:00', end: '09:45' },
+  2: { start: '10:00', end: '10:45' },
+  3: { start: '10:55', end: '11:40' },
+  4: { start: '11:50', end: '12:30' },
+  5: { start: '13:20', end: '14:05' },
+  6: { start: '14:15', end: '15:00' },
+  7: { start: '15:10', end: '15:55' },
+};
+// 2026 2학기 기말고사 주간(3학년) 시정표. 3교시만 수요일 11:00~11:40
+export const PERIOD_OVERRIDES = {
+  '2026-10-28': { ...EXAM_2026_2_BASE, 3: { start: '11:00', end: '11:40' } },
+  '2026-10-29': EXAM_2026_2_BASE,
+  '2026-10-30': EXAM_2026_2_BASE,
+};
+
+export function periodsOn(data, date) {
+  return PERIOD_OVERRIDES[date] || data?.periods || {};
+}
+
+// ------------------------------------------------------------
 // 반·과목 이름 — 띄어쓰기·전각 공백 차이로 다른 반이 되지 않게 정리한다
 // ------------------------------------------------------------
 export function normalizeName(s) {
@@ -217,7 +240,7 @@ export function countRegular(data, key, fromDate, toDate, ledger = buildLedger(d
 
 // 아직 끝나지 않은 가장 가까운 정규 수업 (진행 중 포함). now = { date, min(자정부터 분) }
 export function nextLesson(data, key, now, ledger = buildLedger(data, key)) {
-  const periods = data.periods || {};
+  const periods = periodsOn(data, now.date);
   return ledger.find(r => r.kind === 'regular'
     && (r.date > now.date || (r.date === now.date && timeToMin(periods[r.p]?.end) > now.min))) || null;
 }
