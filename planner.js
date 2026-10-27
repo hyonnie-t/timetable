@@ -81,6 +81,10 @@ function demoSeed(today) {
     },
     rules: {},
     settings: {},
+    inbox: {
+      i1: { title: '부담임 11/4 외부 체험 일정 회신', from: '조준희', due: d(2), at: `${today} 10:49:00` },
+      i2: { title: '12월 학생의견급식 자료 준비', from: '강혜림', dueText: '12월 전', due: d(30), at: `${today} 11:04:00` },
+    },
   };
 }
 
@@ -108,6 +112,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   const subs = new Set();        // 미니창처럼 바깥에서 데이터가 바뀌면 알려 달라는 곳
   const notify = () => subs.forEach(f => { try { f(); } catch (_) { /* 구독자 오류가 저장을 막지 않게 */ } });
 
+  const inboxBusy = new Set();
   const root = () => document.getElementById('tab-tasks');
   const settings = () => T.resolveSettings(store.settings);
   const tasks = () => T.listTasks(store);
@@ -398,7 +403,17 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         .map(([a, name, n]) => `<button class="pl-chip${filterArea === a ? ' on' : ''}" data-act="filter" data-area="${esc(a)}">${esc(name)} <b>${n}</b></button>`)
         .join('');
 
-    let html = '';
+    const inboxItems = T.listInbox(store);
+    let html = inboxItems.length ? `<section class="pl-sec pl-sec-inbox">
+        <h3 class="pl-sec-title">쿨메신저 후보 <span class="pl-sec-n">${inboxItems.length}</span><small>담으면 할 일에 들어가요</small></h3>
+        <ul class="pl-ul">${inboxItems.map(i => `<li class="pl-inbox-row" data-inbox="${esc(i.id)}">
+          <div class="pl-inbox-main"><span class="pl-inbox-title">${esc(i.title)}</span>
+            <small>${esc(i.from)}${i.due ? ` · 마감 ${esc(fmtMD(i.due))}` : ''}${i.dueText ? ` (${esc(i.dueText)})` : ''}</small></div>
+          <button type="button" class="btn-primary" data-act="inbox-add">담기</button>
+          <button type="button" class="btn-secondary" data-act="inbox-skip">무시</button>
+        </li>`).join('')}</ul>
+      </section>` : '';
+    const inboxLen = html.length;
     for (const [key, name, sub0] of SECTIONS) {
       const items = c[key];
       if (!items.length && key !== 'today') continue;
@@ -422,7 +437,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         ${showClosed ? `<ul class="pl-ul">${closed.map(t => rowHtml(t, today, 'closed')).join('')}</ul>` : ''}
       </section>`;
     }
-    if (!visible.length) html = `<div class="pl-empty pl-empty-art"><img src="images/planner_empty.webp" alt="" width="140" height="140"><div>${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div></div>`;
+    if (!visible.length) html = html.slice(0, inboxLen) + `<div class="pl-empty pl-empty-art"><img src="images/planner_empty.webp" alt="" width="140" height="140"><div>${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div></div>`;
     lists.innerHTML = html;
   }
 
@@ -454,6 +469,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
     else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
     else if (act === 'rules') openRules();
+    else if (act === 'inbox-add' || act === 'inbox-skip') {
+      const item = T.listInbox(store).find(i => i.id === btn.closest('[data-inbox]')?.dataset.inbox);
+      if (!item || inboxBusy.has(item.id)) return;
+      inboxBusy.add(item.id);   // 빠른 더블클릭이 저장 끝나기 전에 두 번 처리되지 않게
+      const done = () => inboxBusy.delete(item.id);
+      if (act === 'inbox-add') run(() => T.planInboxAccept(item, { now, existing: tasks() }), 'inbox-add', '할 일에 담았어요').finally(done);
+      else run(() => T.planInboxDismiss(item), 'inbox-skip', '후보를 지웠어요').finally(done);
+    }
     else if (!t) return;
     else if (act === 'done') {
       run(() => T.planComplete(t, { now }), 'done');
