@@ -545,3 +545,22 @@ describe('그날만 바뀌는 교시 시간 (2026-10-28~30 기말고사 주간)'
     assert.deepEqual(E.periodsOn(data, '2026-10-29')[4], { start: '11:50', end: '12:30' });
   });
 });
+
+describe('월·수·금은 7교시가 없다', () => {
+  const P = { 6: { start: '14:15', end: '15:00' }, 7: { start: '15:10', end: '15:55' } };
+  test('월·수·금은 6교시까지, 화·목은 7교시까지', () => {
+    assert.deepEqual(Object.keys(E.periodsOn({ periods: P }, '2026-11-02')), ['6']);   // 월
+    assert.deepEqual(Object.keys(E.periodsOn({ periods: P }, '2026-11-03')), ['6', '7']); // 화
+    assert.deepEqual(Object.keys(E.periodsOn({ periods: P }, '2026-11-04')), ['6']);   // 수
+    assert.deepEqual(Object.keys(E.periodsOn({ periods: P }, '2026-11-05')), ['6', '7']); // 목
+    assert.deepEqual(Object.keys(E.periodsOn({ periods: P }, '2026-11-06')), ['6']);   // 금
+  });
+  test('기말고사 주간 시정표에도 같이 적용 (수 10/28 7교시 없음, 목 10/29 있음)', () => {
+    assert.equal(E.periodsOn({ periods: P }, '2026-10-28')[7], undefined);
+    assert.deepEqual(E.periodsOn({ periods: P }, '2026-10-29')[7], { start: '15:10', end: '15:55' });
+  });
+  test('그날 하루 바꾸기로 월요일 7교시에 수업이 있으면 남긴다', () => {
+    const d = { periods: P, timetables: { '2026-03-02': {} }, dayOverrides: { '2026-11-02': { 7: cell() } } };
+    assert.ok(E.periodsOn(d, '2026-11-02')[7]);
+  });
+});
