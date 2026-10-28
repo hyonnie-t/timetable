@@ -342,7 +342,7 @@ export function planMarkReviewed(today) {
 // 하루 칸 — 수업이 이미 차지한 시간과 빈 시간
 // ------------------------------------------------------------
 // date 의 수업·학사일정 블록 [{ p, start, end, kind: 'class'|'event', label }] (분 단위, 시각 순)
-// 휴업일(holiday)은 수업이 없으니 블록을 만들지 않는다. 그 밖의 행사는 그 교시를 막는다.
+// 휴업일(holiday)·수업없음(noclass)은 수업이 빠진 빈 시간이라 블록을 만들지 않는다. 그 밖의 행사는 그 교시를 막는다.
 export function busyBlocks(data, date) {
   const periods = periodsOn(data, date);
   const sched = scheduleOn(data, date);
@@ -354,7 +354,7 @@ export function busyBlocks(data, date) {
     const ev = calendarEvent(data, date, p, cell?.class);
     let kind = null, label = '';
     if (ev) {
-      if (ev.type === 'holiday') continue;
+      if (ev.type === 'holiday' || ev.type === 'noclass') continue;
       kind = 'event'; label = ev.label || '';
     } else if (cellKey(cell)) {
       kind = 'class'; label = `${cell.class} ${cell.subject}`;
