@@ -583,7 +583,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules', 'pl-modal-bulk'].forEach(closeModal); };
   document.addEventListener('keydown', onKey);
 
-  function openCapModal(t, chk) {
+  // review: true 면 «오늘 먼저 정리해요» 창에서 부른 것 — 놓은 칸(slot)도 같이 비운다
+  function openCapModal(t, chk, { review = false } = {}) {
+    const setToday = (opts) => review ? T.planReviewAction(t, 'today', { today: todayStr(), ...opts }) : T.planSetToday(t, todayStr(), opts);
     const ov = openModal('pl-modal-cap', `
       <div class="modal-header"><h2>오늘 할 일이 ${chk.cap}개예요</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
       <div class="modal-body">
@@ -597,7 +599,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     ov.addEventListener('click', e => {
       if (e.target.closest('[data-extra]')) {
         closeModal('pl-modal-cap');
-        run(() => T.planSetToday(t, todayStr(), { now: nowStamp(), extra: true }), 'pin-extra', '이번만 초과로 넣었어요');
+        run(() => setToday({ now: nowStamp(), extra: true }), 'pin-extra', '이번만 초과로 넣었어요');
         return;
       }
       const b = e.target.closest('[data-swap]');
@@ -606,7 +608,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       const now = nowStamp(), today = todayStr();
       closeModal('pl-modal-cap');
       // 매일 하는 일은 «오늘 몫 끝»으로 오늘만 비켜 준다 (내일은 다시 뜬다)
-      run(() => ({ ...unpinPatch(out, today, now), ...(T.isDailyDue(out, today) ? T.planDailyDone(out, today, { now }) : {}), ...T.planSetToday(t, today, { now }) }), 'swap');
+      run(() => ({ ...unpinPatch(out, today, now), ...(T.isDailyDue(out, today) ? T.planDailyDone(out, today, { now }) : {}), ...setToday({ now }) }), 'swap');
     });
   }
 
@@ -1037,7 +1039,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         showUndo(t);
       } else if (b.dataset.rv === 'today') {
         const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
-        if (!chk.ok) { toast(`오늘 할 일이 ${chk.cap}개예요. 다른 일을 미루거나 보관해야 넣을 수 있어요`, true); return; }
+        if (!chk.ok) { openCapModal(t, chk, { review: true }); return; }
         run(() => T.planReviewAction(t, 'today', { today, now }), 'review-today');
       } else if (b.dataset.rv === 'postpone') {
         const date = row.querySelector('input[type=date]').value;
