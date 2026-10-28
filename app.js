@@ -291,7 +291,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-10-26-health-ack2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-10-28-lunch';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -852,6 +852,23 @@ function renderToday() {
       `;
     }
     list.appendChild(card);
+
+    // 점심시간 — 4교시 끝과 5교시 시작 사이(20분 이상 비는 때만)
+    const nextTime = periods[p + 1];
+    if (p === 4 && nextTime && parseTimeToMin(nextTime.start) - parseTimeToMin(periods[4].end) >= 20) {
+      const ls = periods[4].end, le = nextTime.start;
+      const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+      const isLunchNow = nowM > parseTimeToMin(ls) && nowM < parseTimeToMin(le);
+      const lunch = document.createElement('div');
+      lunch.className = `period-card lunch-card${isLunchNow ? ' current' : ''}`;
+      lunch.innerHTML = `
+        ${isLunchNow ? '<div class="current-dot"></div>' : ''}
+        <div class="period-num">🍚<span class="period-time">${ls}\n${le}</span></div>
+        <div class="period-divider"></div>
+        <div class="period-body"><span class="lunch-label">점심시간</span></div>
+      `;
+      list.appendChild(lunch);
+    }
   }
   el.appendChild(list);
 
