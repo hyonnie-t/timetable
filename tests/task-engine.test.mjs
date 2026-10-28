@@ -758,6 +758,16 @@ describe('이번만 초과 (extra)', () => {
     assert.doesNotThrow(() => T.assertPlannerPatch(T.planSetToday(t, TODAY, { now: NOW, extra: true })));
   });
 
+  test('planReviewAction today — extra 로 넣으면 오늘 날짜를 적고 칸을 비운다', () => {
+    const t = task('x', { slot: { date: '2026-10-20', start: '10:00', end: '11:00' } });
+    const p = T.planReviewAction(t, 'today', { today: TODAY, now: NOW, extra: true });
+    assert.equal(p['tasks/x/extra'], TODAY);
+    assert.equal(p['tasks/x/today'], TODAY);
+    assert.equal(p['tasks/x/slot'], null);
+    assert.equal(T.planReviewAction(t, 'today', { today: TODAY, now: NOW })['tasks/x/extra'], null);
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+  });
+
   test('초과 일을 지우면 초과 건수도 준다', () => {
     const over = task('x', { today: TODAY, extra: TODAY });
     assert.equal(T.extraFor([over], TODAY).length, 1);

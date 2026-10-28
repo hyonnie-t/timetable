@@ -326,8 +326,8 @@ export function reviewList(tasks, today, settings = {}) {
 }
 
 // 정리 창에서 고른 결정 → patch.  action: 'today' | 'postpone' | 'archive'
-export function planReviewAction(task, action, { today, date, now }) {
-  if (action === 'today') return taskPatch_(task.id, { today, slot: null }, now);
+export function planReviewAction(task, action, { today, date, now, extra = false }) {
+  if (action === 'today') return taskPatch_(task.id, { today, slot: null, extra: extra ? today : null }, now);
   if (action === 'postpone') return planPostpone(task, date, { now });
   if (action === 'archive') return planArchive(task, { now });
   throw new Error(`알 수 없는 결정: ${action}`);
