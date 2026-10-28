@@ -303,6 +303,12 @@ describe('하루 칸 — 수업과 겹침', () => {
     assert.deepEqual(T.busyBlocks(ev, TODAY).map(x => [x.p, x.kind, x.label]), [[2, 'event', '학생 상담'], [4, 'class', '103 역사']]);
   });
 
+  test('수업없음(noclass) 교시는 블록이 없어 할 일을 놓을 수 있다', () => {
+    const nc = schoolData({ calendar: { [TODAY]: { 2: { type: 'noclass', label: '수업 없음' } } } });
+    assert.deepEqual(T.busyBlocks(nc, TODAY).map(x => x.p), [4]);
+    assert.equal(T.slotConflict(nc, [], TODAY, '09:55', 45).ok, true);
+  });
+
   test('하루만 바꾼 시간표(dayOverrides)를 따른다', () => {
     const o = schoolData({ dayOverrides: { [TODAY]: { 1: { class: '105', subject: '역사' } } } });
     assert.deepEqual(T.busyBlocks(o, TODAY).map(x => x.p), [1]);
