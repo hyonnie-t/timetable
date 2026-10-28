@@ -327,6 +327,10 @@ body {
   box-shadow: 0 2px 12px rgba(45,106,79,.12);
 }
 
+.period-card.lunch-card { opacity: .8; border-left: 3px solid #f4c95d; background: #fffaf0; padding-top: 6px; padding-bottom: 6px; }
+.period-card.lunch-card .period-num { font-size: 1.2rem; }
+.period-card.lunch-card .lunch-label { color: #a8741a; font-weight: 600; }
+.period-card.lunch-card.current { opacity: 1; }
 .period-card.event-card {
   border-left: 3px solid var(--warn);
   opacity: .85;
