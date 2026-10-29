@@ -208,6 +208,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (pb) {
         const t = byId(pb.closest('[data-id]')?.dataset.id);
         if (t) cal.startPlaceDrag(e, t, t.slot?.min || 60, () => openPlaceModal({ task: t }), pb);
+        return;
+      }
+      // 줄 본문(제목 쪽)을 마우스로 끌어도 시간표에 놓을 수 있다. 터치는 목록 스크롤과 겹쳐서 달력 버튼으로만 끈다
+      const main = e.target.closest('.pl-main');
+      if (main && e.pointerType !== 'touch' && !e.target.closest('a, button, input')) {
+        const li = main.closest('[data-id]');
+        const t = li?.querySelector('.pl-place') && byId(li.dataset.id);
+        if (t) cal.startPlaceDrag(e, t, t.slot?.min || 60, null, main, { row: true });
       }
     });
     el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act]')) e.target.click(); });
