@@ -143,6 +143,21 @@ function formatPeriodTime(p) {
   return `${t.start}~${t.end}`;
 }
 
+// 그날 p교시 시간이 평소(교시 시간 설정)와 다른가 — 시험 기간·단축수업 표시용
+function isPeriodChanged(p, date = todayStr()) {
+  const t = getPeriods(date)[p], b = getBasePeriods()[p];
+  return !!t && (!b || t.start !== b.start || t.end !== b.end);
+}
+
+// 카드 왼쪽 교시 시간 — 평소와 다르면 눈에 띄게 + 평소 시간을 작게 같이 보여 준다
+function periodTimeHtml(p) {
+  const text = formatPeriodTime(p).replace('~', '\n');
+  if (!isPeriodChanged(p)) return `<span class="period-time">${text}</span>`;
+  const b = getBasePeriods()[p];
+  const was = b ? `<span class="period-time-was">평소 ${b.start}</span>` : '';
+  return `<span class="period-time changed">${text}</span><span class="period-changed-tag">시간 변경</span>${was}`;
+}
+
 // ============================================================
 // 진도 — 계산은 모두 engine/progress-engine.js 가 한다 (테스트: tests/)
 // ============================================================
@@ -734,7 +749,7 @@ function renderToday() {
         <div class="banner banner-now">
           <span class="banner-label">NOW</span>
           <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
-          <span class="banner-time">${formatPeriodTime(curP)}</span>
+          <span class="banner-time">${formatPeriodTime(curP)}${isPeriodChanged(curP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
     }
   } else if (nextP && schedule[nextP]?.class) {
@@ -747,7 +762,7 @@ function renderToday() {
         <div class="banner banner-next">
           <span class="banner-label">NEXT</span>
           <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
-          <span class="banner-time">${formatPeriodTime(nextP)}</span>
+          <span class="banner-time">${formatPeriodTime(nextP)}${isPeriodChanged(nextP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
     }
   }
@@ -765,7 +780,7 @@ function renderToday() {
       card.className = `period-card event-card${isCur ? ' current' : ''}`;
       card.innerHTML = `
         ${isCur ? '<div class="current-dot"></div>' : ''}
-        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="event-badge badge-${ev.type}">${ev.label}</span>
@@ -780,7 +795,7 @@ function renderToday() {
       card.dataset.key = key;
       card.innerHTML = `
         ${isCur ? '<div class="current-dot"></div>' : ''}
-        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
           <div class="class-info">
@@ -809,7 +824,7 @@ function renderToday() {
       card.dataset.key = key;
       card.innerHTML = `
         ${isCur ? '<div class="current-dot"></div>' : ''}
-        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
           <div class="class-info">
@@ -843,7 +858,7 @@ function renderToday() {
     } else {
       card.className = `period-card empty${swapCls(p)}`;
       card.innerHTML = `
-        <div class="period-num">${p}<span class="period-time">${formatPeriodTime(p).replace('~','\n')}</span></div>
+        <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
