@@ -92,6 +92,8 @@ export function normalizeTask(raw, { now = '' } = {}) {
   }
   const note = String(raw.note ?? '').trim();
   if (note) t.note = note.slice(0, MAX_NOTE);
+  // «이번만 초과» — 오늘 표시나 칸 날짜와 같은 날일 때만 뜻이 있다
+  if (isDateStr(raw.extra) && (raw.extra === t.today || raw.extra === t.slot?.date)) t.extra = raw.extra;
   if (raw.ruleId) t.ruleId = String(raw.ruleId);
   if (isDateStr(raw.prepDue)) t.prepDue = raw.prepDue;   // 수업 준비가 자동으로 정한 마감 (효니가 고쳤는지 가려내는 용도)
   // 애매한 기간("한 달 내")으로 정한 마감 — due 는 그 기간의 끝날짜, dueText 는 화면에 보일 말
@@ -234,9 +236,18 @@ export function planSplitTask(task, { id, now, firstMin = null, keepToday = true
 }
 
 // 칸 놓기/빼기 (검사는 slotConflict 로 먼저 한다)
-export function planSetSlot(task, slot, { now }) {
+// extra 를 주면(true/false) «이번만 초과» 표시도 같이 정한다. 안 주면 그대로 둔다
+export function planSetSlot(task, slot, { now, extra }) {
   const clean = cleanSlot_(slot);
-  return taskPatch_(task.id, { slot: clean, today: clean ? null : task.today ?? null }, now);
+  const fields = { slot: clean, today: clean ? null : task.today ?? null };
+  if (extra !== undefined) fields.extra = extra && clean ? clean.date : null;
+  return taskPatch_(task.id, fields, now);
+}
+
+// 이미 고친 내용(고치기 창)에 «이번만 초과» 표시만 더할 때
+export function planSetExtra(task, date, { now }) {
+  if (date != null && !isDateStr(date)) throw new Error('날짜가 올바르지 않습니다');
+  return taskPatch_(task.id, { extra: date }, now);
 }
 
 // ------------------------------------------------------------
