@@ -375,32 +375,40 @@ body {
 }
 
 /* 평소와 시간이 다른 교시(시험 기간·단축수업) */
+.period-card:has(.period-time.changed) {
+  background: #fff4e6;
+  border-color: #ffc078;
+}
+.period-card:has(.period-time.changed) .period-num {
+  width: 56px;
+  color: #d9480f;
+}
 .period-time.changed {
   color: #d9480f;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.35;
 }
 .period-changed-tag {
   display: block;
-  margin-top: 2px;
-  padding: 1px 0;
+  margin: 4px 2px 0;
+  padding: 2px 0;
   border-radius: 6px;
-  background: #ffe8cc;
-  color: #d9480f;
-  font-family: var(--mono);
-  font-size: 8px;
+  background: #d9480f;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
 .period-time-was {
   display: block;
-  margin-top: 1px;
+  margin-top: 3px;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 400;
-  color: var(--text3);
+  color: var(--text2, #6b6b6b);
   text-decoration: line-through;
-  letter-spacing: -.3px;
   white-space: nowrap;
 }
 
