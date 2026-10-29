@@ -235,15 +235,19 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   function addFromInput() {
     const input = root()?.querySelector('#pl-add-input');
     if (!input) return;
-    if (addByText(input.value).ok) input.value = '';
+    if (addByText(input.value, { ask: true }).ok) input.value = '';
     updateHint();
   }
 
   // 한 줄 입력으로 추가 — 목록의 입력칸과 미니창이 같이 쓴다. { ok, msg } 를 돌려 준다
-  function addByText(text) {
+  // ask: 오늘 칸이 상한에 막히면 «하나 빼고 / 이번만 초과» 창으로 묻는다 (미니창은 창을 띄울 수 없어 칸 없이 저장)
+  function addByText(text, { ask = false } = {}) {
     const today = todayStr();
     const p = T.parseQuickInput(text, today);
     if (!p.title) { toast('할 일 제목을 적어 주세요', true); return { ok: false, msg: '할 일 제목을 적어 주세요' }; }
+    const id = T.newTaskId();
+    const area = T.guessArea(p.title) || root()?.querySelector('#pl-add-area')?.value || '기타';
+    const add = (slot, { now, extra } = {}) => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily, extra: extra && slot ? slot.date : null }, { id, now: now || nowStamp() });
     let slot = p.slot, note = '';
     if (slot) {
       const c = T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings });
@@ -252,15 +256,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           : c.reason === 'task' ? `다른 할 일(${c.with.title})과 겹쳐서`
             : '하루 칸(범위) 밖이라서';
         slot = null;
-      } else if (slot.date === today && !T.checkTodayAdd(tasks(), { id: '' }, today, store.settings).ok) {
-        note = `오늘 할 일이 ${settings().todayCap}개라서`;
-        slot = null;
+      } else if (slot.date === today) {
+        const chk = T.checkTodayAdd(tasks(), { id: '' }, today, store.settings);
+        if (!chk.ok && ask) {
+          // 고르지 않고 닫으면 지금처럼 칸만 비우고 저장한다 (적은 일이 사라지지 않게)
+          const s = slot;
+          openCapModal({ id, title: p.title }, chk, {
+            apply: opts => add(s, opts),
+            onCancel: () => run(() => add(null), 'add', `오늘 할 일이 ${chk.cap}개라서 칸은 비우고 저장했어요`),
+          });
+          return { ok: true, msg: '' };
+        }
+        if (!chk.ok) { note = `오늘 할 일이 ${chk.cap}개라서`; slot = null; }
       }
     }
-    const id = T.newTaskId();
-    const area = T.guessArea(p.title) || root()?.querySelector('#pl-add-area')?.value || '기타';
     const msg = note ? `${note} 칸은 비우고 저장했어요` : p.daily ? '매일 할 일로 추가했어요' : '추가했어요';
-    run(() => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily }, { id, now: nowStamp() }), 'add', msg);
+    run(() => add(slot), 'add', msg);
     return { ok: true, msg };
   }
 
@@ -580,12 +591,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     return ov;
   }
   function closeModal(id) { document.getElementById(id)?.remove(); }
-  const onKey = e => { if (e.key === 'Escape') ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules', 'pl-modal-bulk'].forEach(closeModal); };
+  // Esc 는 맨 위 창 하나만 닫는다 (고치기·놓기 창 위에 상한 창이 겹쳐 뜨므로)
+  const ESC_MODALS = ['pl-modal-edit', 'pl-modal-cap', 'pl-modal-place', 'pl-modal-rules', 'pl-modal-bulk'];
+  const onKey = e => {
+    if (e.key !== 'Escape') return;
+    const open = [...document.querySelectorAll('.modal-overlay')].filter(o => ESC_MODALS.includes(o.id));
+    if (open.length) closeModal(open[open.length - 1].id);
+  };
   document.addEventListener('keydown', onKey);
 
-  // review: true 면 «오늘 먼저 정리해요» 창에서 부른 것 — 놓은 칸(slot)도 같이 비운다
-  function openCapModal(t, chk, { review = false } = {}) {
-    const setToday = (opts) => review ? T.planReviewAction(t, 'today', { today: todayStr(), ...opts }) : T.planSetToday(t, todayStr(), opts);
+  // 오늘 할 일이 상한일 때 — 하나 빼고 넣기 / 이번만 초과해서 넣기를 고르는 창
+  //   apply({ now, extra }) → t 를 오늘에 넣는 patch (기본: 오늘 표시). 칸 놓기·고치기·새 일 추가도 이 창을 같이 쓴다
+  //   onCancel: 고르지 않고 닫았을 때, closeAlso: 골랐을 때 같이 닫을 아래 창
+  function openCapModal(t, chk, { apply, onCancel, closeAlso = [] } = {}) {
+    const setToday = apply || (opts => T.planSetToday(t, todayStr(), opts));
+    let picked = false;
+    const finish = () => { picked = true; closeModal('pl-modal-cap'); closeAlso.forEach(closeModal); };
     const ov = openModal('pl-modal-cap', `
       <div class="modal-header"><h2>오늘 할 일이 ${chk.cap}개예요</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
       <div class="modal-body">
@@ -596,9 +617,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         <p class="modal-hint">또는 하나도 빼지 않고 이번만 더 하기</p>
         <button class="btn-secondary" data-extra>이번만 초과해서 넣기 (오늘 +${T.extraFor(tasks(), todayStr()).length + 1})</button>
       </div>`);
+    // ✕·바깥·Esc 로 닫히면 onCancel (끌어 놓은 블록을 제자리로 돌리거나, 칸 없이 저장하는 등)
+    new MutationObserver((_, obs) => {
+      if (ov.isConnected) return;
+      obs.disconnect();
+      if (!picked) onCancel?.();
+    }).observe(document.body, { childList: true });
     ov.addEventListener('click', e => {
       if (e.target.closest('[data-extra]')) {
-        closeModal('pl-modal-cap');
+        finish();
         run(() => setToday({ now: nowStamp(), extra: true }), 'pin-extra', '이번만 초과로 넣었어요');
         return;
       }
@@ -606,7 +633,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (!b) return;
       const out = byId(b.dataset.swap);
       const now = nowStamp(), today = todayStr();
-      closeModal('pl-modal-cap');
+      finish();
       // 매일 하는 일은 «오늘 몫 끝»으로 오늘만 비켜 준다 (내일은 다시 뜬다)
       run(() => ({ ...unpinPatch(out, today, now), ...(T.isDailyDue(out, today) ? T.planDailyDone(out, today, { now }) : {}), ...setToday({ now }) }), 'swap');
     });
@@ -767,6 +794,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         daily: $('#pl-e-daily').checked && $('#pl-e-kind').value === 'once',
       };
       const sd = $('#pl-e-sdate').value, ss = $('#pl-e-sstart').value, sm = Number($('#pl-e-smin').value);
+      let capChk = null;   // 오늘 칸에 새로 놓는데 상한이 찼으면 저장할 때 고르는 창을 띄운다
       if (sd && ss) {
         const changed = !t.slot || t.slot.date !== sd || t.slot.start !== ss || t.slot.min !== sm;
         if (changed) {
@@ -774,18 +802,27 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           if (!c.ok) { $('#pl-e-err').textContent = reasonText(c); return; }
           if (sd === todayStr() && !(t.today === sd || t.slot?.date === sd)) {
             const chk = T.checkTodayAdd(tasks(), t, sd, store.settings);
-            if (!chk.ok) { $('#pl-e-err').textContent = `오늘 할 일이 ${chk.cap}개예요. 하나를 빼야 오늘 칸에 놓을 수 있어요`; return; }
+            if (!chk.ok) capChk = chk;
           }
           changes.slot = { date: sd, start: ss, min: sm };
         }
       } else if (sd || ss) { $('#pl-e-err').textContent = '날짜와 시작 시각을 둘 다 정해 주세요'; return; }
       else if (t.slot) changes.slot = null;
-      try { return { changes, patch: T.planEditTask(t, changes, { now: nowStamp() }) }; }
+      try { return { changes, capChk, patch: T.planEditTask(t, changes, { now: nowStamp() }) }; }
       catch (e) { $('#pl-e-err').textContent = e.message; return null; }
     };
     $('#pl-e-save').addEventListener('click', () => {
       const r = collect();
       if (!r) return;
+      if (r.capChk) {
+        // 고치기 창은 열어 둔 채 위에 띄운다 — 고르지 않고 닫으면 고치던 내용이 그대로 남는다
+        const day = r.changes.slot.date;
+        openCapModal(t, r.capChk, {
+          closeAlso: ['pl-modal-edit'],
+          apply: ({ now, extra }) => ({ ...r.patch, ...(extra ? T.planSetExtra(t, day, { now }) : {}) }),
+        });
+        return;
+      }
       closeModal('pl-modal-edit');
       run(() => r.patch, 'edit', '저장했어요');
     });
@@ -849,11 +886,12 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
 
   // ---------- 시간 칸 놓기 ----------
   // 달력에서 끌어 놓거나 놓기 창에서 정한 칸을 저장한다. 오늘 칸에 새로 놓으면 "오늘 할 일"이 하나 늘어나므로 상한을 먼저 본다.
+  // 상한이 차 있으면 막지 않고 «하나 빼고 넣기 / 이번만 초과» 창을 띄운다 (끌던 블록은 고를 때까지 제자리)
   function setSlot(t, slot, okMsg = '시간 칸에 놓았어요') {
     const today = todayStr();
     if (slot.date === today && !(t.today === today || t.slot?.date === today)) {
       const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
-      if (!chk.ok) { toast(`오늘 할 일이 ${chk.cap}개예요. 하나를 빼야 오늘 칸에 놓을 수 있어요`, true); cal?.render(); return; }
+      if (!chk.ok) { cal?.render(); openCapModal(t, chk, { apply: opts => T.planSetSlot(t, slot, opts) }); return; }
     }
     run(() => T.planSetSlot(t, slot, { now: nowStamp() }), 'slot', okMsg);
   }
@@ -966,9 +1004,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (t) { closeModal('pl-modal-place'); setSlot(t, s); return; }
       const title = $('#pl-p-new').value.trim();
       if (!title) { $('#pl-p-msg').textContent = '새 할 일 이름을 적어 주세요'; return; }
-      if (s.date === today && !T.checkTodayAdd(tasks(), { id: '' }, today, store.settings).ok) { $('#pl-p-msg').textContent = `오늘 할 일이 ${settings().todayCap}개예요. 다른 날로 하거나 하나를 먼저 빼 주세요`; return; }
+      const id = T.newTaskId();
+      const add = ({ now, extra }) => T.planAddTask({ title, area: addArea, due: s.date, slot: s, extra: extra ? s.date : null }, { id, now });
+      const chk = s.date === today ? T.checkTodayAdd(tasks(), { id: '' }, today, store.settings) : { ok: true };
+      // 상한이 찼으면 놓기 창 위에 고르는 창을 띄운다 (고르지 않고 닫으면 놓기 창으로 돌아온다)
+      if (!chk.ok) { openCapModal({ id, title }, chk, { apply: add, closeAlso: ['pl-modal-place'] }); return; }
       closeModal('pl-modal-place');
-      run(() => T.planAddTask({ title, area: addArea, due: s.date, slot: s }, { id: T.newTaskId(), now: nowStamp() }), 'add', '추가하고 칸에 놓았어요');
+      run(() => add({ now: nowStamp() }), 'add', '추가하고 칸에 놓았어요');
     });
   }
 
@@ -1039,7 +1081,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         showUndo(t);
       } else if (b.dataset.rv === 'today') {
         const chk = T.checkTodayAdd(tasks(), t, today, store.settings);
-        if (!chk.ok) { openCapModal(t, chk, { review: true }); return; }
+        // 정리 창에서 넣을 때는 놓아 둔 칸(slot)도 같이 비운다
+        if (!chk.ok) { openCapModal(t, chk, { apply: opts => T.planReviewAction(t, 'today', { today, ...opts }) }); return; }
         run(() => T.planReviewAction(t, 'today', { today, now }), 'review-today');
       } else if (b.dataset.rv === 'postpone') {
         const date = row.querySelector('input[type=date]').value;

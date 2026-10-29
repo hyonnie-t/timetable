@@ -768,6 +768,35 @@ describe('이번만 초과 (extra)', () => {
     assert.doesNotThrow(() => T.assertPlannerPatch(p));
   });
 
+  test('planSetSlot — extra 를 주면 칸 날짜로 적고, 안 주면 건드리지 않는다', () => {
+    const t = task('x');
+    const slot = { date: TODAY, start: '15:00', min: 30 };
+    assert.equal(T.planSetSlot(t, slot, { now: NOW, extra: true })['tasks/x/extra'], TODAY);
+    assert.equal(T.planSetSlot(t, slot, { now: NOW, extra: false })['tasks/x/extra'], null);
+    assert.equal('tasks/x/extra' in T.planSetSlot(t, slot, { now: NOW }), false);
+    assert.equal(T.planSetSlot(t, null, { now: NOW, extra: true })['tasks/x/extra'], null);
+    // 초과로 칸에 놓은 일은 상한에 안 세고 extraFor 로 센다
+    const placed = { ...t, slot, extra: TODAY };
+    assert.equal(T.chosenFor([placed], TODAY).length, 0);
+    assert.equal(T.extraFor([placed], TODAY).length, 1);
+  });
+
+  test('planAddTask — extra 는 오늘 표시·칸 날짜와 같을 때만 남는다', () => {
+    const slot = { date: TODAY, start: '15:00', min: 30 };
+    assert.equal(T.planAddTask({ title: 'a', slot, extra: TODAY }, { id: 'n1', now: NOW })['tasks/n1'].extra, TODAY);
+    assert.equal(T.planAddTask({ title: 'a', extra: TODAY }, { id: 'n2', now: NOW })['tasks/n2'].extra, undefined);
+    assert.equal(T.planAddTask({ title: 'a', slot, extra: null }, { id: 'n3', now: NOW })['tasks/n3'].extra, undefined);
+  });
+
+  test('planSetExtra — 고친 내용에 초과 표시만 더한다', () => {
+    const t = task('x');
+    const p = { ...T.planEditTask(t, { slot: { date: TODAY, start: '15:00', min: 30 } }, { now: NOW }), ...T.planSetExtra(t, TODAY, { now: NOW }) };
+    assert.equal(p['tasks/x/extra'], TODAY);
+    assert.equal(p['tasks/x/slot'].date, TODAY);
+    assert.throws(() => T.planSetExtra(t, '10/23', { now: NOW }));
+    assert.doesNotThrow(() => T.assertPlannerPatch(p));
+  });
+
   test('초과 일을 지우면 초과 건수도 준다', () => {
     const over = task('x', { today: TODAY, extra: TODAY });
     assert.equal(T.extraFor([over], TODAY).length, 1);
