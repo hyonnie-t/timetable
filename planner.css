@@ -184,6 +184,11 @@
 .pl-e-err { color: var(--danger); font-size: 12px; min-height: 16px; }
 .pl-e-foot { align-items: center; }
 .pl-e-foot button { white-space: nowrap; }
+/* 폰: 삭제·나누기·보관은 윗줄, «다 했어요»·«고친 내용 저장»은 아랫줄에 반씩 크게 */
+@media (max-width: 520px) {
+  .pl-e-foot { flex-wrap: wrap; row-gap: 8px; }
+  .pl-e-foot #pl-e-done, .pl-e-foot #pl-e-undone, .pl-e-foot #pl-e-save { flex: 1 1 40%; }
+}
 .pl-spacer { flex: 1; }
 .pl-skip { font-size: 13px; }
 

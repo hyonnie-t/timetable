@@ -783,8 +783,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         ${t.status === 'open' && t.kind !== 'watch' ? `<button class="btn-secondary" id="pl-e-split" type="button" title="이 일을 둘로 나눠요 · 마감·기간은 그대로 따라가요">나누기</button>` : ''}
         ${t.status === 'open' ? `<button class="btn-secondary" id="pl-e-arch" type="button">보관</button>` : ''}
         ${t.status === 'done' ? '<button class="btn-secondary" id="pl-e-undone" type="button">완료 취소</button>'
-          : t.status === 'open' ? `<button class="btn-done" id="pl-e-done" type="button">${T.isDailyDue(t, todayStr()) ? '오늘 몫 끝' : '✓ 완료'}</button>` : ''}
-        <button class="btn-primary" id="pl-e-save" type="button">저장</button>
+          : t.status === 'open' ? `<button class="btn-done" id="pl-e-done" type="button" title="이 일을 다 했어요 — 고친 내용도 같이 저장하고 목록에서 빠져요">${T.isDailyDue(t, todayStr()) ? '✓ 오늘 몫 끝' : '✓ 다 했어요'}</button>` : ''}
+        <button class="btn-primary" id="pl-e-save" type="button" title="고친 내용만 저장해요 — 할 일은 그대로 남아요">고친 내용 저장</button>
       </div>`);
     const $ = s => ov.querySelector(s);
     // 기간을 고르면 그 끝날짜가 마감일 칸에 들어가고, 마감일을 직접 고치면 기간 선택은 풀린다
