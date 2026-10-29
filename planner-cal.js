@@ -300,12 +300,16 @@ export function createCalendar({ root, getTasks, getData, getLessonInfo, getSett
   }
 
   // 목록의 달력 버튼·마감 칩에서 시작하는 끌기 — 달력이 보일 때만. 움직이지 않으면 onClick(눌렀다 뗌)을 부른다.
-  function startPlaceDrag(e, task, min, onClick, src) {
+  // row: 목록 줄 본문에서 시작한 끌기 — 캡처하지 않고 window 로 듣는다(안 움직이면 원래 클릭이 그대로 고치기 창을 연다)
+  function startPlaceDrag(e, task, min, onClick, src, { row = false } = {}) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const visible = root.offsetParent !== null;
+    if (row && !visible) return;
+    if (row) e.preventDefault();   // 끄는 동안 제목 글자가 선택되지 않게
     const x0 = e.clientX, y0 = e.clientY;
     let moved = false, ghost = null, preview = null, cur = null;
-    try { src.setPointerCapture?.(e.pointerId); } catch (_) { /* 계속 */ }
+    if (row) src = window;
+    else try { src.setPointerCapture?.(e.pointerId); } catch (_) { /* 계속 */ }
 
     const clear = () => { preview?.remove(); preview = null; };
     const move = ev => {
@@ -340,6 +344,12 @@ export function createCalendar({ root, getTasks, getData, getLessonInfo, getSett
       src.removeEventListener('pointercancel', end);
       ghost?.remove(); clear();
       if (moved) busy = false;
+      // 줄에서 끌었으면 손을 뗄 때 따라오는 클릭이 고치기 창을 열지 않게 한 번 삼킨다
+      if (row && moved) {
+        const eat = c => { c.stopPropagation(); c.preventDefault(); };
+        window.addEventListener('click', eat, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 0);
+      }
       if (ev.type === 'pointercancel') { if (pending) render(); return; }
       if (!moved) { onClick?.(); return; }
       if (!cur) { if (pending) render(); return; }
