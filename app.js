@@ -864,7 +864,6 @@ function renderToday() {
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
-          <button class="extra-add-btn" onclick="window.openExtra(${p})">＋ 보강</button>
         </div>
         ${swapBtn(p)}
       `;
@@ -1005,7 +1004,7 @@ function extraFormEl_(schedule, periods) {
   const wrap = document.createElement('div');
   wrap.className = 'extra-wrap';
   if (!extraForm) {
-    wrap.innerHTML = `<button class="extra-open-btn" onclick="window.openExtra(null)">➕ 보강 수업 추가</button>`;
+    wrap.innerHTML = `<button class="btn-add-period extra-open-btn" onclick="window.openExtra(null)">+ 보강 수업 추가</button>`;
     return wrap;
   }
   const today = todayStr();
@@ -1016,18 +1015,18 @@ function extraFormEl_(schedule, periods) {
   const classes = [...new Set(keys.map(k => k[0]))];
   const subjects = [...new Set(keys.map(k => k.slice(1).join('_')))];
   if (!free.length) {
-    wrap.innerHTML = `<div class="extra-form"><div class="extra-title">보강 수업 추가</div>
+    wrap.innerHTML = `<div class="extra-form"><div class="step-editor-label">보강 수업 추가</div>
       <div class="extra-hint">오늘은 빈 교시가 없어요. 먼저 ⇅로 옮기거나 수업 칸을 비워 주세요.</div>
       <div class="extra-actions"><button class="special-undo-btn" onclick="window.closeExtra()">닫기</button></div></div>`;
     return wrap;
   }
   wrap.innerHTML = `
     <div class="extra-form">
-      <div class="extra-title">보강 수업 추가 <small>(오늘만 · 진도에 들어가요)</small></div>
+      <div class="step-editor-label">보강 수업 추가 <span class="topic-label">오늘만 · 진도에 들어가요</span></div>
       <div class="extra-row">
-        <select id="extra-p" class="special-input">${free.map(p => `<option value="${p}"${p === pick ? ' selected' : ''}>${p}교시 ${formatPeriodTime(p)}</option>`).join('')}</select>
-        <input id="extra-cls" class="special-input" list="extra-cls-list" value="${escapeHtml(EXTRA_LAST.cls)}" placeholder="반 (예: 201)" />
-        <input id="extra-sub" class="special-input" list="extra-sub-list" value="${escapeHtml(EXTRA_LAST.subject)}" placeholder="과목" />
+        <select id="extra-p" class="topic-input">${free.map(p => `<option value="${p}"${p === pick ? ' selected' : ''}>${p}교시 ${formatPeriodTime(p)}</option>`).join('')}</select>
+        <input id="extra-cls" class="topic-input" list="extra-cls-list" value="${escapeHtml(EXTRA_LAST.cls)}" placeholder="반 (예: 201)" />
+        <input id="extra-sub" class="topic-input" list="extra-sub-list" value="${escapeHtml(EXTRA_LAST.subject)}" placeholder="과목" />
         <datalist id="extra-cls-list">${classes.map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
         <datalist id="extra-sub-list">${subjects.map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
       </div>
