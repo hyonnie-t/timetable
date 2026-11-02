@@ -60,6 +60,13 @@ function dueLabel(t, today) {
   return s;
 }
 
+// 할 일 검색 — 띄어 쓴 낱말이 제목이나 메모에 모두 들어 있으면 맞는 것으로 본다 (대소문자 무시)
+function searchWords(q) { return String(q || '').toLowerCase().split(/\s+/).filter(Boolean); }
+function matchesSearch(t, words) {
+  const hay = `${t.title || ''} ${t.note || ''}`.toLowerCase();
+  return words.every(w => hay.includes(w));
+}
+
 function store_(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* 저장소가 막힌 환경 */ } return null; }
 
 // 화면 확인용 — 데모에서만 쓰는 예시 (오늘 날짜 기준)
@@ -101,6 +108,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   let addArea = store_('plannerAddArea') || '수업';
   let undo = null;               // { id, timer }
   let reviewDismissed = false;   // 이번 화면(새로고침 전)에서 "나중에"를 누름
+  let searchQ = '';              // 할 일 검색어 (저장하지 않는다)
   let materializedOn = '';
   let prepOn = '';
   let showClosed = false;
@@ -175,6 +183,11 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
               <button class="btn-primary pl-add-btn" type="submit"><lucian-plus size="18" tone="line"></lucian-plus> 추가</button>
             </form>
             <div class="pl-hint" id="pl-hint"></div>
+            <div class="pl-search">
+              <input class="pl-search-input" id="pl-search" type="search" maxlength="100" autocomplete="off"
+                     placeholder="🔍 할 일 검색 (제목·메모, 끝낸 일 포함)" aria-label="할 일 검색" />
+              <button type="button" class="pl-search-clear" data-act="search-clear" aria-label="검색 지우기" hidden>✕</button>
+            </div>
             <div class="pl-filter" id="pl-filter"></div>
             <div class="pl-lists" id="pl-lists"></div>
           </div>
@@ -200,6 +213,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     updateHint();
     el.querySelector('#pl-add-input').addEventListener('paste', onPasteBulk);
     el.querySelector('#pl-add-area').addEventListener('change', e => { addArea = e.target.value; store_('plannerAddArea', addArea); });
+    const searchInput = el.querySelector('#pl-search');
+    searchInput.addEventListener('input', () => { searchQ = searchInput.value; renderLists(); });
+    searchInput.addEventListener('keydown', e => { if (e.key === 'Escape' && searchInput.value) { e.preventDefault(); setSearch(''); } });
     el.addEventListener('click', onClick);
     el.addEventListener('pointerdown', e => {
       const g = e.target.closest('.pl-grip');
@@ -422,6 +438,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         .map(([a, name, n]) => `<button class="pl-chip${filterArea === a ? ' on' : ''}" data-act="filter" data-area="${esc(a)}">${esc(name)} <b>${n}</b></button>`)
         .join('');
 
+    // 검색 중에는 묶음 대신 맞는 일만 한 목록으로 (열린 일 → 끝낸 일 → 보관 순)
+    const words = searchWords(searchQ);
+    root().querySelector('.pl-search-clear').hidden = !searchQ;
+    if (words.length) {
+      const rank = { open: 0, done: 1, archived: 2 };
+      const hits = visible.filter(t => matchesSearch(t, words))
+        .sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || (a.due || '9999').localeCompare(b.due || '9999'));
+      lists.innerHTML = hits.length
+        ? `<section class="pl-sec pl-sec-search">
+            <h3 class="pl-sec-title">검색 결과 <span class="pl-sec-n">${hits.length}</span>${filterArea ? `<small>${esc(filterArea)} 영역에서</small>` : ''}</h3>
+            <ul class="pl-ul">${hits.map(t => rowHtml(t, today, 'search')).join('')}</ul>
+          </section>`
+        : `<div class="pl-empty">“${esc(searchQ.trim())}”에 맞는 할 일이 없어요${filterArea ? ` (${esc(filterArea)} 영역)` : ''}</div>`;
+      return;
+    }
+
     const inboxItems = T.listInbox(store);
     let html = inboxItems.length ? `<section class="pl-sec pl-sec-inbox">
         <h3 class="pl-sec-title">쿨메신저 후보 <span class="pl-sec-n">${inboxItems.length}</span><small>담으면 할 일에 들어가요</small></h3>
@@ -460,6 +492,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     lists.innerHTML = html;
   }
 
+  function setSearch(q) {
+    searchQ = q;
+    const input = root()?.querySelector('#pl-search');
+    if (input) { input.value = q; input.focus(); }
+    renderLists();
+  }
+
   function renderAll() {
     ensureShell();
     renderLists();
@@ -485,6 +524,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (view === 'cal') cal.setDate(cal.date);   // 숨겨져 있던 달력은 보일 때 다시 그려 맞는 시각으로 스크롤
     } else if (act === 'place') { if (e.detail === 0 && t) openPlaceModal({ task: t }); }   // 마우스·터치는 pointerdown 쪽에서 처리, 키보드만 여기
     else if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
+    else if (act === 'search-clear') setSearch('');
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
     else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
     else if (act === 'rules') openRules();
@@ -1065,9 +1105,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     if (existing) { existing.querySelector('.modal-body').innerHTML = reviewBody(list, today); return; }
     if (reviewDismissed || document.querySelector('#pl-modal-edit, #pl-modal-cap, #pl-modal-place')) return;
     if (document.getElementById('tab-tasks')?.style.display === 'none') return;   // 할 일 탭이 아닐 땐 띄우지 않는다
-    const canSkip = skippedCount(today) < 1;
+    // "나중에"는 횟수 제한 없이 언제나 보인다 (누른 횟수는 이번 화면을 다시 띄울지 정하는 데만 쓴다)
     const ov = openModal('pl-modal-review', `
-      <div class="modal-header"><h2>오늘 먼저 정리해요</h2>${canSkip ? '<button class="modal-close pl-skip" data-skip aria-label="나중에">나중에</button>' : ''}</div>
+      <div class="modal-header"><h2>오늘 먼저 정리해요</h2><button class="modal-close pl-skip" data-skip aria-label="나중에">나중에</button></div>
       <div class="modal-body">${reviewBody(list, today)}</div>`, { small: false });
     // 바깥을 눌러 닫으면 다음 저장 때 다시 떠서 작업을 가린다 — 닫는 길은 "나중에"나 정리뿐이다
     ov.addEventListener('click', e => { if (e.target === ov) e.stopImmediatePropagation(); }, true);

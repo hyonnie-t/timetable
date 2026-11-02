@@ -33,6 +33,21 @@
 .pl-hint { min-height: 20px; margin: 7px 4px 10px; font-size: 12px; color: var(--text2); }
 
 /* 영역 필터 */
+.pl-search { position: relative; margin-bottom: 10px; }
+.pl-search-input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 99px; background: var(--surface);
+  padding: 8px 36px 8px 14px; font-size: 14px; color: var(--text); font-family: inherit;
+}
+.pl-search-input:focus { outline: 2px solid var(--accent2); outline-offset: -1px; }
+.pl-search-input::-webkit-search-cancel-button { display: none; }
+.pl-search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; color: var(--text3); font-size: 14px; padding: 6px 8px; cursor: pointer; border-radius: 99px;
+}
+.pl-search-clear:hover { color: var(--text); background: var(--bg); }
+.pl-sec-search { animation: plSearchIn .18s ease-out; }
+@keyframes plSearchIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .pl-sec-search { animation: none; } }
 .pl-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
 .pl-chip {
   border: 1px solid var(--border); background: var(--surface); color: var(--text2);
@@ -211,7 +226,7 @@
 @media (min-width: 768px) {
   .pl-title-main { font-size: 28px; }
   .pl-lists { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);   /* 긴 메모·링크가 있어도 칸이 화면 밖으로 안 늘어나게 */ gap: 0 24px; align-items: start; }
-  .pl-lists > .pl-sec-closed, .pl-lists > .pl-empty { grid-column: 1 / -1; }
+  .pl-lists > .pl-sec-closed, .pl-lists > .pl-empty, .pl-lists > .pl-sec-search { grid-column: 1 / -1; }
 }
 @media (pointer: coarse) {
   .pl-check, .pl-pin { width: 44px; height: 44px; }
