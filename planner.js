@@ -99,7 +99,7 @@ function demoSeed(today) {
 // 만들기 — app.js 가 부른다
 //   uid, demo, getSchoolData()(시간표 데이터: 수업과 겹침 검사용), toast(msg, isErr)
 // ------------------------------------------------------------
-export function createPlanner({ uid, demo = false, getSchoolData = () => null, getLessonInfo = null, toast = () => {} }) {
+export function createPlanner({ uid, demo = false, getSchoolData = () => null, getLessonInfo = null, toast = () => {}, portalUrl = '' }) {
   let store = demo ? demoSeed(todayStr()) : { tasks: {}, rules: {}, settings: {} };
   let loaded = demo;
   let loadError = '';
@@ -172,6 +172,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
               <div class="pl-head-r">
                 <div class="pl-counter" id="pl-counter"></div>
                 <button type="button" class="btn-secondary pl-rules-btn" data-act="rules" title="매주·격주·매월 반복되는 할 일">🔁 반복</button>
+                ${portalUrl ? `<button type="button" class="btn-secondary pl-rules-btn pl-portal-btn" data-url="${esc(portalUrl)}" onclick="window.open(this.dataset.url, 'history26App')" title="history26 교사 대시보드 «📅 오늘» 탭 — 여기 할 일이 그대로 보이고 ✓도 눌러요">📘 포털</button>` : ''}
               </div>
             </div>
             <form class="pl-add" id="pl-add" autocomplete="off">
@@ -1227,6 +1228,23 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     // 미니창의 동그라미 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
     completeTask,
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+    isLoaded() { return loaded; },
+    // history26 대시보드 «✏️» → ?tab=tasks&task=ID : 그 할 일(끝낸 일·보관도) 고치기 창을 연다. 없으면 false
+    openById(id) {
+      const t = tasks().find(x => x.id === id);
+      if (!t) return false;
+      openEdit(t);
+      return true;
+    },
+    // history26 대시보드 «+ 할 일» → ?tab=tasks&add=글 : 빠른 입력칸에 미리 적어 두고(저장은 Enter 로) 풀이 힌트를 보여 준다
+    prefill(text) {
+      const input = root()?.querySelector('#pl-add-input');
+      if (!input) return;
+      input.value = String(text || '').slice(0, 200);
+      updateHint();
+      input.focus();
+      input.scrollIntoView({ block: 'center' });
+    },
     destroy() {
       subs.clear();
       if (unsub) unsub();

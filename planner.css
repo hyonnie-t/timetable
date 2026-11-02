@@ -412,6 +412,7 @@
 /* 반복 규칙 창 */
 .pl-head-r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .pl-rules-btn { padding: 6px 12px; font-size: 13px; border-radius: 99px; white-space: nowrap; }
+.pl-portal-btn { display: inline-flex; align-items: center; }   /* 이름 있는 창(history26App)을 다시 쓰려고 <a target> 대신 window.open */
 .pl-rule-list .pl-row { align-items: center; }
 .pl-rule-list .pl-row button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .pl-rule-h { font-size: 14px; font-weight: 800; margin: 18px 0 8px; }
