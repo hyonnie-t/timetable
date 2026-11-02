@@ -1615,23 +1615,24 @@ html { -webkit-text-size-adjust: 100%; }
 /* ============================================================
    보강 수업 추가 (오늘 수업 탭)
    ============================================================ */
+/* 배지·버튼·입력칸은 기존 것(이벤트 뱃지, 교시 추가 버튼, ✏️ 편집 창)과 같은 모양을 쓴다 */
 .extra-badge {
-  display: inline-block; font-size: 11px; font-weight: 700;
-  padding: 2px 7px; border-radius: 5px; background: #e8f1ff; color: #1d4f9c;
+  display: inline-block;
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 5px;
+  background: #e8f0fe; color: var(--info);
 }
-.extra-add-btn, .extra-open-btn {
-  border: 1px dashed var(--accent2); background: none; color: var(--accent);
-  border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.extra-add-btn { margin-left: auto; min-height: 36px; }
 .extra-wrap { margin: 10px 0 24px; }
-.extra-open-btn { width: 100%; min-height: 44px; }
+.extra-open-btn { width: 100%; margin-top: 0; min-height: 40px; }
 .extra-form {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+  animation: fadeUp .3s ease both;
 }
-.extra-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
-.extra-title small { font-weight: 400; color: var(--text2); font-size: 12px; }
-.extra-hint { font-size: 13px; color: var(--text2); }
-.extra-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.extra-row .special-input { flex: 1 1 110px; min-height: 40px; }
-.extra-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.extra-hint { font-size: 12px; color: var(--text2); }
+.extra-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.extra-row .topic-input { flex: 1 1 110px; min-height: 34px; }
+.extra-actions { display: flex; gap: 8px; justify-content: flex-end; }
