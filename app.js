@@ -19,6 +19,28 @@ const DEFAULT_SEMESTER = { id: '2026-2', start: '2026-08-18', end: '2027-01-08' 
 const dataRoot = () => `users/${currentUser.uid}/v2`;
 // ?demo  → demo/demo.json 으로 로그인·DB 없이 열기 (화면 확인용, 저장은 메모리에만)
 const DEMO = new URLSearchParams(location.search).get('demo');
+
+// ------------------------------------------------------------
+// history26(역사 포털) 교사 대시보드와 서로 오가기 (2026-11-02)
+//   이쪽 → 저쪽: openHistory26('today' | 'records', { cls }) → history26/?dash=탭&cls=반
+//   저쪽 → 이쪽: history26 «📅 오늘» 탭이 ?tab=탭 · ?tab=tasks&task=ID(그 할 일 고치기 창) · ?tab=tasks&add=글(빠른 입력에 미리 적기)로 연다
+//   주소 규칙을 바꾸면 history26 js/08-dash-today.js 도 같이 고친다. 관리자(효니) 화면에만 보인다 — 포털 대시보드는 효니 것이라서.
+// ------------------------------------------------------------
+const HISTORY26_URL = 'https://hyonnie-t.github.io/history26/';
+window.openHistory26 = function (dash = 'today', params = {}) {
+  const q = new URLSearchParams({ dash, ...params });
+  window.open(HISTORY26_URL + '?' + q.toString(), 'history26App');
+};
+// 시작 주소의 ?tab= — 할 일 탭은 planner 가 준비된 뒤 startPlanner_ 가, 나머지 탭은 showApp 이 한 번만 처리한다
+const START_PARAMS = new URLSearchParams(location.search);
+let startTabApplied = false;
+// task=·add= 처럼 한 번 쓰고 나면 주소에서 지운다 (새로고침해도 같은 창이 다시 안 뜨게). tab= 은 시작 페이지로 쓰니 남긴다.
+function dropStartParams_(...keys) {
+  const u = new URL(location.href);
+  let changed = false;
+  keys.forEach(k => { if (u.searchParams.has(k)) { u.searchParams.delete(k); changed = true; } });
+  if (changed) history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+}
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
@@ -530,11 +552,25 @@ async function startPlanner_() {
       getSchoolData: () => userData,
       getLessonInfo: (dateStr, p, cls, subject) => lessonCellInfo(dateStr, p, { class: cls, subject }),
       toast: showToast,
+      portalUrl: HISTORY26_URL + '?dash=today',
     });
     document.getElementById('tab-btn-tasks').style.display = '';
-    const want = new URLSearchParams(location.search).get('tab');
+    const want = START_PARAMS.get('tab');
     if (want === 'tasks' && currentTab === 'today') switchTab('tasks');   // ?tab=tasks → 브라우저 시작 페이지로 쓸 수 있게
     else if (currentTab === 'tasks') planner.render();
+    // history26 대시보드에서 온 요청: 그 할 일 고치기 창 열기 / 빠른 입력에 미리 적기 (할 일 탭일 때만, 한 번만)
+    const taskId = START_PARAMS.get('task'), addText = START_PARAMS.get('add');
+    if (currentTab === 'tasks' && (taskId || addText)) {
+      dropStartParams_('task', 'add');
+      START_PARAMS.delete('task'); START_PARAMS.delete('add');
+      const after = () => {
+        if (taskId && !planner.openById(taskId)) showToast('그 할 일을 찾지 못했어요 (지워졌을 수 있어요)', true);
+        if (addText) planner.prefill(addText);
+      };
+      // 할 일 목록은 Firebase 에서 따로 오므로, 아직이면 처음 불러온 뒤에 연다
+      if (planner.isLoaded()) after();
+      else { const off = planner.subscribe(() => { if (planner.isLoaded()) { off(); after(); } }); }
+    }
   } catch (e) {
     console.error('할 일 기능을 불러오지 못했어요', e);
   }
@@ -654,6 +690,7 @@ function renderToday() {
   const today    = todayStr();
   const schedule = daySchedule(today);
   const changed  = !!userData.dayOverrides?.[today];
+  const isAdmin  = userProfile?.role === 'admin';   // history26 포털 링크는 효니 화면에만
 
   el.innerHTML = '';
 
@@ -667,6 +704,7 @@ function renderToday() {
       ${PE.swapOn(userData, today) ? `<span class="swap-badge">${DOW_KO[DOW_KEY.indexOf(PE.swapOn(userData, today))]}요일 수업</span>` : ''}
     </div>
     <div class="update-time">${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 기준</div>
+    ${isAdmin ? `<button type="button" class="portal-link" onclick="window.openHistory26('today')" title="history26 교사 대시보드 «📅 오늘» 탭 (여기 시간표·할 일이 그대로 보여요)">📘 역사 포털 대시보드 ↗</button>` : ''}
   `;
   el.appendChild(header);
 
@@ -833,6 +871,7 @@ function renderToday() {
             ${cell.extra ? '<span class="extra-badge">보강</span>' : ''}
             <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
             <span class="class-step" id="step-display-${p}">${current}차시</span>
+            ${isAdmin ? `<button type="button" class="portal-link portal-link-sm" data-cls="${escapeHtml(cls)}" onclick="window.openHistory26('records', { cls: this.dataset.cls })" title="history26 대시보드 «학생 기록» 탭을 이 반으로 열기">📘 기록</button>` : ''}
           </div>
           ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
           ${renderClassNoteBlock(key)}
@@ -1827,6 +1866,16 @@ function renderSettings() {
           <span>학사일정 관리</span><span class="arrow-r">→</span>
         </button>
       </div>` : ''}
+      ${isAdmin ? `
+      <div class="settings-section">
+        <div class="settings-title">연결된 앱</div>
+        <button class="settings-item" onclick="window.openHistory26('today')">
+          <span>📘 역사 포털 대시보드 <span class="settings-sub">«📅 오늘» 탭에 이 앱의 시간표·진도·할 일이 보여요 · 저쪽에서 ✓ 누르면 여기도 바로 반영</span></span><span class="arrow-r">↗</span>
+        </button>
+        <button class="settings-item" onclick="window.openHistory26('records')">
+          <span>📘 학생 기록 보기 <span class="settings-sub">포털 대시보드 «학생 기록» 탭</span></span><span class="arrow-r">↗</span>
+        </button>
+      </div>` : ''}
       <div class="settings-section">
         <div class="settings-title">계정</div>
         <button class="settings-item" onclick="window.copyInviteLink()">
@@ -2549,6 +2598,13 @@ function showApp() {
 
   const pipBtn = document.getElementById('pip-btn');
   if (pipBtn && !('documentPictureInPicture' in window)) pipBtn.style.display = 'none';
+
+  // ?tab=weekly|progress|subject|settings → 그 탭으로 (한 번만. tasks 는 planner 가 준비된 뒤 startPlanner_ 가 처리)
+  if (!startTabApplied) {
+    startTabApplied = true;
+    const want = START_PARAMS.get('tab');
+    if (['weekly', 'progress', 'subject', 'settings'].includes(want)) switchTab(want);
+  }
 }
 
 function showLogin() {

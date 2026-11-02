@@ -190,6 +190,17 @@ body {
   color: var(--text3);
   margin-top: 4px;
 }
+/* history26(역사 포털) 대시보드로 가는 링크 — 오늘 탭 머리·수업 카드(관리자만) */
+.portal-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 8px; padding: 5px 10px;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--info, #1d6fa4);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 99px;
+  cursor: pointer; white-space: nowrap;
+  transition: border-color .15s, transform .15s;
+}
+.portal-link:hover { border-color: var(--info, #1d6fa4); transform: translateY(-1px); }
+.portal-link-sm { margin-top: 0; padding: 1px 7px; font-size: 11px; }
 
 /* ============================================================
    기말고사 D-day 카드
