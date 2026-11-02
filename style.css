@@ -1611,3 +1611,27 @@ html { -webkit-text-size-adjust: 100%; }
 .todo-line b { font-family: var(--mono); }
 .todo-over { font-weight: 700; }
 .todo-go { margin-left: auto; font-size: 12px; opacity: .8; }
+
+/* ============================================================
+   보강 수업 추가 (오늘 수업 탭)
+   ============================================================ */
+.extra-badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 5px; background: #e8f1ff; color: #1d4f9c;
+}
+.extra-add-btn, .extra-open-btn {
+  border: 1px dashed var(--accent2); background: none; color: var(--accent);
+  border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.extra-add-btn { margin-left: auto; min-height: 36px; }
+.extra-wrap { margin: 10px 0 24px; }
+.extra-open-btn { width: 100%; min-height: 44px; }
+.extra-form {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+}
+.extra-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.extra-title small { font-weight: 400; color: var(--text2); font-size: 12px; }
+.extra-hint { font-size: 13px; color: var(--text2); }
+.extra-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.extra-row .special-input { flex: 1 1 110px; min-height: 40px; }
+.extra-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }

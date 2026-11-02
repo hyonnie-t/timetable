@@ -644,7 +644,7 @@ function renderToday() {
 
   if (todayRefreshTimer) clearInterval(todayRefreshTimer);
   todayRefreshTimer = setInterval(() => {
-    if (currentTab === 'today') renderToday();
+    if (currentTab === 'today' && !extraForm) renderToday();
   }, 60000);
 
   const now      = new Date();
@@ -830,6 +830,7 @@ function renderToday() {
           <div class="class-info">
             <span class="class-badge">${cls}</span>
             <span class="class-subject">${subject}</span>
+            ${cell.extra ? '<span class="extra-badge">보강</span>' : ''}
             <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
             <span class="class-step" id="step-display-${p}">${current}차시</span>
           </div>
@@ -845,6 +846,7 @@ function renderToday() {
             <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
             <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
+            ${cell.extra ? `<div class="special-row"><span class="special-row-label">추가한 보강 수업이에요</span><button class="special-undo-btn" onclick="window.removeExtra(${p})">보강 취소</button></div>` : ''}
             <div class="special-row">
               <span class="special-row-label">진도 대신 다른 걸 했으면</span>
               <input class="special-input" id="special-inp-${p}" value="자습" placeholder="자습, 영상 시청 등" />
@@ -862,6 +864,7 @@ function renderToday() {
         <div class="period-divider"></div>
         <div class="period-body">
           <span class="empty-label">공강</span>
+          <button class="extra-add-btn" onclick="window.openExtra(${p})">＋ 보강</button>
         </div>
         ${swapBtn(p)}
       `;
@@ -892,9 +895,11 @@ function renderToday() {
   bar.innerHTML = swapFrom !== null
     ? `<span>${swapFrom}교시와 바꿀 교시의 ⇅를 누르세요</span><button onclick="window.tapSwap(${swapFrom})">취소</button>`
     : changed
-      ? `<span>🔀 오늘만 순서를 바꿨어요</span><button onclick="window.resetDaySwap()">원래대로</button>`
+      ? `<span>🔀 오늘만 시간표를 바꿨어요</span><button onclick="window.resetDaySwap()">원래대로</button>`
       : `<span>오늘만 바꾸려면 카드의 ⇅를 다른 카드로 끌어다 놓으세요</span>`;
-  el.insertBefore(bar, list); // (header는 위에서 innerHTML += 로 다시 만들어져 연결이 끊겨 있으므로 list 기준)
+  el.insertBefore(bar, list);
+  el.appendChild(extraFormEl_(schedule, periods));
+  // (header는 위에서 innerHTML += 로 다시 만들어져 연결이 끊겨 있으므로 list 기준)
 }
 
 // ============================================================
@@ -956,12 +961,120 @@ window.tapSwap = async function(p) {
   const base  = daySchedule(today);
   const snap  = {};
   for (const q of Object.keys(getPeriods())) {
-    snap[q] = { class: base[q]?.class || '', subject: base[q]?.subject || '' };
+    snap[q] = { class: base[q]?.class || '', subject: base[q]?.subject || '', ...(base[q]?.extra ? { extra: true } : {}) };
   }
   [snap[a], snap[p]] = [snap[p], snap[a]];
   try {
     await commit_({ [`dayOverrides/${today}`]: snap }, { src: '하루바꾸기', n: `${today} ${a}교시 ↔ ${p}교시` });
     showToast(`${a}교시 ↔ ${p}교시 (오늘만)`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
+
+// ============================================================
+// 보강 수업 추가 — 오늘 빈 교시에 수업을 하나 얹는다. dayOverrides/{날짜} 에 그날 시간표 전체를 저장(하루 바꾸기와 같은 길).
+// 칸에 extra:true 를 달아 «보강» 표시와 취소를 한다. 수업으로 세므로 그 반 진도 차시에 들어간다.
+// ============================================================
+let extraForm = null;   // null=닫힘, { p } = 열림 (p: 미리 고른 교시, 없으면 null)
+const EXTRA_LAST = { cls: '', subject: '역사' };
+
+function daySnapshot_(today) {
+  const base = daySchedule(today);
+  const snap = {};
+  for (const q of Object.keys(getPeriods(today))) {
+    const c = base[q];
+    snap[q] = { class: c?.class || '', subject: c?.subject || '', ...(c?.extra ? { extra: true } : {}) };
+  }
+  return snap;
+}
+
+// 시간표 그대로(하루 바꾸기 없음)와 같은 모양이면 override 를 지운다
+function sameAsBase_(today, snap) {
+  const base = PE.scheduleOn({ ...userData, dayOverrides: {} }, today);
+  const keys = new Set([...Object.keys(snap), ...Object.keys(base)]);
+  for (const q of keys) {
+    if (PE.cellKey(snap[q]) !== PE.cellKey(base[q])) return false;
+  }
+  return true;
+}
+
+function extraFormEl_(schedule, periods) {
+  const wrap = document.createElement('div');
+  wrap.className = 'extra-wrap';
+  if (!extraForm) {
+    wrap.innerHTML = `<button class="extra-open-btn" onclick="window.openExtra(null)">➕ 보강 수업 추가</button>`;
+    return wrap;
+  }
+  const today = todayStr();
+  const free = Object.keys(periods).map(Number).sort((a, b) => a - b)
+    .filter(p => !PE.cellKey(schedule[p]) && !getCalendarEvent(today, String(p)));
+  const pick = free.includes(extraForm.p) ? extraForm.p : free[0];
+  const keys = PE.allKeys(userData).map(k => k.split('_'));
+  const classes = [...new Set(keys.map(k => k[0]))];
+  const subjects = [...new Set(keys.map(k => k.slice(1).join('_')))];
+  if (!free.length) {
+    wrap.innerHTML = `<div class="extra-form"><div class="extra-title">보강 수업 추가</div>
+      <div class="extra-hint">오늘은 빈 교시가 없어요. 먼저 ⇅로 옮기거나 수업 칸을 비워 주세요.</div>
+      <div class="extra-actions"><button class="special-undo-btn" onclick="window.closeExtra()">닫기</button></div></div>`;
+    return wrap;
+  }
+  wrap.innerHTML = `
+    <div class="extra-form">
+      <div class="extra-title">보강 수업 추가 <small>(오늘만 · 진도에 들어가요)</small></div>
+      <div class="extra-row">
+        <select id="extra-p" class="special-input">${free.map(p => `<option value="${p}"${p === pick ? ' selected' : ''}>${p}교시 ${formatPeriodTime(p)}</option>`).join('')}</select>
+        <input id="extra-cls" class="special-input" list="extra-cls-list" value="${escapeHtml(EXTRA_LAST.cls)}" placeholder="반 (예: 201)" />
+        <input id="extra-sub" class="special-input" list="extra-sub-list" value="${escapeHtml(EXTRA_LAST.subject)}" placeholder="과목" />
+        <datalist id="extra-cls-list">${classes.map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
+        <datalist id="extra-sub-list">${subjects.map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
+      </div>
+      <div class="extra-actions">
+        <button class="special-undo-btn" onclick="window.closeExtra()">취소</button>
+        <button class="save-btn" onclick="window.addExtra()">추가</button>
+      </div>
+    </div>`;
+  return wrap;
+}
+
+window.openExtra = function(p) {
+  extraForm = { p: p == null ? null : Number(p) };
+  renderToday();
+  document.querySelector('.extra-form')?.scrollIntoView({ block: 'center' });
+};
+window.closeExtra = function() { extraForm = null; renderToday(); };
+
+window.addExtra = async function() {
+  const p = Number(document.getElementById('extra-p')?.value);
+  const cls = PE.normalizeName(document.getElementById('extra-cls')?.value);
+  const subject = PE.normalizeName(document.getElementById('extra-sub')?.value);
+  if (!p || !cls || !subject) { showToast('교시·반·과목을 모두 채워 주세요', true); return; }
+  const today = todayStr();
+  const snap = daySnapshot_(today);
+  if (PE.cellKey(snap[p])) { showToast(`${p}교시에는 이미 수업이 있어요`, true); return; }
+  snap[p] = { class: cls, subject, extra: true };
+  EXTRA_LAST.cls = cls; EXTRA_LAST.subject = subject;
+  try {
+    await commit_({ [`dayOverrides/${today}`]: snap }, { src: '보강추가', n: `${today} ${p}교시 ${cls} ${subject}` });
+    showToast(`${p}교시 ${cls} ${subject} 보강을 넣었어요`);
+    extraForm = null;
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  renderCurrentTab();
+  if (pipWindow) renderPipWidget();
+};
+
+window.removeExtra = async function(p) {
+  const today = todayStr();
+  const snap = daySnapshot_(today);
+  if (!snap[p]?.extra) return;
+  snap[p] = { class: '', subject: '' };
+  try {
+    await commit_({ [`dayOverrides/${today}`]: sameAsBase_(today, snap) ? null : snap }, { src: '보강취소', n: `${today} ${p}교시` });
+    showToast('보강을 취소했어요');
   } catch (e) {
     showToast('저장 실패: ' + e.message, true);
   }
