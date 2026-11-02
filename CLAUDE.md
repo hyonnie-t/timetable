@@ -12,4 +12,5 @@
 - 포인터 이벤트 관련 수정(끌기)은 포인터 캡처 위치를 확인한다(날짜 없음 끌기가 한 칸씩만 움직이던 문제 이력).
 - 서비스 워커 캐시를 바꾸면 버전을 올려 옛 캐시가 남지 않게 한다. Firebase 설정값은 새로 적지 않는다.
 - 수정 뒤 `demo/`와 배포 주소를 내장 브라우저로 직접 열어 확인한다. 테스트는 `tests/`를 먼저 돌린다.
+- **history26 교사 대시보드 «📅 오늘» 탭(v134, 2026-11-02)이 이 앱을 불러 쓴다**: 같은 origin이라 `firebase.js`·`engine/progress-engine.js`·`engine/task-engine.js`를 배포 주소에서 동적 import해 오늘 수업·반별 진도·할 일을 보여 주고, 할 일 ✓/↺는 `planComplete`·`planDailyDone`·`planUndoComplete`·`planDailyUndo` + `assertPlannerPatch`로 `users/{uid}/planner`에 쓴다. 이 파일 경로·export 이름·`?tab=tasks`·planner `log/` 모양을 바꾸면 history26 `js/08-dash-today.js`도 같이 고친다.
 - 데모는 주소 뒤에 `?demo=demo`를 붙여 연다(`?demo`만 쓰면 값이 비어 로그인 창에서 멈춘다). 로그인 없이 `demo/demo.json`으로 화면을 띄우고 저장하지 않는다.
