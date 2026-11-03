@@ -51,6 +51,22 @@ describe('한 줄 입력 해석', () => {
     assert.equal(T.parseQuickInput('보고서 내일 17시까지', TODAY).slot, null);
   });
 
+  test('시간 범위는 시작 시각과 걸리는 시간으로 읽는다', () => {
+    for (const q of ['11/4 직무연수 15:30~18:20', '직무연수 15:30-18:20 11/4', '직무연수 11/4 오후 3시 30분~6시 20분']) {
+      const r = T.parseQuickInput(q, TODAY);
+      assert.deepEqual(r.slot, { date: '2026-11-04', start: '15:30', min: 170 }, q);
+      assert.equal(r.title, '직무연수', q);
+    }
+    assert.equal(T.parseQuickInput('모레 10:00~16:50 연수', TODAY).slot.min, 410);
+  });
+
+  test('범위가 아닌 것은 건드리지 않는다', () => {
+    assert.equal(T.parseQuickInput('11/4-5 출장', TODAY).slot, null);
+    const r = T.parseQuickInput('모레 18:00~17:00 면담', TODAY);   // 끝이 더 빠르면 범위 아님
+    assert.equal(r.slot.start, '18:00');
+    assert.equal(r.slot.min, 60);
+  });
+
   test('날짜만 있으면 마감일, 기본 걸리는 시간은 60분', () => {
     assert.equal(T.parseQuickInput('11월 5일 서류 제출', TODAY).due, '2026-11-05');
     assert.equal(T.parseQuickInput('모레 15:30 면담', TODAY).slot.min, 60);

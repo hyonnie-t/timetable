@@ -713,8 +713,20 @@ export function parseQuickInput(text, today) {
     startMin = h * 60 + mi;
     return true;
   };
+  // 시간 범위: 15:30~18:20 / 15:30-18:20 / 오후 3시 30분~6시 20분 — 시작 시각과 걸리는 시간을 한꺼번에 읽는다
+  // 양쪽 모두 "시"나 ":"가 붙어야 범위로 본다 ("11/4-5" 같은 날짜 범위와 안 섞이게). 끝이 시작보다 늦지 않으면 그대로 둔다.
+  const TIME = '(\\d{1,2})(?::(\\d{2})(?!\\d)|시(?:\\s*(\\d{1,2})\\s*분)?)';
+  eat(new RegExp(`(?<![\\d/])(오전|오후)?\\s*${TIME}\\s*[~\\-–—]\\s*(오전|오후)?\\s*${TIME}`), m => {
+    const prev = startMin, prevDur = dur;
+    if (!setTime(Number(m[2]), Number(m[3] ?? m[4] ?? 0), m[1])) return false;
+    const a = startMin;
+    if (!setTime(Number(m[6]), Number(m[7] ?? m[8] ?? 0), m[5] || (m[1] === '오후' && Number(m[6]) < 12 ? '오후' : null)) || startMin <= a) {
+      startMin = prev; dur = prevDur; return false;
+    }
+    dur = startMin - a; startMin = a;
+  });
   // 숫자와 "시" 사이는 붙여 쓴 것만 시각으로 읽는다 ("1/5 시험"의 "5 시"는 시각이 아니다)
-  eat(/(오전|오후)?\s*(\d{1,2})시(?![간험])(?:\s*(\d{1,2})\s*분)?/, m => setTime(Number(m[2]), Number(m[3] || 0), m[1]));
+  if (startMin == null) eat(/(오전|오후)?\s*(\d{1,2})시(?![간험])(?:\s*(\d{1,2})\s*분)?/, m => setTime(Number(m[2]), Number(m[3] || 0), m[1]));
   if (startMin == null) eat(/(?<![\d/])(\d{1,2}):(\d{2})(?!\d)/, m => setTime(Number(m[1]), Number(m[2]), null));
   if (dur == null) eat(/(\d+)\s*분/, m => { dur = Number(m[1]); });
 
