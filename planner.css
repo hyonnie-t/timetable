@@ -176,9 +176,9 @@
   bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 1100;
   display: flex; align-items: center; gap: 14px;
   background: #222; color: #fff; padding: 11px 16px; border-radius: 12px; font-size: 13px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: 92vw;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3); width: max-content; max-width: 92vw;
 }
-.pl-undo button { background: none; border: none; color: #8fe0b2; font-weight: 700; cursor: pointer; font-size: 13px; }
+.pl-undo button { flex: none; white-space: nowrap; background: none; border: none; color: #8fe0b2; font-weight: 700; cursor: pointer; font-size: 13px; }
 
 /* 고치기·정리 창 */
 .pl-f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); margin-bottom: 12px; flex: 1; }

@@ -328,7 +328,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-10-28-lunch';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-11-04-quicksave';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -558,14 +558,16 @@ async function startPlanner_() {
     const want = START_PARAMS.get('tab');
     if (want === 'tasks' && currentTab === 'today') switchTab('tasks');   // ?tab=tasks → 브라우저 시작 페이지로 쓸 수 있게
     else if (currentTab === 'tasks') planner.render();
-    // history26 대시보드에서 온 요청: 그 할 일 고치기 창 열기 / 빠른 입력에 미리 적기 (할 일 탭일 때만, 한 번만)
+    // 다른 화면에서 온 요청: 그 할 일 고치기 창 열기 / 빠른 입력에 미리 적기 / save=1(아침 브리핑)이면 바로 저장 (할 일 탭일 때만, 한 번만)
     const taskId = START_PARAMS.get('task'), addText = START_PARAMS.get('add');
+    const saveNow = START_PARAMS.get('save') === '1', addArea = START_PARAMS.get('area');
     if (currentTab === 'tasks' && (taskId || addText)) {
-      dropStartParams_('task', 'add');
-      START_PARAMS.delete('task'); START_PARAMS.delete('add');
+      dropStartParams_('task', 'add', 'save', 'area');   // 새로고침해도 다시 저장되지 않게 먼저 지운다
+      ['task', 'add', 'save', 'area'].forEach(k => START_PARAMS.delete(k));
       const after = () => {
         if (taskId && !planner.openById(taskId)) showToast('그 할 일을 찾지 못했어요 (지워졌을 수 있어요)', true);
-        if (addText) planner.prefill(addText);
+        if (addText && saveNow && planner.quickSave) planner.quickSave(addText, { area: addArea });
+        else if (addText) planner.prefill(addText);
       };
       // 할 일 목록은 Firebase 에서 따로 오므로, 아직이면 처음 불러온 뒤에 연다
       if (planner.isLoaded()) after();

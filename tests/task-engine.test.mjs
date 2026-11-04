@@ -942,3 +942,23 @@ describe('쿨메신저 받은편지함', () => {
     assert.doesNotThrow(() => T.assertPlannerPatch(p));
   });
 });
+
+describe('findOpenTaskByTitle — 브리핑 버튼을 두 번 눌러도 또 넣지 않기', () => {
+  const list = [
+    task('a', { title: '수능 던전 b1 테스트', status: 'open' }),
+    task('b', { title: '끝낸 일', status: 'done' }),
+    task('c', { title: '보관한 일', status: 'archived' }),
+  ];
+  test('열린 할 일은 찾는다 (앞뒤·중복 공백은 무시)', () => {
+    assert.equal(T.findOpenTaskByTitle(list, '  수능  던전 b1 테스트 ')?.id, 'a');
+  });
+  test('NFD로 온 글자도 같은 제목으로 본다', () => {
+    assert.equal(T.findOpenTaskByTitle(list, '수능 던전 b1 테스트'.normalize('NFD'))?.id, 'a');
+  });
+  test('끝냈거나 보관한 일, 없는 제목은 찾지 않는다', () => {
+    assert.equal(T.findOpenTaskByTitle(list, '끝낸 일'), null);
+    assert.equal(T.findOpenTaskByTitle(list, '보관한 일'), null);
+    assert.equal(T.findOpenTaskByTitle(list, '없는 일'), null);
+    assert.equal(T.findOpenTaskByTitle(list, ''), null);
+  });
+});

@@ -147,11 +147,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   async function run(fn, action, okMsg) {
     try {
       const patch = fn();
-      if (await commit(patch, action) && okMsg) toast(okMsg);
+      const saved = await commit(patch, action);
+      if (saved && okMsg) toast(okMsg);
+      return saved;
     } catch (e) {
       console.error(e);
       toast(`저장하지 못했어요: ${e.message}`, true);
       cal?.render();      // 끌다 만 블록을 원래 자리로
+      return false;
     }
   }
 
@@ -266,12 +269,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
 
   // 한 줄 입력으로 추가 — 목록의 입력칸과 미니창이 같이 쓴다. { ok, msg } 를 돌려 준다
   // ask: 오늘 칸이 상한에 막히면 «하나 빼고 / 이번만 초과» 창으로 묻는다 (미니창은 창을 띄울 수 없어 칸 없이 저장)
-  function addByText(text, { ask = false } = {}) {
+  // area: 영역을 정해 준다(브리핑 버튼) / quiet: 안내는 부른 쪽이 띄운다. saved 는 저장 결과(true/false)를 주는 Promise
+  function addByText(text, { ask = false, area: wantArea = null, quiet = false } = {}) {
     const today = todayStr();
     const p = T.parseQuickInput(text, today);
     if (!p.title) { toast('할 일 제목을 적어 주세요', true); return { ok: false, msg: '할 일 제목을 적어 주세요' }; }
     const id = T.newTaskId();
-    const area = T.guessArea(p.title) || root()?.querySelector('#pl-add-area')?.value || '기타';
+    const area = (T.AREAS.includes(wantArea) && wantArea) || T.guessArea(p.title) || root()?.querySelector('#pl-add-area')?.value || '기타';
     const add = (slot, { now, extra } = {}) => T.planAddTask({ title: p.title, area, due: p.due, dueText: p.dueText, slot, daily: p.daily, extra: extra && slot ? slot.date : null }, { id, now: now || nowStamp() });
     let slot = p.slot, note = '';
     if (slot) {
@@ -296,8 +300,30 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       }
     }
     const msg = note ? `${note} 칸은 비우고 저장했어요` : p.daily ? '매일 할 일로 추가했어요' : '추가했어요';
-    run(() => add(slot), 'add', msg);
-    return { ok: true, msg };
+    const saved = run(() => add(slot), 'add', quiet ? null : msg);
+    return { ok: true, msg, id, title: p.title, area, saved };
+  }
+
+  // 입력칸에 글만 미리 적는다 (저장은 Enter)
+  function prefillInput(text) {
+    const input = root()?.querySelector('#pl-add-input');
+    if (!input) return;
+    input.value = String(text || '').slice(0, 200);
+    updateHint();
+    input.focus();
+    input.scrollIntoView({ block: 'center' });
+  }
+
+  // 아침 브리핑 «할 일로 등록» → ?tab=tasks&add=글&save=1 : 누르면 바로 저장한다.
+  // 같은 제목의 열린 할 일이 있으면 또 넣지 않고(두 번 눌러도 안전), 저장에 실패하면 글을 입력칸에 남긴다.
+  // 묻는 창을 띄우지 않는다(ask 끔) — 오늘 칸이 차 있으면 칸만 비우고 저장하고 안내에 적는다.
+  async function quickSave(text, { area = null } = {}) {
+    const s = String(text || '').slice(0, 200);
+    const title = T.parseQuickInput(s, todayStr()).title;
+    if (title && T.findOpenTaskByTitle(tasks(), title)) { toast('이미 할 일에 있어요'); return; }
+    const r = addByText(s, { area, quiet: true });
+    if (!r.ok || !(await r.saved)) { prefillInput(s); return; }
+    showUndo({ title: r.title }, { label: `${r.msg} · ${r.area}`, undo: () => T.planDelete({ id: r.id }) });
   }
 
   // ---------- 여러 줄 붙여넣기 → 한 번에 추가 ----------
@@ -1237,14 +1263,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       return true;
     },
     // history26 대시보드 «+ 할 일» → ?tab=tasks&add=글 : 빠른 입력칸에 미리 적어 두고(저장은 Enter 로) 풀이 힌트를 보여 준다
-    prefill(text) {
-      const input = root()?.querySelector('#pl-add-input');
-      if (!input) return;
-      input.value = String(text || '').slice(0, 200);
-      updateHint();
-      input.focus();
-      input.scrollIntoView({ block: 'center' });
-    },
+    prefill: prefillInput,
+    // 아침 브리핑 «할 일로 등록» → ?tab=tasks&add=글&save=1 : 바로 저장 (되돌리기 줄을 띄운다)
+    quickSave,
     destroy() {
       subs.clear();
       if (unsub) unsub();
