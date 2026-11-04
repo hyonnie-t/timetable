@@ -317,11 +317,20 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   // 아침 브리핑 «할 일로 등록» → ?tab=tasks&add=글&save=1 : 누르면 바로 저장한다.
   // 같은 제목의 열린 할 일이 있으면 또 넣지 않고(두 번 눌러도 안전), 저장에 실패하면 글을 입력칸에 남긴다.
   // 묻는 창을 띄우지 않는다(ask 끔) — 오늘 칸이 차 있으면 칸만 비우고 저장하고 안내에 적는다.
-  async function quickSave(text, { area = null } = {}) {
-    const s = String(text || '').slice(0, 200);
-    const title = T.parseQuickInput(s, todayStr()).title;
+  // due(YYYY-MM-DD)가 오면 글을 해석하지 않고 제목 그대로 저장한다 — 제목 속 «내일»·«3시»가 날짜·시각으로 읽히지 않게.
+  async function quickSave(text, { area = null, due = null } = {}) {
+    const s = String(text || '').slice(0, 200).trim();
+    const exact = /^\d{4}-\d{2}-\d{2}$/.test(due || '');
+    const title = exact ? s : T.parseQuickInput(s, todayStr()).title;
     if (title && T.findOpenTaskByTitle(tasks(), title)) { toast('이미 할 일에 있어요'); return; }
-    const r = addByText(s, { area, quiet: true });
+    let r;
+    if (exact && title) {
+      const id = T.newTaskId();
+      const a = (T.AREAS.includes(area) && area) || T.guessArea(title) || root()?.querySelector('#pl-add-area')?.value || '기타';
+      r = { ok: true, msg: '추가했어요', id, title, area: a, saved: run(() => T.planAddTask({ title, area: a, due }, { id, now: nowStamp() }), 'add') };
+    } else {
+      r = addByText(s, { area, quiet: true });
+    }
     if (!r.ok || !(await r.saved)) { prefillInput(s); return; }
     showUndo({ title: r.title }, { label: `${r.msg} · ${r.area}`, undo: () => T.planDelete({ id: r.id }) });
   }
