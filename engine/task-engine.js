@@ -124,6 +124,14 @@ export function listTasks(planner) {
   return Object.entries(planner?.tasks || {}).map(([id, v]) => shapeTask(id, v));
 }
 
+// 제목이 같은 열린 할 일을 찾는다 (없으면 null). 앞뒤·중복 공백과 한글 조합 방식(NFC/NFD) 차이는 무시한다
+export function findOpenTaskByTitle(tasks, title) {
+  const norm = s => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  const want = norm(title);
+  if (!want) return null;
+  return (tasks || []).find(t => t.status === 'open' && norm(t.title) === want) || null;
+}
+
 // ------------------------------------------------------------
 // 쓰기 계획 — 한 번에 한 건, 필드 단위 (여러 기기가 서로 다른 필드를 고쳐도 덮어쓰지 않게)
 // ------------------------------------------------------------
