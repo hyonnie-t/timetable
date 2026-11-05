@@ -319,6 +319,13 @@ describe('하루 칸 — 수업과 겹침', () => {
     assert.deepEqual(T.busyBlocks(ev, TODAY).map(x => [x.p, x.kind, x.label]), [[2, 'event', '학생 상담'], [4, 'class', '103 역사']]);
   });
 
+  test('교내 행사 블록에는 임장 지도할 학급을 붙인다', () => {
+    const ev = schoolData({ calendar: { [TODAY]: { 2: { type: 'event', label: '구기대회(교내)' } } } });
+    const blk = T.busyBlocks(ev, TODAY).find(x => x.p === 2);
+    assert.equal(blk.kind, 'event');
+    assert.match(blk.label, /^\S+ 구기대회\(교내\)$/);
+  });
+
   test('수업없음(noclass) 교시는 블록이 없어 할 일을 놓을 수 있다', () => {
     const nc = schoolData({ calendar: { [TODAY]: { 2: { type: 'noclass', label: '수업 없음' } } } });
     assert.deepEqual(T.busyBlocks(nc, TODAY).map(x => x.p), [4]);

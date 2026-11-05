@@ -9,7 +9,7 @@
 // plan*() 은 "planner 뿌리 기준 경로 → 값" patch 를 돌려준다 (null = 삭제).
 // patch 는 progress-engine 의 applyPatch 로 메모리에도 같은 방식으로 반영할 수 있고,
 // 실제로 DB에 쓰기 전에 assertPlannerPatch() 로 planner 밖을 건드리지 않는지 검사한다.
-import { isDateStr, addDays, weekdayKey, timeToMin, periodsOn, scheduleOn, calendarEvent, cellKey, DOW_KEY, allKeys, buildLedger, gradeOf } from './progress-engine.js';
+import { isDateStr, addDays, weekdayKey, timeToMin, periodsOn, scheduleOn, calendarEvent, isInSchoolEvent, cellKey, DOW_KEY, allKeys, buildLedger, gradeOf } from './progress-engine.js';
 
 export const AREAS = ['수업', '학생회', '학교', '대학원', '독서', '연수', '투자', '기타'];
 export const KINDS = ['once', 'watch'];
@@ -375,6 +375,8 @@ export function busyBlocks(data, date) {
     if (ev) {
       if (ev.type === 'holiday' || ev.type === 'noclass') continue;
       kind = 'event'; label = ev.label || '';
+      // 교내 행사는 그 반 임장 지도라 학급을 앞에 붙인다
+      if (cell?.class && isInSchoolEvent(ev)) label = `${cell.class} ${label}`;
     } else if (cellKey(cell)) {
       kind = 'class'; label = `${cell.class} ${cell.subject}`;
     }

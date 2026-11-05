@@ -162,6 +162,11 @@ export function calendarEvent(data, date, p, cls) {
   return (g && day[`${pk}@${g}`]) || day[pk] || (g && day[`all@${g}`]) || day.all || null;
 }
 
+// 교내 행사인가 — 그 교시 수업 반을 임장 지도하므로 화면에 학급도 같이 보여 준다. 표시 이름에 «교내»가 있으면 교내 행사다.
+export function isInSchoolEvent(ev) {
+  return ev?.type === 'event' && String(ev.label || '').includes('교내');
+}
+
 export function specialAt(data, date, p, key) {
   const sp = data.specials?.[date]?.[p];
   return sp && normalizeName(sp.key) === key ? sp : null;
