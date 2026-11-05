@@ -791,6 +791,13 @@ function renderToday() {
           <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
           <span class="banner-time">${formatPeriodTime(curP)}${isPeriodChanged(curP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
+    } else if (PE.isInSchoolEvent(ev)) {
+      el.innerHTML += `
+        <div class="banner banner-now">
+          <span class="banner-label">NOW</span>
+          <span class="banner-info">${curP}교시 · <b>${escapeHtml(schedule[curP].class)}</b> ${escapeHtml(ev.label)}</span>
+          <span class="banner-time">${formatPeriodTime(curP)}${isPeriodChanged(curP) ? ' ⏰시간 변경' : ''}</span>
+        </div>`;
     }
   } else if (nextP && schedule[nextP]?.class) {
     const ev = getCalendarEvent(today, String(nextP));
@@ -802,6 +809,13 @@ function renderToday() {
         <div class="banner banner-next">
           <span class="banner-label">NEXT</span>
           <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-time">${formatPeriodTime(nextP)}${isPeriodChanged(nextP) ? ' ⏰시간 변경' : ''}</span>
+        </div>`;
+    } else if (PE.isInSchoolEvent(ev)) {
+      el.innerHTML += `
+        <div class="banner banner-next">
+          <span class="banner-label">NEXT</span>
+          <span class="banner-info">${nextP}교시 · <b>${escapeHtml(schedule[nextP].class)}</b> ${escapeHtml(ev.label)}</span>
           <span class="banner-time">${formatPeriodTime(nextP)}${isPeriodChanged(nextP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
     }
@@ -823,8 +837,8 @@ function renderToday() {
         <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
-          <span class="event-badge badge-${ev.type}">${ev.label}</span>
-          <span class="empty-label"></span>
+          ${cell?.class && PE.isInSchoolEvent(ev) ? `<div class="class-info"><span class="class-badge">${escapeHtml(cell.class)}</span><span class="event-badge badge-${ev.type}">${escapeHtml(ev.label)}</span></div>` : `<span class="event-badge badge-${ev.type}">${ev.label}</span>
+          <span class="empty-label"></span>`}
         </div>
       `;
     } else if (cell?.class && getSpecialLesson(today, p, PE.cellKey(cell))) {
@@ -1299,6 +1313,7 @@ function renderWeekly() {
           html += `<td class="empty-cell no-period${isToday ? ' today-col' : ''}"></td>`;
         } else if (ev) {
           html += `<td class="event-cell${isToday ? ' today-col' : ''}">
+            ${cell?.class && PE.isInSchoolEvent(ev) ? `<span class="cell-class">${escapeHtml(cell.class)}</span>` : ''}
             <span class="cell-badge badge-${ev.type}">${ev.label}</span>
           </td>`;
         } else if (cell?.class) {
@@ -2260,7 +2275,7 @@ const TRANSITION_CALENDAR = [
   _ev('2026-12-11', 'event',   '서울퓨처랩(1-4반)/서울식물원(5-8반)', _P(1, 6)),
   _ev('2026-12-14', 'event',   '구기대회(교내)', _P(1, 4)),
   _ev('2026-12-15', 'event',   '구기대회(교내)', _P(1, 4)),
-  _ev('2026-12-16', 'event',   '구기대회(교내)', _P(1, 4)),
+  _ev('2026-12-16', 'event',   '구기대회(교내)', _P(1, 2)), // 수요일 3·4교시는 교과수업
   _ev('2026-12-21', 'event',   '영화 관람(크리스마스 캐롤, 어벤저스)', _P(1, 6)),
   _ev('2026-12-23', 'event',   '크리스마스 쿠키 만들기(교내)', _P(1, 4)),
   _ev('2026-12-24', 'event',   '페인터즈 공연관람(교외체험)', _P(1, 7)),
@@ -2726,7 +2741,7 @@ function pipRowsHtml(items = [], used = new Set()) {
     let body;
 
     if (ev) {
-      body = `<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
+      body = `${cell?.class && PE.isInSchoolEvent(ev) ? `<span class="pip-class">${escapeHtml(cell.class)}</span>` : ''}<span class="pip-badge">${escapeHtml(ev.label)}</span>`;
     } else if (cell?.class) {
       const { key, special, topic } = lessonCellInfo(today, p, cell);
       const note    = userData.classNotes?.[key]?.text || '';

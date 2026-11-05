@@ -480,6 +480,24 @@ describe('학년별 학사일정', () => {
     assert.equal(E.calendarEvent(d, 'x', 1, '201 B').label, '2학년');
     assert.equal(E.calendarEvent(d, 'x', 1, '105'), null);
   });
+
+  test('교내 행사만 학급 표시 대상이다 (교외체험·시험·이름에 교내가 없는 행사는 아니다)', () => {
+    assert.equal(E.isInSchoolEvent({ type: 'event', label: '구기대회(교내)' }), true);
+    assert.equal(E.isInSchoolEvent({ type: 'event', label: '목동 스케이트장(교외체험)' }), false);
+    assert.equal(E.isInSchoolEvent({ type: 'event', label: '노동인권교육' }), false);
+    assert.equal(E.isInSchoolEvent({ type: 'exam', label: '교내 시험' }), false);
+    assert.equal(E.isInSchoolEvent(null), false);
+  });
+
+  test('12/16처럼 3학년 행사가 1·2교시뿐이면 3교시는 정규 수업, 2학년은 그날 시험', () => {
+    const d = { calendar: { x: {
+      '1@3': { type: 'event', label: '구기대회(교내)' }, '2@3': { type: 'event', label: '구기대회(교내)' },
+      'all@2': { type: 'exam', label: '1,2학년 기말고사' },
+    } } };
+    assert.equal(E.calendarEvent(d, 'x', 2, '305').label, '구기대회(교내)');
+    assert.equal(E.calendarEvent(d, 'x', 3, '305'), null);
+    assert.equal(E.calendarEvent(d, 'x', 3, '201 A').type, 'exam');
+  });
 });
 
 describe('요일 대체', () => {
