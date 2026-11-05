@@ -44,7 +44,7 @@ function dropStartParams_(...keys) {
 // 기말고사 D-차시 표시 대상 — 학기 바뀔 때 여기만 수정
 // includeStart: 시험 첫날 수업도 세는지 (2학년은 첫날이 시험이라 수업 없음 → false)
 const FINAL_EXAM_GROUPS = [
-  // 2학년은 임용 채점 대비로 11/30까지 포트폴리오·수행평가를 마무리한다(기말고사 12/14보다 앞당김).
+  // 2학년은 11/30까지 포트폴리오·수행평가를 마무리한다(기말고사 12/14보다 앞당김).
   // 3학년은 기말고사가 아니라 마지막 수업일(2026년 마지막 평일 12/31, 방학 전주까지)까지 센다
   { label: '3학년',   subject: '역사',  start: '2026-12-31', includeStart: true,  classes: ['305', '306', '307', '308'], endLabel: '마지막 수업' },
   { label: '2학년 A', subject: '역사A', start: '2026-11-30', includeStart: true,  classes: ['201 A', '202 A', '203 A'], endLabel: '마무리' },
