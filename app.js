@@ -4,6 +4,7 @@ import {
   signInWithPopup, signOut, onAuthStateChanged
 } from './firebase.js';
 import * as PE from './engine/progress-engine.js';
+import './icons/lucian/refresh.js';
 
 // ============================================================
 // 상수
@@ -2920,6 +2921,69 @@ function showToast(msg, isErr = false) {
   clearTimeout(window._toastTimer);
   window._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
+
+// ============================================================
+// 새로고침 버튼 (홈 화면 앱은 주소창·당겨서 새로고침이 없다)
+// 서비스워커 update() → 이 앱의 Cache Storage 삭제 → reload.
+// 로그인 정보(IndexedDB)·localStorage는 건드리지 않는다.
+// ============================================================
+let hardRefreshing = false;
+
+// 입력 중인 내용이 날아갈 수 있는 상태인가
+function hasUnsavedInput_() {
+  if (document.querySelector('.step-editor.open, .modal-overlay')) return true;
+  const q = document.getElementById('pl-add-input');
+  if (q && q.value.trim()) return true;
+  const a = document.activeElement;
+  return !!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox');
+}
+
+async function doHardRefresh_() {
+  if (hardRefreshing) return;
+  hardRefreshing = true;
+  const icon = document.getElementById('refresh-icon');
+  try { icon?.setState('loading'); } catch (e) { /* 아이콘 상태 실패는 무시 */ }
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await Promise.race([reg.update(), new Promise(r => setTimeout(r, 3000))]);
+    }
+  } catch (e) { /* 오프라인 등은 넘어간다 */ }
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) { /* 캐시가 막힌 환경이면 그냥 다시 불러온다 */ }
+  location.reload();
+}
+
+function hardRefresh() {
+  if (hardRefreshing) return;
+  if (!hasUnsavedInput_()) { doHardRefresh_(); return; }
+  // 브라우저 confirm은 내장 브라우저에서 바로 취소되므로 앱 안 창을 쓴다
+  document.getElementById('modal-refresh-confirm')?.remove();
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay';
+  ov.id = 'modal-refresh-confirm';
+  ov.innerHTML = `
+    <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="refresh-confirm-title">
+      <div class="modal-header"><h2 id="refresh-confirm-title">새로고침할까요?</h2></div>
+      <div class="modal-body"><p class="modal-hint">열려 있는 창이나 입력 중인 내용은 저장되지 않고 사라져요.</p></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" data-rf="no">계속 쓰기</button>
+        <button type="button" class="btn-primary" data-rf="yes">새로고침</button>
+      </div>
+    </div>`;
+  ov.addEventListener('click', e => {
+    const b = e.target.closest('[data-rf]');
+    if (b?.dataset.rf === 'yes') { ov.remove(); doHardRefresh_(); }
+    else if (b || e.target === ov) ov.remove();
+  });
+  document.body.appendChild(ov);
+  ov.querySelector('[data-rf="no"]').focus();
+}
+window.hardRefresh = hardRefresh;
 
 // ============================================================
 // 초기화
