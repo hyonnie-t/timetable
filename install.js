@@ -48,7 +48,7 @@
   function run() {
     if (deferred) {
       var p = deferred; deferred = null; sync();
-      try { p.prompt(); p.userChoice.then(function (c) { if (c && c.outcome !== 'accepted') deferred = p; sync(); }, sync); } catch (e) { deferred = p; sync(); }
+      try { p.prompt(); p.userChoice.then(sync, sync); } catch (e) { sync(); }
     } else if (ios) help();
   }
   document.addEventListener('click', function (e) {
