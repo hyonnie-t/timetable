@@ -167,6 +167,18 @@ body {
 
 .pip-tab-btn:hover { color: var(--text2); }
 
+/* 새로고침: 홈 화면 앱엔 주소창이 없어 항상 보이게 한다 (탭 줄 맨 오른쪽, 좁은 폭에선 오른쪽에 붙여 둠) */
+.refresh-tab-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; min-width: 44px; height: 44px; align-self: center;
+  margin: 0 0 1px 2px; padding: 0;
+  color: var(--text3); background: none; border: none; border-radius: 12px;
+  cursor: pointer; flex-shrink: 0;
+  transition: color .2s, background .2s;
+}
+.refresh-tab-btn:hover { color: var(--accent); background: var(--bg); }
+.refresh-tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 /* ============================================================
    헤더
    ============================================================ */
@@ -1357,6 +1369,15 @@ html { -webkit-text-size-adjust: 100%; }
   .tab { padding: 12px 12px 12px; font-size: 14px; white-space: nowrap; }
   .settings-tab-btn, .pip-tab-btn { padding: 12px 12px; font-size: 18px; }
   .pip-tab-btn { display: none; }  /* 모바일 브라우저는 미니창 미지원 */
+  /* 탭이 가로로 넘쳐도 새로고침은 오른쪽 끝에 붙어 있게 */
+  .refresh-tab-btn {
+    position: sticky; right: 0; z-index: 2;
+    background: var(--bg); margin-left: 0;
+    box-shadow: -8px 0 8px -2px var(--bg);
+    border-radius: 0;
+  }
+  .refresh-tab-btn:hover { background: var(--bg); }
+  .tabs { padding-right: 0; }  /* 오른쪽에 붙는 새로고침 버튼 뒤로 다른 탭이 비치지 않게 */
 
   .section-header { margin-top: 4px; }
 
