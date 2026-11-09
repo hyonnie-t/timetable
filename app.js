@@ -1894,6 +1894,12 @@ function renderSettings() {
           <span>📘 학생 기록 보기 <span class="settings-sub">포털 대시보드 «학생 기록» 탭</span></span><span class="arrow-r">↗</span>
         </button>
       </div>` : ''}
+      <div class="settings-section" data-install-wrap hidden>
+        <div class="settings-title">앱</div>
+        <button class="settings-item" type="button" data-install hidden>
+          <span>📲 홈 화면에 추가</span><span class="arrow-r">→</span>
+        </button>
+      </div>
       <div class="settings-section">
         <div class="settings-title">계정</div>
         <button class="settings-item" onclick="window.copyInviteLink()">
@@ -1909,6 +1915,7 @@ function renderSettings() {
       </div>
     </div>
   `;
+  window.hyonnieInstall?.sync();
 }
 
 // ============================================================
