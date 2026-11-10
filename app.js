@@ -329,7 +329,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-11-04-quicksave2';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-11-10-fastboot';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -410,6 +410,22 @@ async function ensureV2_(calendar) {
   return v2;
 }
 
+// 마지막으로 받은 데이터를 이 기기에 저장해 두었다가, 다음에 열 때 서버 응답을 기다리지 않고 먼저 그린다.
+const CACHE_KEY_ = 'ttBootCache1';
+function readBootCache_(uid) {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY_) || 'null');
+    return c && c.uid === uid && c.v2 ? c : null;
+  } catch (e) { return null; }
+}
+function writeBootCache_(patch) {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY_) || 'null');
+    const next = { ...(c && c.uid === currentUser.uid ? c : { uid: currentUser.uid }), ...patch };
+    localStorage.setItem(CACHE_KEY_, JSON.stringify(next));
+  } catch (e) { /* 용량 부족·저장소 막힘이면 캐시 없이 동작 */ }
+}
+
 async function loadUserData() {
   if (!currentUser) return;
 
@@ -427,10 +443,12 @@ async function loadUserData() {
 
   schoolData = { calendar };
   setData_({ curriculum: {}, lessonNotes: {}, classNotes: {}, ...v2, calendar });
+  if (!DEMO) writeBootCache_({ v2, calendar });
 
   lastKnownDateStr = todayStr();
   lastRefreshAt    = Date.now();
   renderCurrentTab();
+  scheduleFirstCodeCheck_();
   // 이 기기 접속 기록·오래된 이력 정리 (실패해도 화면에는 영향 없음)
   commit_({}).catch(e => console.warn('접속 기록 저장 실패', e));
 }
@@ -506,8 +524,18 @@ function reloadForUpdate_() {
   location.reload();
 }
 
+// 시작 직후에는 코드 5개(약 330KB)를 또 받지 않는다 — 폰 회선을 화면 데이터와 나눠 쓰면 느려진다.
+// 첫 화면이 그려진 뒤 5초 지나서 확인한다.
+let firstRenderAt_ = 0;
+function scheduleFirstCodeCheck_() {
+  if (firstRenderAt_) return;
+  firstRenderAt_ = Date.now();
+  setTimeout(checkCodeUpdate_, 5000);
+}
+
 async function checkCodeUpdate_() {
   try {
+    if (!firstRenderAt_ || Date.now() - firstRenderAt_ < 4500) return;
     if (Date.now() - lastCodeCheckAt < 5 * 60 * 1000) return;
     lastCodeCheckAt = Date.now();
     if (codeSigAtStart === null) {
@@ -2590,6 +2618,26 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
 
+    // 저장해 둔 프로필·데이터가 있으면 먼저 그려 바로 보이게 하고, 서버 확인은 뒤에서 한다.
+    const boot = readBootCache_(user.uid);
+    if (boot && boot.profile && boot.v2) {
+      userProfile = boot.profile;
+      schoolData  = { calendar: boot.calendar || {} };
+      setData_({ curriculum: {}, lessonNotes: {}, classNotes: {}, ...boot.v2, calendar: boot.calendar || {} });
+      showApp();
+      renderCurrentTab();
+      startPlanner_();
+      get(ref(db, `users/${user.uid}/profile`)).then(s => {
+        if (!currentUser || currentUser.uid !== user.uid || !s.exists()) return;
+        const fresh = s.val();
+        writeBootCache_({ profile: fresh });
+        if (JSON.stringify(fresh) !== JSON.stringify(userProfile)) { userProfile = fresh; startPlanner_(); }
+      }).catch(() => {});
+      await loadUserData();
+      if (!dateRolloverTimer) dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+      return;
+    }
+
     const profileSnap = await get(ref(db, `users/${user.uid}/profile`));
     if (!profileSnap.exists()) {
       const invitedBy = sessionStorage.getItem('invitedBy');
@@ -2606,6 +2654,7 @@ onAuthStateChanged(auth, async (user) => {
     } else {
       userProfile = profileSnap.val();
     }
+    writeBootCache_({ profile: userProfile });
 
     showApp();
     startPlanner_();   // 기다리지 않는다 — 시간표 로딩과 따로 진행
@@ -2618,6 +2667,7 @@ onAuthStateChanged(auth, async (user) => {
     stopPlanner_();
     currentUser = null;
     userProfile = null;
+    try { localStorage.removeItem(CACHE_KEY_); } catch (e) { /* 저장소 막힘이면 넘어감 */ }   // 로그아웃하면 이 기기에 둔 시간표 사본도 지운다
     if (dateRolloverTimer) { clearInterval(dateRolloverTimer); dateRolloverTimer = null; }
     showLogin();
   }
