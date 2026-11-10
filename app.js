@@ -562,12 +562,29 @@ async function startPlanner_() {
     // 다른 화면에서 온 요청: 그 할 일 고치기 창 열기 / 빠른 입력에 미리 적기 / save=1(아침 브리핑)이면 바로 저장 (할 일 탭일 때만, 한 번만)
     const taskId = START_PARAMS.get('task'), addText = START_PARAMS.get('add');
     const saveNow = START_PARAMS.get('save') === '1', addArea = START_PARAMS.get('area'), addDue = START_PARAMS.get('due');
-    if (currentTab === 'tasks' && (taskId || addText)) {
-      dropStartParams_('task', 'add', 'save', 'area', 'due');   // 새로고침해도 다시 저장되지 않게 먼저 지운다
-      ['task', 'add', 'save', 'area', 'due'].forEach(k => START_PARAMS.delete(k));
-      const after = () => {
+    // 받는 창(2026-11-10): 아침 브리핑이 작은 창으로 열 때 close=1·ref=항목번호를 붙인다.
+    // 저장(또는 del=ID 등록 취소)이 끝나면 결과를 브리핑에 알리고 창을 스스로 닫는다 — 효니는 브리핑 화면을 떠나지 않는다.
+    // 실패하면 닫지 않고 입력칸에 글을 남겨 둔다. 로그인 전이면 로그인 화면이 뜨고, 로그인하면 이어서 저장한다.
+    const delId = START_PARAMS.get('del'), inbox = START_PARAMS.get('close') === '1', inboxRef = START_PARAMS.get('ref') || '';
+    const addNote = START_PARAMS.get('note');   // 브리핑 «무슨 일이에요?» 설명 → 할 일 메모
+    if (currentTab === 'tasks' && (taskId || addText || delId)) {
+      const keys = ['task', 'add', 'save', 'area', 'due', 'del', 'close', 'ref', 'note'];
+      dropStartParams_(...keys);   // 새로고침해도 다시 저장되지 않게 먼저 지운다
+      keys.forEach(k => START_PARAMS.delete(k));
+      const reply = (res) => {
+        if (!inbox || !res) return;
+        try { if (window.opener) window.opener.postMessage({ type: 'timetable-inbox', ref: inboxRef, ...res }, '*'); } catch (e) { /* 브리핑이 닫혔으면 그냥 둔다 */ }
+        if (res.status !== 'fail') setTimeout(() => window.close(), 900);
+      };
+      const after = async () => {
         if (taskId && !planner.openById(taskId)) showToast('그 할 일을 찾지 못했어요 (지워졌을 수 있어요)', true);
-        if (addText && saveNow && planner.quickSave) planner.quickSave(addText, { area: addArea, due: addDue });
+        if (delId && planner.removeById) {
+          const res = await planner.removeById(delId);
+          if (res.status === 'gone') showToast('이미 지워진 할 일이에요');
+          else if (res.status === 'kept') showToast('그새 고치거나 끝낸 일이라 지우지 않았어요', true);
+          reply(res);
+        }
+        if (addText && saveNow && planner.quickSave) reply(await planner.quickSave(addText, { area: addArea, due: addDue, note: addNote }));
         else if (addText) planner.prefill(addText);
       };
       // 할 일 목록은 Firebase 에서 따로 오므로, 아직이면 처음 불러온 뒤에 연다

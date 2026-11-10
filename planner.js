@@ -318,21 +318,35 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   // 같은 제목의 열린 할 일이 있으면 또 넣지 않고(두 번 눌러도 안전), 저장에 실패하면 글을 입력칸에 남긴다.
   // 묻는 창을 띄우지 않는다(ask 끔) — 오늘 칸이 차 있으면 칸만 비우고 저장하고 안내에 적는다.
   // due(YYYY-MM-DD)가 오면 글을 해석하지 않고 제목 그대로 저장한다 — 제목 속 «내일»·«3시»가 날짜·시각으로 읽히지 않게.
-  async function quickSave(text, { area = null, due = null } = {}) {
+  // 돌려주는 값 { status: 'added'|'dup'|'fail', id, title, area } — 브리핑 «받는 창»(close=1)이 결과를 브리핑에 알려 주는 데 쓴다.
+  // note: 브리핑의 «💬 무슨 일이에요?» 설명 — 같이 넘어오면 할 일 메모로 넣어 시간표에서도 같은 설명을 본다(due가 있을 때만)
+  async function quickSave(text, { area = null, due = null, note = null } = {}) {
     const s = String(text || '').slice(0, 200).trim();
     const exact = /^\d{4}-\d{2}-\d{2}$/.test(due || '');
     const title = exact ? s : T.parseQuickInput(s, todayStr()).title;
-    if (title && T.findOpenTaskByTitle(tasks(), title)) { toast('이미 할 일에 있어요'); return; }
+    const same = title && T.findOpenTaskByTitle(tasks(), title);
+    if (same) { toast('이미 할 일에 있어요'); return { status: 'dup', id: same.id, title: same.title, area: same.area }; }
     let r;
     if (exact && title) {
       const id = T.newTaskId();
       const a = (T.AREAS.includes(area) && area) || T.guessArea(title) || root()?.querySelector('#pl-add-area')?.value || '기타';
-      r = { ok: true, msg: '추가했어요', id, title, area: a, saved: run(() => T.planAddTask({ title, area: a, due }, { id, now: nowStamp() }), 'add') };
+      r = { ok: true, msg: '추가했어요', id, title, area: a, saved: run(() => T.planAddTask({ title, area: a, due, note: note ? String(note) : '' }, { id, now: nowStamp() }), 'add') };
     } else {
       r = addByText(s, { area, quiet: true });
     }
-    if (!r.ok || !(await r.saved)) { prefillInput(s); return; }
+    if (!r.ok || !(await r.saved)) { prefillInput(s); return { status: 'fail', title: title || s }; }
     showUndo({ title: r.title }, { label: `${r.msg} · ${r.area}`, undo: () => T.planDelete({ id: r.id }) });
+    return { status: 'added', id: r.id, title: r.title, area: r.area };
+  }
+
+  // 아침 브리핑 «↺ 등록 취소» → ?tab=tasks&del=ID&close=1 : 브리핑이 방금 넣은 그 할 일만 지운다.
+  // 이미 끝냈거나 고친 일은 지우지 않는다(브리핑이 넣은 뒤 효니가 손댄 일이라서) — 'kept'
+  async function removeById(id) {
+    const t = tasks().find(x => x.id === id);
+    if (!t) return { status: 'gone' };
+    if (t.status !== 'open' || (t.updatedAt && t.createdAt && t.updatedAt !== t.createdAt)) return { status: 'kept', title: t.title };
+    const ok = await run(() => T.planDelete(t), 'delete', '등록을 취소했어요');
+    return ok ? { status: 'removed', title: t.title } : { status: 'fail', title: t.title };
   }
 
   // ---------- 여러 줄 붙여넣기 → 한 번에 추가 ----------
@@ -1275,6 +1289,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     prefill: prefillInput,
     // 아침 브리핑 «할 일로 등록» → ?tab=tasks&add=글&save=1 : 바로 저장 (되돌리기 줄을 띄운다)
     quickSave,
+    // 아침 브리핑 «↺ 등록 취소» → ?tab=tasks&del=ID&close=1
+    removeById,
     destroy() {
       subs.clear();
       if (unsub) unsub();
