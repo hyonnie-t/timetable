@@ -20,6 +20,17 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+  <!-- 스크립트가 줄줄이 이어서 받아지지 않도록 미리 받아 둔다 -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="modulepreload" href="app.js" />
+  <link rel="modulepreload" href="firebase.js" />
+  <link rel="modulepreload" href="engine/progress-engine.js" />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js" />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js" />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js" />
+  <!-- 글꼴은 화면 그리기를 막지 않게 따로 받는다(받기 전에는 기본 글꼴) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" media="print" onload="this.media='all'" />
   <script src="install.js"></script>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="planner.css" />
