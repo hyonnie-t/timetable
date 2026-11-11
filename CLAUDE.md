@@ -3,6 +3,14 @@
 효니의 시간표·할 일 달력 앱. PWA(`manifest.json`, `service-worker.js`), 데이터는 `firebase.js`(Firebase)에 둔다. 수업 웹앱이 아니라서 history26 백엔드와 무관하다.
 배포: GitHub Pages (`.github` 워크플로, `.nojekyll`).
 
+## 코드 주인 (실험, 2026-11-11 ~ 2026-11-25)
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
+- 위 문장은 Anthropic «Prompting Claude Fable 5.2» 안내의 «Say who owns the code» 절에서 가져왔다. 효니가 Fable로 2주 시험한다.
+- 대가를 줄이는 장치: 마지막 보고에는 요약 대신 바뀐 파일과 바뀐 동작을 작은 것까지 모두 적고, 시키지 않은 변경은 따로 «시키지 않은 변경» 목록으로 표시한다.
+- history26 대시보드·아침 브리핑·위젯 ps1이 쓰는 파일 경로·export 이름·주소 규칙·창 제목은 아래 규칙대로 같이 고치거나 그대로 둔다.
+- 2026-11-25에 판정한다: 시키지 않은 변경 수, 기존 동작이 바뀐 일, 코드가 실제로 깔끔해졌는지. 결과는 `클로드작업\효니위키\도구\결정-기록.md`에 남긴다.
+
 ## 구조
 - `index.html` / `app.js` / `style.css` 시간표, `planner.js`·`planner-cal.js`·`planner.css` 할 일 달력(끌어놓기·늘이기)
 - `engine/` 계산 로직, `tests/` 테스트(`package.json`의 스크립트로 실행), `demo/` 시연용, `icons/`·`images/`
