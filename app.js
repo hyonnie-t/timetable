@@ -3111,8 +3111,10 @@ function setWidgetSignedOut_(out) {
 // 창 제목으로 ps1 에 알리기 (ps1 이 없으면 아무 일도 안 일어난다)
 let deskTitleMode = '';
 let deskMetricsTimer = null;
+let deskTitleSince = 0;
 function deskSetTitle_(mode) {
   deskTitleMode = mode;
+  deskTitleSince = Date.now();
   document.title = mode ? `${DESK_TITLE} ·${mode}` : DESK_TITLE;
 }
 function deskSendMetrics_() {
@@ -3263,7 +3265,10 @@ function mountDeskWidget_(host) {
   });
   hold(document.getElementById('dw-head'), 'move');
   hold(document.getElementById('dw-grip'), 'size');
+  const login = document.getElementById('widget-login');
+  if (login) hold(login, 'move');   // 로그인이 풀린 화면에서도 옮길 수 있게
   const release = () => { if (deskTitleMode) { deskSetTitle_(''); setTimeout(deskSendMetrics_, 300); } };
+  setInterval(() => { if (deskTitleMode && Date.now() - deskTitleSince > 15000) release(); }, 5000);   // 떼는 신호를 놓쳤을 때 대비
   window.addEventListener('pointerup', release);
   window.addEventListener('pointercancel', release);
   window.addEventListener('blur', release);
