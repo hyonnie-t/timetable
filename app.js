@@ -3072,9 +3072,12 @@ if (WIDGET_MODE) {
   window.addEventListener('resize', fitWidget_);
   const loadedAt = Date.now();
   setInterval(() => {
-    const a = document.activeElement;
-    const typing = a && a.id === 'pip-add' && a.value.trim();
-    if (Date.now() - loadedAt > 20 * 3600 * 1000 && !typing) window.hardRefresh();
+    // 한 줄 입력칸에 글이 남아 있으면(포커스와 상관없이) 미룬다. 오프라인이면 빈 화면이 될 수 있어 미룬다.
+    const typing = document.getElementById('pip-add')?.value.trim();
+    if (Date.now() - loadedAt <= 20 * 3600 * 1000 || typing || !navigator.onLine) return;
+    // 빈 입력칸에 포커스만 있으면 «새로고침할까요?» 확인 창이 떠 위젯을 덮으므로 먼저 포커스를 뺀다
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    window.hardRefresh();
   }, 30 * 60 * 1000);
 }
 
