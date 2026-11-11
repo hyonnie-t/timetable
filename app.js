@@ -2747,11 +2747,6 @@ const PIP_CSS = `
   #pip-mode:hover { color:#2d6a4f; border-color:#2d6a4f; }
   /* 바탕화면 위젯(?widget=1)에서만 쓰는 것 — PiP 창에는 이 클래스·버튼이 없어 영향 없음 */
   #pip-date { flex:1 1 auto; min-width:0; }
-  .pip-icon-btn {
-    flex-shrink:0; width:22px; height:22px; padding:0; border-radius:6px; cursor:pointer;
-    border:1px solid #e8e6e0; background:#fff; color:#666; font-size:12px; line-height:1;
-  }
-  .pip-icon-btn:hover { color:#2d6a4f; border-color:#2d6a4f; }
   html.widget-mode #login-screen, html.widget-mode #app-screen { display:none !important; }
   html.widget-mode body { overflow:hidden; }
   /* 위젯은 결과를 아래 안내 줄(#pip-msg)로 보이니, 앱 알림(토스트)은 오류일 때만 */
@@ -2906,6 +2901,7 @@ function pipTodoHtml(items, used) {
 
 function renderPipWidget() {
   if (!pipWindow) return;
+  if (WIDGET_MODE) { document.documentElement.classList.toggle('dw-compact', pipCompact); renderDeskWidget_(); return; }
   const doc = pipWindow.document;
   const now = new Date();
 
@@ -2956,8 +2952,7 @@ function setPipCompact(on) {
   }
 }
 
-// 미니창(PiP)과 바탕화면 위젯(?widget=1)이 같이 쓰는 화면 만들기.
-// PiP 는 새 문서의 body 에, 위젯은 이 페이지의 #widget-pip 안에 같은 구조를 넣는다.
+// 미니창(PiP) 화면 만들기. 바탕화면 위젯은 mountDeskWidget_ 가 따로 만들고, 할 일·안내 줄 동작은 같이 쓴다.
 function mountPipWidget_(win, host) {
   const doc  = win.document;
   const font = doc.createElement('link');
@@ -2973,8 +2968,6 @@ function mountPipWidget_(win, host) {
     <div id="pip-widget">
       <div id="pip-head">
         <span id="pip-date"></span>
-        ${WIDGET_MODE ? `<button id="pip-open" class="pip-icon-btn" type="button" title="시간표 앱 열기" aria-label="시간표 앱 열기">↗</button>
-        <button id="pip-reload" class="pip-icon-btn" type="button" title="새로고침 (최신 버전 다시 받기)" aria-label="새로고침">↻</button>` : ''}
         <button id="pip-mode" type="button"></button>
       </div>
       <div id="pip-body"></div>
@@ -2985,8 +2978,6 @@ function mountPipWidget_(win, host) {
     </div>
   `;
   doc.getElementById('pip-mode').addEventListener('click', () => setPipCompact(!pipCompact));
-  doc.getElementById('pip-open')?.addEventListener('click', () => window.open(location.pathname + '?tab=today', 'timetableApp'));
-  doc.getElementById('pip-reload')?.addEventListener('click', () => window.hardRefresh());
 
   pipWindow = win;
   pipScrolledFor = null;
@@ -3041,25 +3032,264 @@ window.openPipWidget = async function() {
 };
 
 // ============================================================
-// 바탕화면 위젯 (?widget=1, 2026-11-11)
-// 학교 PC 시작 때 클로드작업\도구\시간표-위젯.ps1 이 크롬 앱 창(--app)으로 «?tab=today&widget=1» 을 연다.
-// 앱 화면은 숨기고 미니창과 같은 화면을 창 전체에 띄운다. 할 일은 planner 가 준비되면 startPlanner_ 가 구독을 붙인다.
-// 창 너비에 맞춰 글자를 키우고(240px 기준, 최대 1.6배), 로그인이 풀리면 안내와 로그인 버튼을 보인다.
-// 학교 PC 는 끄지 않으니, 오래 켜 두면(20시간+) 새 버전을 받도록 입력 중이 아닐 때 스스로 새로고침한다.
+// 바탕화면 위젯 (?widget=1, 2026-11-11 · 11-11 오후 «위젯 느낌» 다시 꾸밈)
+// 학교 PC 시작 때 클로드작업\도구\시간표-위젯.ps1 이 웨일·크롬 앱 창(--app)으로 «?tab=today&widget=1» 을 연다.
+// 미니창(PiP)과 같은 데이터·할 일 동작(pipTodoRow·pipMessage·planner)을 쓰되, 화면은 한눈에 보는 위젯 모양:
+//   큰 시계 → «지금/다음 교시» 카드(남은 시간 막대) → 오늘 교시 한 줄 → 할 일 → 한 줄 입력. 간단히는 시계+카드만.
+// 창 틀은 ps1 이 잘라 낸다(창 모양 자르기). 그래서 끌어 옮기기·크기 바꾸기는 페이지가 창 제목으로 ps1 에 알린다:
+//   머리를 누르고 있으면 «오늘 시간표 ·move», 오른쪽 아래 손잡이는 «오늘 시간표 ·size», 떼면 «오늘 시간표».
+//   창 틀 두께는 «오늘 시간표 ·m=위,왼,오른,아래»(실제 화소)로 잠깐 알린다(처음·창 크기 바뀔 때·30초마다).
+// 로그인이 풀리면 안내와 로그인 버튼. 학교 PC 는 끄지 않으니 20시간 넘게 켜져 있으면 스스로 새로고침한다.
 // ============================================================
+const DESK_TITLE = '오늘 시간표';
+const DESK_CSS = `
+  html.widget-mode, html.widget-mode body { background:#fbf7ef; }
+  #dw {
+    display:flex; flex-direction:column; height:100%; color:#1f2a24;
+    background:linear-gradient(180deg, #fffaf0 0%, #fbf7ef 60%, #f6f1e6 100%);
+    border:1px solid #e6dcc8; border-radius:16px; overflow:hidden; position:relative;
+  }
+  #dw-head { display:flex; align-items:flex-start; justify-content:space-between; gap:6px; padding:10px 12px 4px; cursor:grab; user-select:none; flex:0 0 auto; }
+  #dw-head:active { cursor:grabbing; }
+  #dw-time { display:block; font-size:30px; font-weight:700; letter-spacing:-0.5px; line-height:1.05; color:#24533f; font-variant-numeric:tabular-nums; }
+  #dw-date { display:block; font-size:11.5px; color:#8a7f6a; margin-top:2px; }
+  .dw-tools { display:flex; gap:4px; flex-shrink:0; padding-top:3px; }
+  .dw-tools button { height:24px; min-width:24px; padding:0 7px; border-radius:12px; cursor:pointer; border:1px solid #e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; line-height:1; }
+  .dw-tools button:hover, #dw #pip-mode:hover { color:#24533f; border-color:#24533f; }
+  #dw #pip-mode { height:24px; padding:0 9px; border-radius:12px; border-color:#e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; }
+  #dw-now { margin:4px 10px 6px; flex:0 0 auto; }
+  .dw-card { border-radius:14px; padding:10px 12px 11px; background:#e9f4ec; border:1px solid #cfe5d6; animation:dw-in .35s ease-out; }
+  .dw-card.next  { background:#fff3e2; border-color:#f1dcbc; }
+  .dw-card.rest  { background:#f2efe8; border-color:#e4ddcf; }
+  .dw-label { font-size:11px; font-weight:700; color:#2d6a4f; display:flex; justify-content:space-between; gap:6px; }
+  .dw-card.next .dw-label { color:#b5690b; }
+  .dw-card.rest .dw-label { color:#8a7f6a; }
+  .dw-label .dw-left { font-weight:500; color:#6f6553; white-space:nowrap; }
+  .dw-main { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin-top:5px; }
+  .dw-class { font-size:22px; font-weight:700; color:#1f2a24; letter-spacing:-0.3px; }
+  .dw-subj  { font-size:13px; color:#3d4a42; }
+  .dw-topic { font-size:12.5px; color:#1f2a24; margin-top:3px; }
+  .dw-note  { font-size:11px; color:#b5690b; margin-top:3px; }
+  .dw-badge { padding:1px 8px; border-radius:6px; background:#fdf0e3; color:#e07c24; font-size:11px; font-weight:600; }
+  .dw-bar { height:5px; border-radius:3px; background:rgba(45,106,79,.15); margin-top:8px; overflow:hidden; }
+  .dw-bar i { display:block; height:100%; border-radius:3px; background:#2d6a4f; transition:width .8s ease; }
+  .dw-after { font-size:11px; color:#6f6553; margin-top:6px; }
+  .dw-after b { color:#1f2a24; font-weight:600; }
+  #dw-day { display:flex; gap:4px; padding:0 10px 6px; flex:0 0 auto; }
+  .dw-chip { flex:1 1 0; min-width:0; text-align:center; border-radius:8px; padding:3px 0 4px; background:#f3eee3; color:#8a7f6a; font-size:10px; line-height:1.25; }
+  .dw-chip b { display:block; font-size:9.5px; font-weight:700; color:#b0a690; }
+  .dw-chip.lesson { background:#fffdf8; color:#1f2a24; border:1px solid #e6dcc8; }
+  .dw-chip.event  { background:#fdf0e3; color:#e07c24; }
+  .dw-chip.past   { opacity:.45; }
+  .dw-chip.cur    { background:#2d6a4f; color:#fff; border-color:#2d6a4f; }
+  .dw-chip.cur b  { color:#cfe5d6; }
+  #dw-todos { flex:1 1 auto; overflow-y:auto; padding:0 10px 4px; font-size:12px; }
+  #dw-todos .pip-todo-h { margin:4px 2px 2px; }
+  #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:6px 8px; margin-bottom:4px; }
+  #dw .pip-empty { padding:6px 2px; }
+  #dw #pip-foot { border-top:none; padding:4px 10px 10px; }
+  #dw #pip-add { border-radius:10px; border-color:#e6dcc8; background:#fffdf8; padding:6px 9px; }
+  #dw-grip { position:absolute; right:3px; bottom:2px; width:14px; height:14px; cursor:nwse-resize; color:#c9bda5; font-size:11px; line-height:14px; text-align:center; user-select:none; }
+  html.dw-compact #dw-day, html.dw-compact #dw-todos { display:none; }
+  html.dw-compact #dw-now { flex:1 1 auto; }
+  @keyframes dw-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce) { .dw-card { animation:none; } .dw-bar i { transition:none; } }
+`;
+
 function fitWidget_() {
-  const w = document.getElementById('pip-widget');
+  const w = document.getElementById('dw');
   if (!w) return;
-  const z = Math.min(1.6, Math.max(1, window.innerWidth / 240));
+  const z = Math.min(1.6, Math.max(1, window.innerWidth / 280));
   w.style.zoom   = String(z);
   w.style.height = (window.innerHeight / z) + 'px';
+  deskSendMetrics_();
 }
 function setWidgetSignedOut_(out) {
   document.documentElement.classList.toggle('widget-signed-out', !!out);
 }
+
+// 창 제목으로 ps1 에 알리기 (ps1 이 없으면 아무 일도 안 일어난다)
+let deskTitleMode = '';
+let deskMetricsTimer = null;
+function deskSetTitle_(mode) {
+  deskTitleMode = mode;
+  document.title = mode ? `${DESK_TITLE} ·${mode}` : DESK_TITLE;
+}
+function deskSendMetrics_() {
+  if (deskTitleMode) return;   // 끄는 중에는 보내지 않는다
+  const dpr = window.devicePixelRatio || 1;
+  const side = Math.max(0, (window.outerWidth - window.innerWidth) / 2);
+  const top  = Math.max(0, window.outerHeight - window.innerHeight - side);
+  const px = v => Math.round(v * dpr);
+  const zoom = Number(document.getElementById('dw')?.style.zoom) || 1;
+  document.title = `${DESK_TITLE} ·m=${px(top)},${px(side)},${px(side)},${px(side)},${px(16 * zoom)}`;   // 마지막은 모서리 둥글기(#dw border-radius)
+  clearTimeout(deskMetricsTimer);
+  deskMetricsTimer = setTimeout(() => { if (!deskTitleMode) document.title = DESK_TITLE; }, 600);
+}
+
+const hm = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
+// 교시 한 칸의 내용 — 카드·한 줄 칩이 같이 쓴다
+function deskCell_(today, schedule, p) {
+  const cell = schedule[p];
+  const ev   = getCalendarEvent(today, String(p));
+  if (ev) return { kind: 'event', cell, ev, short: ev.label };
+  if (cell?.class) return { kind: 'lesson', cell, short: cell.class };
+  return { kind: 'free', short: '·' };
+}
+
+function deskCardBody_(today, p, c) {
+  if (c.kind === 'event') {
+    return `<div class="dw-main">${c.cell?.class && PE.isInSchoolEvent(c.ev) ? `<span class="dw-class">${escapeHtml(c.cell.class)}</span>` : ''}<span class="dw-badge">${escapeHtml(c.ev.label)}</span></div>`;
+  }
+  if (c.kind === 'lesson') {
+    const { key, special, topic } = lessonCellInfo(today, p, c.cell);
+    const note = userData.classNotes?.[key]?.text || '';
+    return `<div class="dw-main"><span class="dw-class">${escapeHtml(c.cell.class)}</span><span class="dw-subj">${escapeHtml(c.cell.subject || '')}</span>${special ? `<span class="dw-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}</div>`
+      + (topic ? `<div class="dw-topic">${escapeHtml(topic)}</div>` : '')
+      + (note ? `<div class="dw-note">🗒 ${escapeHtml(note)}</div>` : '');
+  }
+  return `<div class="dw-main"><span class="dw-subj">공강</span></div>`;
+}
+
+let deskCardKey = null;
+function renderDeskWidget_() {
+  const now = new Date();
+  const timeEl = document.getElementById('dw-time');
+  if (timeEl) timeEl.textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const dateEl = document.getElementById('dw-date');
+  if (dateEl) dateEl.textContent = `${now.getMonth() + 1}월 ${now.getDate()}일 ${DOW_KO[now.getDay()]}요일`;
+
+  const nowEl = document.getElementById('dw-now');
+  const dayEl = document.getElementById('dw-day');
+  const todoEl = document.getElementById('dw-todos');
+  if (!nowEl) return;
+
+  const items = planner?.todayItems?.() || [];
+  const card = (cls, key, label, right, body, extra = '') => {
+    // 같은 교시면 카드를 새로 띄우지 않는다(30초마다 깜빡이지 않게) — 막대·남은 시간만 바뀐다
+    const fresh = key !== deskCardKey;
+    deskCardKey = key;
+    return `<div class="dw-card ${cls}"${fresh ? '' : ' style="animation:none"'}><div class="dw-label"><span>${label}</span>${right ? `<span class="dw-left">${right}</span>` : ''}</div>${body}${extra}</div>`;
+  };
+
+  if (!userData) {
+    nowEl.innerHTML = card('rest', 'loading', '불러오는 중…', '', '');
+    dayEl.innerHTML = ''; todoEl.innerHTML = '';
+    return;
+  }
+
+  const dowIdx = now.getDay();
+  const today  = todayStr();
+  const periods = getPeriods();
+  const periodList = Object.keys(periods).map(Number).sort((a, b) => a - b);
+  const schedule = daySchedule(today);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const curP = getCurrentPeriod();
+  const cells = Object.fromEntries(periodList.map(p => [p, deskCell_(today, schedule, p)]));
+  const busy = p => cells[p].kind !== 'free';
+  const weekend = dowIdx === 0 || dowIdx === 6;
+
+  if (weekend) {
+    nowEl.innerHTML = card('rest', 'weekend', '주말이에요 🎉', '', '<div class="dw-after">푹 쉬어요</div>');
+    dayEl.innerHTML = '';
+  } else if (!periodList.some(busy)) {
+    nowEl.innerHTML = card('rest', 'none', '오늘은 수업이 없어요', '', '');
+    dayEl.innerHTML = '';
+  } else {
+    const nextBusy = from => periodList.find(p => parseTimeToMin(periods[p].start) > from && busy(p));
+    if (curP !== null) {
+      const s = parseTimeToMin(periods[curP].start), e = parseTimeToMin(periods[curP].end);
+      const pct = Math.min(100, Math.max(0, Math.round((nowMin - s) / Math.max(1, e - s) * 100)));
+      const nb = nextBusy(nowMin);
+      const after = nb !== undefined ? `<div class="dw-after">다음 · ${nb}교시 ${hm(parseTimeToMin(periods[nb].start))} <b>${escapeHtml(cells[nb].short)}</b></div>` : '<div class="dw-after">오늘 마지막 교시예요</div>';
+      nowEl.innerHTML = card(busy(curP) ? '' : 'rest', `cur-${today}-${curP}`, `지금 ${curP}교시`, `${hm(e)}까지 · ${Math.max(0, e - nowMin)}분 남음`,
+        deskCardBody_(today, curP, cells[curP]), `<div class="dw-bar"><i style="width:${pct}%"></i></div>${after}`);
+    } else {
+      const nb = nextBusy(nowMin);
+      if (nb === undefined) {
+        nowEl.innerHTML = card('rest', `done-${today}`, '오늘 수업 끝 👏', '', '<div class="dw-after">수고했어요</div>');
+      } else {
+        const st = parseTimeToMin(periods[nb].start);
+        const gap = st - nowMin;
+        nowEl.innerHTML = card('next', `next-${today}-${nb}`, `다음 ${nb}교시`, `${hm(st)} 시작 · ${gap >= 60 ? `${Math.floor(gap / 60)}시간 ${gap % 60}분` : `${gap}분`} 뒤`,
+          deskCardBody_(today, nb, cells[nb]));
+      }
+    }
+    dayEl.innerHTML = periodList.map(p => {
+      const c = cells[p];
+      const past = curP !== p && parseTimeToMin(periods[p].end) < nowMin;
+      const cls = ['dw-chip', c.kind === 'lesson' ? 'lesson' : c.kind === 'event' ? 'event' : '', p === curP ? 'cur' : '', past ? 'past' : ''].join(' ');
+      return `<div class="${cls}" title="${p}교시 ${escapeHtml(c.kind === 'free' ? '공강' : c.short)}"><b>${p}</b>${escapeHtml(c.short.length > 4 ? c.short.slice(0, 3) + '…' : c.short)}</div>`;
+    }).join('');
+  }
+
+  todoEl.innerHTML = pipTodoHtml(items, new Set()) || (planner ? '<div class="pip-empty">오늘 할 일이 없어요</div>' : '');
+}
+
+function mountDeskWidget_(host) {
+  const style = document.createElement('style');
+  style.textContent = PIP_CSS + DESK_CSS;
+  document.head.appendChild(style);
+  host.innerHTML = `
+    <div id="dw">
+      <div id="dw-head" title="눌러서 끌면 옮겨져요">
+        <div><span id="dw-time"></span><span id="dw-date"></span></div>
+        <div class="dw-tools">
+          <button id="pip-open" type="button" title="시간표 앱 열기" aria-label="시간표 앱 열기">↗</button>
+          <button id="pip-reload" type="button" title="새로고침 (최신 버전 다시 받기)" aria-label="새로고침">↻</button>
+          <button id="pip-mode" type="button"></button>
+        </div>
+      </div>
+      <div id="dw-now"></div>
+      <div id="dw-day"></div>
+      <div id="dw-todos"></div>
+      <div id="pip-foot">
+        <div id="pip-msg" hidden></div>
+        <input id="pip-add" type="text" placeholder="할 일 추가 (예: 내일 학부모 상담)" autocomplete="off">
+      </div>
+      <div id="dw-grip" title="끌어서 크기 바꾸기">◢</div>
+    </div>`;
+  pipWindow = window;
+  document.getElementById('pip-mode').addEventListener('click', () => setPipCompact(!pipCompact));
+  document.getElementById('pip-open').addEventListener('click', () => window.open(location.pathname + '?tab=today', 'timetableApp'));
+  document.getElementById('pip-reload').addEventListener('click', () => window.hardRefresh());
+
+  // 끌어 옮기기·크기 바꾸기 — 실제 창 이동은 시간표-위젯.ps1 이 한다
+  const hold = (el, mode) => el.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    deskSetTitle_(mode);
+  });
+  hold(document.getElementById('dw-head'), 'move');
+  hold(document.getElementById('dw-grip'), 'size');
+  const release = () => { if (deskTitleMode) { deskSetTitle_(''); setTimeout(deskSendMetrics_, 300); } };
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  window.addEventListener('blur', release);
+
+  document.getElementById('dw-todos').addEventListener('click', e => {
+    const chk = e.target.closest('.pip-todo-chk');
+    if (!chk) return;
+    const done = planner?.completeTask?.(chk.dataset.id, { silent: true });
+    if (done) pipMessage(`“${done.title.length > 14 ? done.title.slice(0, 14) + '…' : done.title}” ${done.label}`, done.undo);
+  });
+  const addEl = document.getElementById('pip-add');
+  addEl.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing || !addEl.value.trim()) return;
+    const r = planner?.addByText?.(addEl.value);
+    if (r?.ok) addEl.value = '';
+    if (r) pipMessage(r.msg);
+  });
+
+  setPipCompact(pipCompact);
+  clearInterval(pipRefreshTimer);
+  pipRefreshTimer = setInterval(() => { renderPipWidget(); deskSendMetrics_(); }, 30000);
+}
+
 if (WIDGET_MODE) {
   document.documentElement.classList.add('widget-mode');
-  document.title = '오늘 시간표';
+  document.title = DESK_TITLE;
   const host = document.createElement('div');
   host.id = 'widget-host';
   host.innerHTML = '<div id="widget-pip"></div>'
@@ -3067,9 +3297,10 @@ if (WIDGET_MODE) {
     + '<div class="wl-sub">다시 로그인하면 오늘 시간표와 할 일이 여기에 떠요</div>'
     + '<button type="button" class="wl-btn" onclick="window.handleSignIn()">Google로 로그인</button></div>';
   document.body.appendChild(host);
-  mountPipWidget_(window, document.getElementById('widget-pip'));
+  mountDeskWidget_(document.getElementById('widget-pip'));
   fitWidget_();
-  window.addEventListener('resize', fitWidget_);
+  let fitT = null;
+  window.addEventListener('resize', () => { clearTimeout(fitT); fitT = setTimeout(fitWidget_, 120); });
   const loadedAt = Date.now();
   setInterval(() => {
     // 한 줄 입력칸에 글이 남아 있으면(포커스와 상관없이) 미룬다. 오프라인이면 빈 화면이 될 수 있어 미룬다.
