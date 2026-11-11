@@ -34,6 +34,9 @@ window.openHistory26 = function (dash = 'today', params = {}) {
 };
 // 시작 주소의 ?tab= — 할 일 탭은 planner 가 준비된 뒤 startPlanner_ 가, 나머지 탭은 showApp 이 한 번만 처리한다
 const START_PARAMS = new URLSearchParams(location.search);
+// ?widget=1 → 바탕화면 위젯(미니창과 같은 화면을 창 전체에). 아래 «바탕화면 위젯» 참고
+const WIDGET_MODE = START_PARAMS.get('widget') === '1';
+let widgetPlannerOff = null;   // 위젯이 붙인 planner 구독 해제 함수
 let startTabApplied = false;
 // task=·add= 처럼 한 번 쓰고 나면 주소에서 지운다 (새로고침해도 같은 창이 다시 안 뜨게). tab= 은 시작 페이지로 쓰니 남긴다.
 function dropStartParams_(...keys) {
@@ -584,6 +587,11 @@ async function startPlanner_() {
       portalUrl: HISTORY26_URL + '?dash=today',
     });
     document.getElementById('tab-btn-tasks').style.display = '';
+    if (WIDGET_MODE) {   // 바탕화면 위젯: 할 일이 바뀌면(다른 기기 포함) 바로 다시 그린다
+      widgetPlannerOff?.();
+      widgetPlannerOff = planner.subscribe(renderPipWidget);
+      if (pipWindow) renderPipWidget();
+    }
     const want = START_PARAMS.get('tab');
     if (want === 'tasks' && currentTab === 'today') switchTab('tasks');   // ?tab=tasks → 브라우저 시작 페이지로 쓸 수 있게
     else if (currentTab === 'tasks') planner.render();
@@ -625,6 +633,7 @@ async function startPlanner_() {
 }
 
 function stopPlanner_() {
+  widgetPlannerOff?.(); widgetPlannerOff = null;
   if (planner) { planner.destroy(); planner = null; }
   const btn = document.getElementById('tab-btn-tasks');
   if (btn) btn.style.display = 'none';
@@ -2687,6 +2696,7 @@ window.addEventListener('online', checkDateRollover);
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').style.display   = '';
+  if (WIDGET_MODE) { setWidgetSignedOut_(false); if (pipWindow) renderPipWidget(); }
 
   const pipBtn = document.getElementById('pip-btn');
   if (pipBtn && !('documentPictureInPicture' in window)) pipBtn.style.display = 'none';
@@ -2702,6 +2712,7 @@ function showApp() {
 function showLogin() {
   document.getElementById('login-screen').style.display = '';
   document.getElementById('app-screen').style.display   = 'none';
+  if (WIDGET_MODE) setWidgetSignedOut_(true);
 }
 
 // ============================================================
@@ -2734,6 +2745,34 @@ const PIP_CSS = `
     border:1px solid #e8e6e0; background:#fff; color:#666; font-size:10.5px;
   }
   #pip-mode:hover { color:#2d6a4f; border-color:#2d6a4f; }
+  /* 바탕화면 위젯(?widget=1)에서만 쓰는 것 — PiP 창에는 이 클래스·버튼이 없어 영향 없음 */
+  #pip-date { flex:1 1 auto; min-width:0; }
+  .pip-icon-btn {
+    flex-shrink:0; width:22px; height:22px; padding:0; border-radius:6px; cursor:pointer;
+    border:1px solid #e8e6e0; background:#fff; color:#666; font-size:12px; line-height:1;
+  }
+  .pip-icon-btn:hover { color:#2d6a4f; border-color:#2d6a4f; }
+  html.widget-mode #login-screen, html.widget-mode #app-screen { display:none !important; }
+  html.widget-mode body { overflow:hidden; }
+  /* 위젯은 결과를 아래 안내 줄(#pip-msg)로 보이니, 앱 알림(토스트)은 오류일 때만 */
+  html.widget-mode .toast:not(.error) { display:none; }
+  #widget-login { display:none; }
+  html.widget-signed-out #widget-pip { display:none; }
+  html.widget-signed-out #widget-login {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    height:100vh; padding:16px; text-align:center; color:#1a1a1a; animation:wl-in .35s ease-out;
+  }
+  .wl-icon { font-size:26px; }
+  .wl-title { font-size:14px; font-weight:700; color:#2d6a4f; }
+  .wl-sub { font-size:11.5px; color:#666; line-height:1.5; }
+  .wl-btn {
+    margin-top:4px; padding:7px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid #2d6a4f; background:#2d6a4f; color:#fff; font-size:12px; font-weight:700;
+  }
+  .wl-btn:hover { background:#24573f; }
+  @keyframes wl-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  #pip-msg:not([hidden]) { animation:wl-in .25s ease-out; }
+  @media (prefers-reduced-motion: reduce) { #widget-login, #pip-msg { animation:none !important; } }
   #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 8px 8px; font-size:12px; }
   .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
@@ -2769,7 +2808,7 @@ const PIP_CSS = `
   #pip-add:focus { outline:none; border-color:#2d6a4f; }
 `;
 
-let pipCompact     = localStorage.getItem('pipCompact') === '1';
+let pipCompact     = localStorage.getItem(WIDGET_MODE ? 'widgetCompact' : 'pipCompact') === '1';
 let pipScrolledFor = null; // 마지막으로 자동 스크롤한 교시 — 30초 갱신마다 스크롤을 뺏지 않도록
 
 // 시각을 정한 할 일은 그 시각이 속한 교시 줄 아래에 붙인다 (쉬는 시간은 앞 교시에). used 에 붙인 id 를 모은다
@@ -2902,7 +2941,7 @@ function pipMessage(text, undo) {
 
 function setPipCompact(on) {
   pipCompact = on;
-  localStorage.setItem('pipCompact', on ? '1' : '0');
+  localStorage.setItem(WIDGET_MODE ? 'widgetCompact' : 'pipCompact', on ? '1' : '0');
 
   const btn = pipWindow.document.getElementById('pip-mode');
   btn.textContent = on ? '전체' : '간단히';
@@ -2911,29 +2950,16 @@ function setPipCompact(on) {
   pipScrolledFor = null;
   renderPipWidget();
   // 창 크기 변경은 사용자 클릭 안에서만 허용된다. 너비는 사용자가 맞춘 그대로 둔다.
-  try { pipWindow.resizeBy(0, PIP_HEIGHT[on ? 'compact' : 'full'] - pipWindow.innerHeight); } catch (e) {}
+  // 바탕화면 위젯은 창 크기를 효니가 정한 그대로 둔다(시간표-위젯.ps1 이 자리·크기를 기억).
+  if (!WIDGET_MODE) {
+    try { pipWindow.resizeBy(0, PIP_HEIGHT[on ? 'compact' : 'full'] - pipWindow.innerHeight); } catch (e) {}
+  }
 }
 
-window.openPipWidget = async function() {
-  if (!('documentPictureInPicture' in window)) {
-    showToast('이 브라우저는 미니창 기능을 지원하지 않아요', true);
-    return;
-  }
-  if (pipWindow) {
-    pipWindow.focus();
-    return;
-  }
-
-  try {
-    pipWindow = await window.documentPictureInPicture.requestWindow({
-      width: 220, height: PIP_HEIGHT[pipCompact ? 'compact' : 'full'],
-    });
-  } catch (e) {
-    showToast('미니창을 열 수 없어요', true);
-    return;
-  }
-
-  const doc  = pipWindow.document;
+// 미니창(PiP)과 바탕화면 위젯(?widget=1)이 같이 쓰는 화면 만들기.
+// PiP 는 새 문서의 body 에, 위젯은 이 페이지의 #widget-pip 안에 같은 구조를 넣는다.
+function mountPipWidget_(win, host) {
+  const doc  = win.document;
   const font = doc.createElement('link');
   font.rel  = 'stylesheet';
   font.href = PIP_FONT_URL;
@@ -2943,10 +2969,12 @@ window.openPipWidget = async function() {
   style.textContent = PIP_CSS;
   doc.head.appendChild(style);
 
-  doc.body.innerHTML = `
+  host.innerHTML = `
     <div id="pip-widget">
       <div id="pip-head">
         <span id="pip-date"></span>
+        ${WIDGET_MODE ? `<button id="pip-open" class="pip-icon-btn" type="button" title="시간표 앱 열기" aria-label="시간표 앱 열기">↗</button>
+        <button id="pip-reload" class="pip-icon-btn" type="button" title="새로고침 (최신 버전 다시 받기)" aria-label="새로고침">↻</button>` : ''}
         <button id="pip-mode" type="button"></button>
       </div>
       <div id="pip-body"></div>
@@ -2957,9 +2985,13 @@ window.openPipWidget = async function() {
     </div>
   `;
   doc.getElementById('pip-mode').addEventListener('click', () => setPipCompact(!pipCompact));
+  doc.getElementById('pip-open')?.addEventListener('click', () => window.open(location.pathname + '?tab=today', 'timetableApp'));
+  doc.getElementById('pip-reload')?.addEventListener('click', () => window.hardRefresh());
 
+  pipWindow = win;
   pipScrolledFor = null;
   setPipCompact(pipCompact);
+  clearInterval(pipRefreshTimer);
   pipRefreshTimer = setInterval(renderPipWidget, 30000);
   doc.getElementById('pip-body').addEventListener('click', e => {
     const chk = e.target.closest('.pip-todo-chk');
@@ -2975,15 +3007,76 @@ window.openPipWidget = async function() {
     if (r?.ok) addEl.value = '';
     if (r) pipMessage(r.msg);
   });
+}
+
+window.openPipWidget = async function() {
+  if (!('documentPictureInPicture' in window)) {
+    showToast('이 브라우저는 미니창 기능을 지원하지 않아요', true);
+    return;
+  }
+  if (pipWindow) {
+    pipWindow.focus();
+    return;
+  }
+
+  let win;
+  try {
+    win = await window.documentPictureInPicture.requestWindow({
+      width: 220, height: PIP_HEIGHT[pipCompact ? 'compact' : 'full'],
+    });
+  } catch (e) {
+    showToast('미니창을 열 수 없어요', true);
+    return;
+  }
+
+  mountPipWidget_(win, win.document.body);
   const pipUnsub = planner?.subscribe?.(renderPipWidget);   // 다른 기기·할 일 탭에서 바뀌면 바로 반영
 
-  pipWindow.addEventListener('pagehide', () => {
+  win.addEventListener('pagehide', () => {
     pipUnsub?.();
     clearInterval(pipRefreshTimer);
     pipRefreshTimer = null;
     pipWindow = null;
   });
 };
+
+// ============================================================
+// 바탕화면 위젯 (?widget=1, 2026-11-11)
+// 학교 PC 시작 때 클로드작업\도구\시간표-위젯.ps1 이 크롬 앱 창(--app)으로 «?tab=today&widget=1» 을 연다.
+// 앱 화면은 숨기고 미니창과 같은 화면을 창 전체에 띄운다. 할 일은 planner 가 준비되면 startPlanner_ 가 구독을 붙인다.
+// 창 너비에 맞춰 글자를 키우고(240px 기준, 최대 1.6배), 로그인이 풀리면 안내와 로그인 버튼을 보인다.
+// 학교 PC 는 끄지 않으니, 오래 켜 두면(20시간+) 새 버전을 받도록 입력 중이 아닐 때 스스로 새로고침한다.
+// ============================================================
+function fitWidget_() {
+  const w = document.getElementById('pip-widget');
+  if (!w) return;
+  const z = Math.min(1.6, Math.max(1, window.innerWidth / 240));
+  w.style.zoom   = String(z);
+  w.style.height = (window.innerHeight / z) + 'px';
+}
+function setWidgetSignedOut_(out) {
+  document.documentElement.classList.toggle('widget-signed-out', !!out);
+}
+if (WIDGET_MODE) {
+  document.documentElement.classList.add('widget-mode');
+  document.title = '오늘 시간표';
+  const host = document.createElement('div');
+  host.id = 'widget-host';
+  host.innerHTML = '<div id="widget-pip"></div>'
+    + '<div id="widget-login"><div class="wl-icon">🔒</div><div class="wl-title">로그인이 풀렸어요</div>'
+    + '<div class="wl-sub">다시 로그인하면 오늘 시간표와 할 일이 여기에 떠요</div>'
+    + '<button type="button" class="wl-btn" onclick="window.handleSignIn()">Google로 로그인</button></div>';
+  document.body.appendChild(host);
+  mountPipWidget_(window, document.getElementById('widget-pip'));
+  fitWidget_();
+  window.addEventListener('resize', fitWidget_);
+  const loadedAt = Date.now();
+  setInterval(() => {
+    const a = document.activeElement;
+    const typing = a && a.id === 'pip-add' && a.value.trim();
+    if (Date.now() - loadedAt > 20 * 3600 * 1000 && !typing) window.hardRefresh();
+  }, 30 * 60 * 1000);
+}
 
 // ============================================================
 // 토스트
