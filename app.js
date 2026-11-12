@@ -3330,7 +3330,7 @@ function showToast(msg, isErr = false) {
 
 // ============================================================
 // 새로고침 버튼 (홈 화면 앱은 주소창·당겨서 새로고침이 없다)
-// 서비스워커 update() → 이 앱의 Cache Storage 삭제 → reload.
+// 온라인일 때만: 서비스워커 update()(최대 3초) → 이 앱 접두어(tt-) Cache Storage 삭제 → reload.
 // 로그인 정보(IndexedDB)·localStorage는 건드리지 않는다.
 // ============================================================
 let hardRefreshing = false;
@@ -3356,9 +3356,11 @@ async function doHardRefresh_() {
     }
   } catch (e) { /* 오프라인 등은 넘어간다 */ }
   try {
+    // 같은 주소(hyonnie-t.github.io)를 쓰는 책장·위시리스트·포털 캐시는 지우지 않는다: 이 앱 접두어 tt-만.
+    // tt-lib-는 주소에 버전이 박힌 Firebase 라이브러리라 남겨 둔다(새로 받을 필요가 없다).
     if (window.caches) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.filter(k => k.startsWith('tt-') && !k.startsWith('tt-lib-')).map(k => caches.delete(k)));
     }
   } catch (e) { /* 캐시가 막힌 환경이면 그냥 다시 불러온다 */ }
   location.reload();
@@ -3366,6 +3368,11 @@ async function doHardRefresh_() {
 
 function hardRefresh() {
   if (hardRefreshing) return;
+  // 앱 코드는 캐시하지 않으므로 인터넷이 끊긴 채 다시 불러오면 빈 화면이 된다
+  if (navigator.onLine === false) {
+    try { showToast('인터넷이 끊겨 있어요. 연결되면 다시 눌러 주세요.', true); } catch (e) { /* 토스트 자리가 없는 화면 */ }
+    return;
+  }
   if (!hasUnsavedInput_()) { doHardRefresh_(); return; }
   // 브라우저 confirm은 내장 브라우저에서 바로 취소되므로 앱 안 창을 쓴다
   document.getElementById('modal-refresh-confirm')?.remove();

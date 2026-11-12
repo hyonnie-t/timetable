@@ -1,2 +1,7 @@
 demo/local*.json
 node_modules/
+
+# 공통 틀(2026-11-12): 도구 설정·캐시·내려받은 패키지·맥 파일
+.claude/
+.impeccable/
+.DS_Store
