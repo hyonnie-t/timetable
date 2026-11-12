@@ -2457,8 +2457,8 @@ window.openCalendarEditor = function() {
           <button class="modal-close" onclick="window.closeModal('modal-calendar')">✕</button>
         </div>
         <div class="modal-body">
-          <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:10px;margin-top:0">+ 항목 추가</button>
-          <button class="btn-add-period" onclick="window.importTransitionCalendar()" style="margin-bottom:10px;margin-top:0">3학년 전환기 일정 불러오기</button>
+          <button class="btn-add-period" onclick="window.addCalRow()" style="margin-bottom:8px;margin-top:0">+ 항목 추가</button>
+          <button class="btn-add-period" onclick="window.importTransitionCalendar()" style="margin-bottom:8px;margin-top:0">3학년 전환기 일정 불러오기</button>
           <table class="cal-table">
             <thead><tr><th>날짜</th><th>교시</th><th>학년<small> (비우면 전체)</small></th><th>종류</th><th>표시</th><th></th></tr></thead>
             <tbody id="cal-tbody">${rows}</tbody>
@@ -2732,7 +2732,7 @@ const PIP_CSS = `
   #pip-widget { display:flex; flex-direction:column; height:100%; background:#fff; color:#1a1a1a; }
   #pip-head {
     display:flex; align-items:center; justify-content:space-between;
-    gap:6px; padding:7px 10px; flex:0 0 auto;
+    gap:8px; padding:8px 8px; flex:0 0 auto;
     border-bottom:1px solid #e8e6e0;
   }
   #pip-date {
@@ -2761,7 +2761,7 @@ const PIP_CSS = `
   .wl-title { font-size:14px; font-weight:700; color:#2d6a4f; }
   .wl-sub { font-size:11.5px; color:#666; line-height:1.5; }
   .wl-btn {
-    margin-top:4px; padding:7px 14px; border-radius:8px; cursor:pointer;
+    margin-top:4px; padding:8px 16px; border-radius:8px; cursor:pointer;
     border:1px solid #2d6a4f; background:#2d6a4f; color:#fff; font-size:12px; font-weight:700;
   }
   .wl-btn:hover { background:#24573f; }
@@ -2769,37 +2769,37 @@ const PIP_CSS = `
   #pip-msg:not([hidden]) { animation:wl-in .25s ease-out; }
   @media (prefers-reduced-motion: reduce) { #widget-login, #pip-msg { animation:none !important; } }
   #pip-body { flex:1 1 auto; overflow-y:auto; padding:2px 8px 8px; font-size:12px; }
-  .pip-row { display:flex; gap:7px; padding:7px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
+  .pip-row { display:flex; gap:8px; padding:8px 4px; border-bottom:1px solid rgba(0,0,0,.06); align-items:flex-start; border-left:3px solid transparent; }
   .pip-row:last-child { border-bottom:none; }
   .pip-row.current { background:#f0faf4; border-left-color:#2d6a4f; border-radius:0 8px 8px 0; }
   .pip-p { flex:0 0 14px; font-family:'Noto Sans KR', 'Malgun Gothic', sans-serif; font-weight:700; font-size:10px; color:#999; padding-top:1px; }
-  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; }
+  .pip-info { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:baseline; }
   .pip-class {
     font-family:'Noto Sans KR', 'Malgun Gothic', sans-serif; font-weight:700; font-size:11px;
-    color:#2d6a4f; background:#e8f5ee; padding:1px 6px; border-radius:5px;
+    color:#2d6a4f; background:#e8f5ee; padding:1px 4px; border-radius:5px;
   }
   .pip-topic { flex-basis:100%; font-size:12px; font-weight:500; color:#1a1a1a; }
   .pip-note  { flex-basis:100%; font-size:10.5px; color:#b5690b; }
   .pip-empty-cell, .pip-empty { color:#999; font-size:11px; }
   .pip-empty { padding:8px 4px; }
   .pip-todo-h { margin:8px 4px 2px; font-size:10.5px; font-weight:700; color:#b5690b; }
-  .pip-todo { display:flex; gap:7px; align-items:flex-start; padding:5px 4px; font-size:12px; border-bottom:1px solid rgba(0,0,0,.06); }
+  .pip-todo { display:flex; gap:8px; align-items:flex-start; padding:4px 4px; font-size:12px; border-bottom:1px solid rgba(0,0,0,.06); }
   .pip-todo:last-child { border-bottom:none; }
   .pip-todo-chk { flex:0 0 16px; width:16px; height:16px; margin-top:1px; border:1.5px solid #bbb; border-radius:50%; background:#fff; cursor:pointer; padding:0; }
   .pip-todo-chk:hover { border-color:#2d6a4f; background:#e8f5ee; }
   .pip-todo-t { flex:1 1 auto; min-width:0; }
   .pip-todo-time { font-family:'Space Mono', monospace; font-size:10px; color:#999; margin-right:4px; }
-  .pip-badge { padding:1px 7px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
+  .pip-badge { padding:1px 8px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
   .pip-todo-chk.daily { border-style:dashed; }
-  .pip-daily { color:#2d6a4f; font-weight:700; margin-right:3px; }
-  .pip-over { margin:6px 4px 0; font-size:10.5px; font-weight:700; color:#c0392b; }
+  .pip-daily { color:#2d6a4f; font-weight:700; margin-right:4px; }
+  .pip-over { margin:8px 4px 0; font-size:10.5px; font-weight:700; color:#c0392b; }
   .pip-row-todos { flex-basis:100%; margin-top:2px; border-top:1px dashed rgba(0,0,0,.1); }
   .pip-row-todos .pip-todo { padding:4px 0 2px; border-bottom:none; }
-  #pip-foot { flex:0 0 auto; border-top:1px solid #e8e6e0; padding:5px 8px 6px; }
-  #pip-msg { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px; padding:3px 6px; border-radius:6px; background:#f0faf4; color:#2d6a4f; font-size:10.5px; }
+  #pip-foot { flex:0 0 auto; border-top:1px solid #e8e6e0; padding:4px 8px 4px; }
+  #pip-msg { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px; padding:4px 4px; border-radius:6px; background:#f0faf4; color:#2d6a4f; font-size:10.5px; }
   #pip-msg[hidden] { display:none; }
   #pip-msg button { flex-shrink:0; border:none; background:none; color:#2d6a4f; font-size:10.5px; font-weight:700; cursor:pointer; text-decoration:underline; padding:0; }
-  #pip-add { width:100%; padding:4px 7px; border:1px solid #e8e6e0; border-radius:6px; font-size:11.5px; }
+  #pip-add { width:100%; padding:4px 8px; border:1px solid #e8e6e0; border-radius:6px; font-size:11.5px; }
   #pip-add:focus { outline:none; border-color:#2d6a4f; }
 `;
 
@@ -3049,46 +3049,46 @@ const DESK_CSS = `
     background:linear-gradient(180deg, #fffaf0 0%, #fbf7ef 60%, #f6f1e6 100%);
     border:1px solid #e6dcc8; border-radius:16px; overflow:hidden; position:relative;
   }
-  #dw-head { display:flex; align-items:flex-start; justify-content:space-between; gap:6px; padding:10px 12px 4px; cursor:grab; user-select:none; flex:0 0 auto; }
+  #dw-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; padding:8px 8px 4px; cursor:grab; user-select:none; flex:0 0 auto; }
   #dw-head:active { cursor:grabbing; }
   #dw-time { display:block; font-size:30px; font-weight:700; letter-spacing:-0.5px; line-height:1.05; color:#24533f; font-variant-numeric:tabular-nums; }
   #dw-date { display:block; font-size:11.5px; color:#8a7f6a; margin-top:2px; }
-  .dw-tools { display:flex; gap:4px; flex-shrink:0; padding-top:3px; }
-  .dw-tools button { height:24px; min-width:24px; padding:0 7px; border-radius:12px; cursor:pointer; border:1px solid #e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; line-height:1; }
+  .dw-tools { display:flex; gap:4px; flex-shrink:0; padding-top:4px; }
+  .dw-tools button { height:24px; min-width:24px; padding:0 8px; border-radius:12px; cursor:pointer; border:1px solid #e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; line-height:1; }
   .dw-tools button:hover, #dw #pip-mode:hover { color:#24533f; border-color:#24533f; }
-  #dw #pip-mode { height:24px; padding:0 9px; border-radius:12px; border-color:#e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; }
-  #dw-now { margin:4px 10px 6px; flex:0 0 auto; }
-  .dw-card { border-radius:14px; padding:10px 12px 11px; background:#e9f4ec; border:1px solid #cfe5d6; animation:dw-in .35s ease-out; }
+  #dw #pip-mode { height:24px; padding:0 8px; border-radius:12px; border-color:#e6dcc8; background:#fffdf8; color:#6f6553; font-size:11px; }
+  #dw-now { margin:4px 8px 8px; flex:0 0 auto; }
+  .dw-card { border-radius:14px; padding:8px 16px 8px; background:#e9f4ec; border:1px solid #cfe5d6; animation:dw-in .35s ease-out; }
   .dw-card.next  { background:#fff3e2; border-color:#f1dcbc; }
   .dw-card.rest  { background:#f2efe8; border-color:#e4ddcf; }
-  .dw-label { font-size:11px; font-weight:700; color:#2d6a4f; display:flex; justify-content:space-between; gap:6px; }
+  .dw-label { font-size:11px; font-weight:700; color:#2d6a4f; display:flex; justify-content:space-between; gap:8px; }
   .dw-card.next .dw-label { color:#b5690b; }
   .dw-card.rest .dw-label { color:#8a7f6a; }
   .dw-label .dw-left { font-weight:500; color:#6f6553; white-space:nowrap; }
-  .dw-main { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin-top:5px; }
+  .dw-main { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin-top:4px; }
   .dw-class { font-size:22px; font-weight:700; color:#1f2a24; letter-spacing:-0.3px; }
   .dw-subj  { font-size:13px; color:#3d4a42; }
-  .dw-topic { font-size:12.5px; color:#1f2a24; margin-top:3px; }
-  .dw-note  { font-size:11px; color:#b5690b; margin-top:3px; }
+  .dw-topic { font-size:12.5px; color:#1f2a24; margin-top:4px; }
+  .dw-note  { font-size:11px; color:#b5690b; margin-top:4px; }
   .dw-badge { padding:1px 8px; border-radius:6px; background:#fdf0e3; color:#e07c24; font-size:11px; font-weight:600; }
   .dw-bar { height:5px; border-radius:3px; background:rgba(45,106,79,.15); margin-top:8px; overflow:hidden; }
   .dw-bar i { display:block; height:100%; border-radius:3px; background:#2d6a4f; transition:width .8s ease; }
-  .dw-after { font-size:11px; color:#6f6553; margin-top:6px; }
+  .dw-after { font-size:11px; color:#6f6553; margin-top:8px; }
   .dw-after b { color:#1f2a24; font-weight:600; }
-  #dw-day { display:flex; gap:4px; padding:0 10px 6px; flex:0 0 auto; }
-  .dw-chip { flex:1 1 0; min-width:0; text-align:center; border-radius:8px; padding:3px 0 4px; background:#f3eee3; color:#8a7f6a; font-size:10px; line-height:1.25; }
+  #dw-day { display:flex; gap:4px; padding:0 8px 4px; flex:0 0 auto; }
+  .dw-chip { flex:1 1 0; min-width:0; text-align:center; border-radius:8px; padding:4px 0 4px; background:#f3eee3; color:#8a7f6a; font-size:10px; line-height:1.25; }
   .dw-chip b { display:block; font-size:9.5px; font-weight:700; color:#b0a690; }
   .dw-chip.lesson { background:#fffdf8; color:#1f2a24; border:1px solid #e6dcc8; }
   .dw-chip.event  { background:#fdf0e3; color:#e07c24; }
   .dw-chip.past   { opacity:.45; }
   .dw-chip.cur    { background:#2d6a4f; color:#fff; border-color:#2d6a4f; }
   .dw-chip.cur b  { color:#cfe5d6; }
-  #dw-todos { flex:1 1 auto; overflow-y:auto; padding:0 10px 4px; font-size:12px; }
+  #dw-todos { flex:1 1 auto; overflow-y:auto; padding:0 8px 4px; font-size:12px; }
   #dw-todos .pip-todo-h { margin:4px 2px 2px; }
-  #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:6px 8px; margin-bottom:4px; }
-  #dw .pip-empty { padding:6px 2px; }
-  #dw #pip-foot { border-top:none; padding:4px 10px 10px; }
-  #dw #pip-add { border-radius:10px; border-color:#e6dcc8; background:#fffdf8; padding:6px 9px; }
+  #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:4px 8px; margin-bottom:8px; }
+  #dw .pip-empty { padding:4px 2px; }
+  #dw #pip-foot { border-top:none; padding:4px 8px 8px; }
+  #dw #pip-add { border-radius:10px; border-color:#e6dcc8; background:#fffdf8; padding:4px 8px; }
   #dw-grip { position:absolute; right:3px; bottom:2px; width:14px; height:14px; cursor:nwse-resize; color:#c9bda5; font-size:11px; line-height:14px; text-align:center; user-select:none; }
   html.dw-compact #dw-day, html.dw-compact #dw-todos { display:none; }
   html.dw-compact #dw-now { flex:1 1 auto; }
