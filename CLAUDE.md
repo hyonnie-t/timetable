@@ -14,6 +14,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 ## 구조
 - `index.html` / `app.js` / `style.css` 시간표, `planner.js`·`planner-cal.js`·`planner.css` 할 일 달력(끌어놓기·늘이기)
 - `engine/` 계산 로직, `tests/` 테스트(`package.json`의 스크립트로 실행), `demo/` 시연용, `icons/`·`images/`
+- `install.js` «홈 화면에 추가» 버튼(책장과 같은 파일), `icons/lucian/` 움직이는 아이콘(Lucian Icons, `runtime.js` + 아이콘별 파일, MIT `LICENSE`)
 
 ## 규칙
 - 고치기 전에 `git fetch` 후 `origin/main`에서 임시 worktree(`git worktree add <임시폴더> -b <브랜치> origin/main`)를 만들어 작업한다. 여러 세션이 이 폴더를 같이 쓰므로 공용 폴더는 `main`으로 둔다(2026-11-08).
