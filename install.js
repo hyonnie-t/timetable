@@ -22,9 +22,9 @@
   function css() {
     if (document.getElementById('install-css')) return;
     var s = document.createElement('style'); s.id = 'install-css';
-    s.textContent = '[data-install][hidden],[data-install-wrap][hidden]{display:none!important}#install-help{border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:16px;padding:20px 22px;max-width:min(92vw,360px);background:Canvas;color:CanvasText;font:inherit;line-height:1.6}' +
-      '#install-help::backdrop{background:rgba(0,0,0,.35)}#install-help h2{margin:0 0 10px;font-size:1.05rem}#install-help ol{margin:0 0 14px;padding-left:1.3em}' +
-      '#install-help li{margin:.35em 0}#install-help button{font:inherit;padding:8px 18px;border-radius:10px;border:1px solid color-mix(in srgb,CanvasText 25%,transparent);background:transparent;color:inherit;cursor:pointer;min-height:44px}' +
+    s.textContent = '[data-install][hidden],[data-install-wrap][hidden]{display:none!important}#install-help{border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:16px;padding:16px 24px;max-width:min(92vw,360px);background:Canvas;color:CanvasText;font:inherit;line-height:1.6}' +
+      '#install-help::backdrop{background:rgba(0,0,0,.35)}#install-help h2{margin:0 0 8px;font-size:1.05rem}#install-help ol{margin:0 0 16px;padding-left:1.3em}' +
+      '#install-help li{margin:.35em 0}#install-help button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid color-mix(in srgb,CanvasText 25%,transparent);background:transparent;color:inherit;cursor:pointer;min-height:44px}' +
       '#install-help .ib{display:inline-block;padding:0 .4em;border:1px solid color-mix(in srgb,CanvasText 30%,transparent);border-radius:6px;font-size:.9em}';
     document.head.appendChild(s);
   }
@@ -37,7 +37,7 @@
         '<li>사파리 아래(또는 위)의 <span class="ib">공유</span> 단추(□↑)를 눌러요.</li>' +
         '<li>메뉴를 올려서 <b>홈 화면에 추가</b>를 골라요.</li>' +
         '<li>오른쪽 위 <b>추가</b>를 누르면 끝!</li></ol>' +
-        '<p style="margin:0 0 14px;font-size:.9em;opacity:.75">크롬·네이버 앱으로 열었다면 사파리에서 다시 열어 주세요.</p>' +
+        '<p style="margin:0 0 16px;font-size:.9em;opacity:.75">크롬·네이버 앱으로 열었다면 사파리에서 다시 열어 주세요.</p>' +
         '<button type="button" autofocus>알겠어요</button>';
       d.querySelector('button').addEventListener('click', function () { d.close(); });
       d.addEventListener('click', function (e) { if (e.target === d) d.close(); });
