@@ -1,5 +1,13 @@
 
 :root {
+  /* 간격 눈금 8pt (위키 도구/ui-간격-8pt-규칙.md, 2026-11-12) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
   --bg: #f5f4f0;
   --surface: #ffffff;
   --border: #e8e6e0;
@@ -39,15 +47,15 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  gap: 24px;
-  padding: 24px;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 
 .login-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 48px 40px;
+  padding: var(--space-6) var(--space-5);
   text-align: center;
   max-width: 360px;
   width: 100%;
@@ -60,29 +68,29 @@ body {
   letter-spacing: 3px;
   color: var(--text3);
   text-transform: uppercase;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .login-title {
   font-size: 24px;
   font-weight: 900;
   color: var(--text);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .login-sub {
   font-size: 13px;
   color: var(--text3);
-  margin-bottom: 32px;
+  margin-bottom: var(--space-5);
 }
 
 .btn-google {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
-  padding: 12px 20px;
+  padding: var(--space-2) var(--space-3);
   border-radius: 10px;
   border: 1.5px solid var(--border);
   background: var(--surface);
@@ -107,7 +115,7 @@ body {
 #app-screen {
   max-width: 600px;
   margin: 0 auto;
-  padding: 24px 16px 80px;
+  padding: var(--space-4) var(--space-3) 80px;
 }
 
 /* ============================================================
@@ -115,13 +123,13 @@ body {
    ============================================================ */
 .tabs {
   display: flex;
-  gap: 6px;
-  margin-bottom: 20px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 
 .tab {
-  padding: 8px 14px 10px;
+  padding: var(--space-2) var(--space-3) var(--space-2);
   font-size: 13px;
   font-weight: 500;
   color: var(--text3);
@@ -139,7 +147,7 @@ body {
 
 .settings-tab-btn {
   margin-left: auto;
-  padding: 8px 10px 10px;
+  padding: var(--space-2) var(--space-2) var(--space-2);
   font-size: 16px;
   color: var(--text3);
   cursor: pointer;
@@ -153,7 +161,7 @@ body {
 .settings-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .pip-tab-btn {
-  padding: 8px 10px 10px;
+  padding: var(--space-2) var(--space-2) var(--space-2);
   font-size: 15px;
   color: var(--text3);
   cursor: pointer;
@@ -171,7 +179,7 @@ body {
 .refresh-tab-btn {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 8px 10px 10px;
+  padding: var(--space-2) var(--space-2) var(--space-2);
   color: var(--text3); cursor: pointer; flex-shrink: 0;
   border: none; background: none;
   border-bottom: 2px solid transparent;
@@ -186,7 +194,7 @@ body {
 /* ============================================================
    헤더
    ============================================================ */
-.section-header { margin-bottom: 16px; }
+.section-header { margin-bottom: var(--space-3); }
 
 .date-label {
   font-family: var(--mono);
@@ -194,29 +202,29 @@ body {
   color: var(--text3);
   letter-spacing: 2px;
   text-transform: uppercase;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
-.header-row { display: flex; align-items: baseline; gap: 10px; }
+.header-row { display: flex; align-items: baseline; gap: var(--space-2); }
 .date-main  { font-size: 22px; font-weight: 900; }
 .date-sub   { font-size: 14px; color: var(--text2); }
 .update-time {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text3);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 /* history26(역사 포털) 대시보드로 가는 링크 — 오늘 탭 머리·수업 카드(관리자만) */
 .portal-link {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-top: 8px; padding: 5px 10px;
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  margin-top: var(--space-2); padding: var(--space-1) var(--space-2);
   font: inherit; font-size: 12px; font-weight: 600; color: var(--info, #1d6fa4);
   background: var(--surface); border: 1px solid var(--border); border-radius: 99px;
   cursor: pointer; white-space: nowrap;
   transition: border-color .15s, transform .15s;
 }
 .portal-link:hover { border-color: var(--info, #1d6fa4); transform: translateY(-1px); }
-.portal-link-sm { margin-top: 0; padding: 1px 7px; font-size: 11px; }
+.portal-link-sm { margin-top: 0; padding: 1px var(--space-2); font-size: 11px; }
 
 /* ============================================================
    기말고사 D-day 카드
@@ -225,8 +233,8 @@ body {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: 12px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .exam-dday-title {
@@ -234,14 +242,14 @@ body {
   font-weight: 700;
   color: var(--text3);
   letter-spacing: .5px;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
 }
 
 .exam-dday-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 0;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
 }
 
 .exam-dday-row + .exam-dday-row {
@@ -267,7 +275,7 @@ body {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .exam-dday-item {
@@ -275,7 +283,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 3px 2px;
+  padding: var(--space-1) 2px;
   background: var(--bg);
   border-radius: 6px;
 }
@@ -302,11 +310,11 @@ body {
    ============================================================ */
 .banner {
   border-radius: 10px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   font-size: 13px;
   animation: fadeUp .3s ease both;
   color: #fff;
@@ -330,16 +338,16 @@ body {
 /* ============================================================
    교시 카드
    ============================================================ */
-.period-list { display: flex; flex-direction: column; gap: 8px; }
+.period-list { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .period-card {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-3);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-3);
   transition: all .2s;
   animation: fadeUp .3s ease both;
   position: relative;
@@ -354,7 +362,7 @@ body {
   box-shadow: 0 2px 12px rgba(45,106,79,.12);
 }
 
-.period-card.lunch-card { opacity: .8; border-left: 3px solid #f4c95d; background: #fffaf0; padding-top: 6px; padding-bottom: 6px; }
+.period-card.lunch-card { opacity: .8; border-left: 3px solid #f4c95d; background: #fffaf0; padding-top: var(--space-1); padding-bottom: var(--space-1); }
 .period-card.lunch-card .period-num { font-size: 1.2rem; }
 .period-card.lunch-card .lunch-label { color: #a8741a; font-weight: 600; }
 .period-card.lunch-card.current { opacity: 1; }
@@ -418,7 +426,7 @@ body {
 }
 .period-changed-tag {
   display: block;
-  margin: 4px 2px 0;
+  margin: var(--space-1) 2px 0;
   padding: 2px 0;
   border-radius: 6px;
   background: #d9480f;
@@ -430,7 +438,7 @@ body {
 }
 .period-time-was {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--space-1);
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 400;
@@ -450,13 +458,13 @@ body {
 .class-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .class-badge {
   font-size: 12px; font-weight: 700;
-  padding: 3px 9px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px;
   background: #e8f5ee;
   color: var(--accent);
@@ -481,7 +489,7 @@ body {
 .class-note {
   font-size: 12px;
   color: var(--text2);
-  margin-top: 4px;
+  margin-top: var(--space-1);
   line-height: 1.4;
   word-break: break-word;
 }
@@ -491,7 +499,7 @@ body {
   min-width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: 12px;
   font-family: var(--font);
   background: var(--bg);
@@ -512,7 +520,7 @@ body {
 .empty-label { font-size: 13px; color: var(--text3); font-style: italic; }
 .empty-day   {
   text-align: center;
-  padding: 60px 24px;
+  padding: var(--space-7) var(--space-4);
   color: var(--text3);
   font-size: 14px;
 }
@@ -521,7 +529,7 @@ body {
   background: none; border: none;
   font-size: 16px; cursor: pointer;
   opacity: .4; transition: opacity .2s;
-  padding: 4px; flex-shrink: 0;
+  padding: var(--space-1); flex-shrink: 0;
 }
 .period-card:hover .edit-btn { opacity: .6; }
 .edit-btn:hover { opacity: 1 !important; }
@@ -529,8 +537,8 @@ body {
 .step-editor {
   display: none;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
   flex-wrap: wrap;
 }
 .step-editor.open { display: flex; }
@@ -557,7 +565,7 @@ body {
   flex: 1; min-width: 120px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: 13px;
   font-family: var(--font);
   background: var(--bg); color: var(--text); outline: none;
@@ -565,7 +573,7 @@ body {
 .topic-input:focus { border-color: var(--accent2); }
 
 .save-btn {
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px; border: none;
   background: var(--accent); color: #fff;
   font-size: 12px; font-weight: 700;
@@ -581,7 +589,7 @@ body {
 .event-badge, .cell-badge {
   display: inline-block;
   font-size: 11px; font-weight: 700;
-  padding: 2px 7px; border-radius: 5px;
+  padding: 2px var(--space-2); border-radius: 5px;
 }
 .badge-holiday { background: #ffeaea; color: var(--danger); }
 .badge-event   { background: #fff3e0; color: var(--warn); }
@@ -593,11 +601,11 @@ body {
    주차별 탭
    ============================================================ */
 .week-tabs {
-  display: flex; gap: 6px; margin-bottom: 16px;
+  display: flex; gap: var(--space-2); margin-bottom: var(--space-3);
 }
 
 .week-tab {
-  padding: 6px 14px;
+  padding: var(--space-1) var(--space-3);
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -620,7 +628,7 @@ body {
 .week-grid table { width: 100%; border-collapse: collapse; min-width: 360px; }
 
 .week-grid th {
-  padding: 8px 4px;
+  padding: var(--space-2) var(--space-1);
   font-size: 11px; font-weight: 700;
   color: var(--text2);
   background: var(--bg);
@@ -633,7 +641,7 @@ body {
 .th-date { font-weight: 400; font-size: 9px; }
 
 .week-grid td {
-  padding: 8px 4px;
+  padding: var(--space-2) var(--space-1);
   font-size: 11px;
   text-align: center;
   border-bottom: 1px solid var(--border);
@@ -659,8 +667,8 @@ body {
    진도표 탭
    ============================================================ */
 .prog-group-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 4px 6px;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-1) var(--space-1);
   cursor: pointer; user-select: none;
 }
 .prog-group-title {
@@ -676,7 +684,7 @@ body {
 }
 .arrow.collapsed { transform: rotate(-90deg); }
 
-.prog-group-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.prog-group-body { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-2); }
 .prog-group-body.hidden { display: none; }
 
 .progress-grid { display: flex; flex-direction: column; }
@@ -685,15 +693,15 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-3);
   animation: fadeUp .3s ease both;
 }
 .progress-header {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);
 }
 .prog-badge {
   font-size: 12px; font-weight: 700;
-  padding: 3px 10px; border-radius: 6px;
+  padding: var(--space-1) var(--space-2); border-radius: 6px;
   background: #e8f5ee; color: var(--accent);
   font-family: var(--mono);
 }
@@ -702,9 +710,9 @@ body {
   font-size: 12px; color: var(--text2); font-weight: 700;
 }
 
-.prog-dates { display: flex; flex-direction: column; gap: 6px; }
+.prog-dates { display: flex; flex-direction: column; gap: var(--space-2); }
 .prog-row {
-  display: flex; align-items: baseline; gap: 8px; font-size: 13px;
+  display: flex; align-items: baseline; gap: var(--space-2); font-size: 13px;
 }
 .r-label { font-size: 11px; color: var(--text3); width: 42px; flex-shrink: 0; font-weight: 500; }
 .current-row .r-topic { font-weight: 600; color: var(--text); font-size: 14px; }
@@ -713,7 +721,7 @@ body {
 
 .empty-state {
   text-align: center;
-  padding: 60px 24px;
+  padding: var(--space-7) var(--space-4);
   color: var(--text3);
   font-size: 14px;
   line-height: 2;
@@ -728,12 +736,12 @@ body {
 /* 탭 버튼 */
 .subj-tab-btns {
   display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .subj-tab-btn {
-  padding: 6px 14px;
+  padding: var(--space-1) var(--space-3);
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -756,7 +764,7 @@ body {
 .subj-column {
   background: var(--surface);
   border-radius: 12px;
-  padding: 16px;
+  padding: var(--space-3);
   border: 1px solid var(--border);
   display: none;
 }
@@ -767,7 +775,7 @@ body {
   .subject-columns {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 16px;
+    gap: var(--space-3);
   }
   .subj-tab-btns { display: none; }
   .subj-column   { display: block !important; }
@@ -780,8 +788,8 @@ body {
   text-transform: uppercase;
   color: var(--text3);
   font-family: var(--mono);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
   border-bottom: 2px solid var(--accent2);
 }
 
@@ -797,7 +805,7 @@ body {
   overflow: hidden;
 }
 .subj-table th {
-  padding: 9px 12px;
+  padding: var(--space-2) var(--space-2);
   font-size: 11px; font-weight: 700;
   text-align: left;
   background: var(--bg);
@@ -806,7 +814,7 @@ body {
   font-family: var(--mono);
 }
 .subj-table td {
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -824,7 +832,7 @@ body {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: 13px;
   font-family: var(--font);
   background: transparent;
@@ -839,11 +847,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 10px;
+  margin-top: var(--space-2);
   padding: 0 2px;
 }
 
-.subj-save-btn { padding: 7px 18px; font-size: 12px; }
+.subj-save-btn { padding: var(--space-2) var(--space-3); font-size: 12px; }
 
 /* ============================================================
    학사일정 — 하루종일 토글 + 교시 체크박스
@@ -851,13 +859,13 @@ body {
 .cal-allday-cell { min-width: 180px; }
 .cal-grade-cell { min-width: 96px; }
 .cal-table select[data-field="type"] { min-width: 92px; }
-.cal-grade-checks { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cal-grade-checks { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .cal-grade-hint { color: var(--text3); font-size: 11px; }
 .cal-swap-row { background: rgba(255, 170, 0, 0.08); }
 
 /* 요일 대체일 표시 (오늘 화면 머리·주간 표 머리) */
 .swap-badge {
-  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px;
+  display: inline-block; margin-left: var(--space-2); padding: 2px var(--space-2); border-radius: 10px;
   background: #fff1d6; color: #8a5a00; font-size: 11px; font-weight: 600; white-space: nowrap;
 }
 th .swap-badge { margin-left: 0; margin-top: 2px; }
@@ -865,12 +873,12 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .allday-toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   font-size: 11px;
   color: var(--text2);
   cursor: pointer;
   user-select: none;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
 }
 .allday-toggle input[type="checkbox"] {
   width: 14px; height: 14px;
@@ -882,7 +890,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .cal-period-checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .period-check-label {
@@ -894,7 +902,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-1);
   cursor: pointer;
   user-select: none;
   font-family: var(--mono);
@@ -916,7 +924,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 /* ============================================================
    설정 탭
    ============================================================ */
-.settings-list { display: flex; flex-direction: column; gap: 24px; }
+.settings-list { display: flex; flex-direction: column; gap: var(--space-4); }
 
 .settings-section { display: flex; flex-direction: column; }
 
@@ -925,14 +933,14 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--text3);
   font-family: var(--mono);
-  padding: 0 4px 8px;
+  padding: 0 var(--space-1) var(--space-2);
 }
 
 .settings-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-3);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -942,15 +950,15 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   cursor: pointer;
   font-family: var(--font);
   transition: all .15s;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
   text-align: left;
 }
 .settings-item:hover { border-color: var(--accent2); }
 .settings-item.danger { color: var(--danger); }
 .settings-sub { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--text2, #888); }
-.sem-form { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; }
-.sem-form label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
-.sem-form input[type="text"], .sem-form input[type="date"] { padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.sem-form { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 var(--space-2); }
+.sem-form label { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; font-weight: 500; }
+.sem-form input[type="text"], .sem-form input[type="date"] { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: 8px; }
 .sem-form .sem-check { font-weight: 400; align-items: flex-start; }
 .settings-item.danger:hover { border-color: var(--danger); background: #fff5f5; }
 
@@ -959,8 +967,8 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .settings-user {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 4px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
   font-size: 13px;
   color: var(--text2);
 }
@@ -968,7 +976,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .role-badge {
   font-family: var(--mono);
   font-size: 10px;
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   border-radius: 4px;
   background: #e8f5ee;
   color: var(--accent);
@@ -1011,7 +1019,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 20px 16px;
+  padding: var(--space-3) var(--space-3) var(--space-3);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -1020,29 +1028,29 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .modal-close {
   background: none; border: none;
   font-size: 18px; cursor: pointer;
-  color: var(--text3); padding: 4px;
+  color: var(--text3); padding: var(--space-1);
   transition: color .15s;
 }
 .modal-close:hover { color: var(--text); }
 
 .modal-body {
-  padding: 16px 20px;
+  padding: var(--space-3) var(--space-3);
   overflow-y: auto;
   flex: 1;
 }
 
 .modal-hint {
   font-size: 12px; color: var(--text3);
-  margin-bottom: 12px; line-height: 1.6;
+  margin-bottom: var(--space-3); line-height: 1.6;
 }
 .modal-hint code {
-  background: var(--bg); padding: 1px 6px;
+  background: var(--bg); padding: 1px var(--space-1);
   border-radius: 4px; font-size: 12px;
 }
 
 .modal-footer {
-  display: flex; justify-content: flex-end; gap: 8px;
-  padding: 16px 20px;
+  display: flex; justify-content: flex-end; gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -1058,7 +1066,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   min-width: 400px;
 }
 .timetable-editor th {
-  padding: 8px 6px;
+  padding: var(--space-2) var(--space-1);
   font-size: 12px; font-weight: 700;
   text-align: center;
   border-bottom: 2px solid var(--border);
@@ -1066,7 +1074,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   font-family: var(--mono);
 }
 .timetable-editor td {
-  padding: 4px;
+  padding: var(--space-1);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -1074,7 +1082,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   font-family: var(--mono);
   font-size: 11px; color: var(--text3);
   font-weight: 700; white-space: nowrap;
-  padding: 4px 8px !important;
+  padding: var(--space-1) var(--space-2) !important;
   background: var(--bg);
   text-align: center;
 }
@@ -1083,7 +1091,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   font-size: 12px;
   font-family: var(--font);
   background: var(--bg); color: var(--text); outline: none;
@@ -1098,13 +1106,13 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   border-collapse: collapse;
 }
 .periods-table th {
-  padding: 8px;
+  padding: var(--space-2);
   font-size: 12px; text-align: center;
   border-bottom: 2px solid var(--border);
   color: var(--text2); font-weight: 700;
 }
 .periods-table td {
-  padding: 6px 4px;
+  padding: var(--space-1) var(--space-1);
   text-align: center;
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
@@ -1114,7 +1122,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .time-input {
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   font-size: 12px;
   font-family: var(--mono);
   background: var(--bg); color: var(--text);
@@ -1127,14 +1135,14 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
    ============================================================ */
 .cal-table { width: 100%; border-collapse: collapse; }
 .cal-table th {
-  padding: 8px 6px;
+  padding: var(--space-2) var(--space-1);
   font-size: 11px; font-weight: 700;
   text-align: left;
   border-bottom: 2px solid var(--border);
   color: var(--text2);
 }
 .cal-table td {
-  padding: 4px 2px;
+  padding: var(--space-1) 2px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -1154,7 +1162,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 5px 7px;
+  padding: var(--space-1) var(--space-2);
   font-size: 12px;
   font-family: var(--font);
   background: var(--bg); color: var(--text); outline: none;
@@ -1164,7 +1172,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .cal-select {
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 5px 4px;
+  padding: var(--space-1) var(--space-1);
   font-size: 12px;
   background: var(--bg); color: var(--text); outline: none;
   font-family: var(--font);
@@ -1174,7 +1182,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .btn-del {
   background: none; border: none;
   color: var(--danger); font-size: 14px;
-  cursor: pointer; padding: 4px 6px;
+  cursor: pointer; padding: var(--space-1) var(--space-1);
   opacity: .6; transition: opacity .15s;
 }
 .btn-del:hover { opacity: 1; }
@@ -1183,7 +1191,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
    공통 버튼
    ============================================================ */
 .btn-primary {
-  padding: 10px 20px;
+  padding: var(--space-2) var(--space-3);
   border-radius: 8px; border: none;
   background: var(--accent); color: #fff;
   font-size: 13px; font-weight: 700;
@@ -1193,7 +1201,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .btn-primary:hover { background: #235c42; }
 
 .btn-secondary {
-  padding: 10px 20px;
+  padding: var(--space-2) var(--space-3);
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface); color: var(--text2);
@@ -1204,8 +1212,8 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .btn-secondary:hover { border-color: var(--text2); }
 
 .btn-add-period {
-  margin-top: 10px;
-  padding: 7px 14px;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-radius: 6px;
   border: 1px dashed var(--border);
   background: none; color: var(--text3);
@@ -1222,7 +1230,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%);
   background: var(--accent); color: #fff;
-  padding: 10px 20px; border-radius: 20px;
+  padding: var(--space-2) var(--space-3); border-radius: 20px;
   font-size: 13px; font-weight: 500;
   opacity: 0; transition: opacity .3s;
   pointer-events: none; z-index: 9999;
@@ -1267,11 +1275,11 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 /* ============================================================
    학급 메모 (classNotes) — 차시 진도와 무관한 상시 메모
    ============================================================ */
-.classnote-wrap { margin-top: 4px; font-size: 12px; }
+.classnote-wrap { margin-top: var(--space-1); font-size: 12px; }
 
 .classnote-view {
   cursor: pointer;
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-1);
   margin: -3px -6px;
   border-radius: 6px;
   transition: background .15s;
@@ -1296,7 +1304,7 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: 12px;
   font-family: var(--font);
   background: var(--bg);
@@ -1310,13 +1318,13 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 .classnote-edit-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .classnote-cancel-btn,
 .classnote-save-btn {
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
@@ -1350,8 +1358,8 @@ th .swap-badge { margin-left: 0; margin-top: 2px; }
 html { -webkit-text-size-adjust: 100%; }
 
 #app-screen {
-  padding-left:  max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
+  padding-left:  max(var(--space-3), env(safe-area-inset-left));
+  padding-right: max(var(--space-3), env(safe-area-inset-right));
   padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 
@@ -1362,28 +1370,28 @@ html { -webkit-text-size-adjust: 100%; }
   .tabs {
     position: sticky; top: 0; z-index: 50;
     background: var(--bg);
-    padding-top: max(10px, env(safe-area-inset-top));
+    padding-top: max(var(--space-2), env(safe-area-inset-top));
     margin-left: -16px; margin-right: -16px;
-    padding-left: 16px; padding-right: 8px;
+    padding-left: var(--space-3); padding-right: var(--space-2);
     gap: 0;
     overflow-x: auto;
     scrollbar-width: none;
   }
   .tabs::-webkit-scrollbar { display: none; }
-  .tab { padding: 12px 12px 12px; font-size: 14px; white-space: nowrap; }
-  .settings-tab-btn, .pip-tab-btn { padding: 12px 12px; font-size: 18px; }
+  .tab { padding: var(--space-2) var(--space-2) var(--space-2); font-size: 14px; white-space: nowrap; }
+  .settings-tab-btn, .pip-tab-btn { padding: var(--space-2) var(--space-2); font-size: 18px; }
   .pip-tab-btn { display: none; }  /* 모바일 브라우저는 미니창 미지원 */
   /* 탭이 가로로 넘쳐도 새로고침은 오른쪽 끝에 붙어 있게 */
   .refresh-tab-btn {
     position: sticky; right: 0; z-index: 2;
-    padding: 12px 12px; --li-size: 18px;
+    padding: var(--space-2) var(--space-2); --li-size: 18px;
     background: var(--bg);
     box-shadow: -8px 0 8px -2px var(--bg);
   }
   .refresh-tab-btn::after { inset: 0 0 0 -4px; }
   .tabs { padding-right: 0; }  /* 오른쪽에 붙는 새로고침 버튼 뒤로 다른 탭이 비치지 않게 */
 
-  .section-header { margin-top: 4px; }
+  .section-header { margin-top: var(--space-1); }
 
   /* iOS 입력 시 자동 확대 방지: 16px 이상 */
   .note-input, .topic-input, .subj-topic-input, .cell-input,
@@ -1391,13 +1399,13 @@ html { -webkit-text-size-adjust: 100%; }
     font-size: 16px;
   }
 
-  .period-card { padding: 12px 12px; gap: 10px; }
+  .period-card { padding: var(--space-2) var(--space-2); gap: var(--space-2); }
   .class-topic { flex-basis: 100%; }
 
   /* 주차별: 첫 열 고정 + 가로 스크롤 */
   .week-tabs { overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .week-tabs::-webkit-scrollbar { display: none; }
-  .week-tab { white-space: nowrap; padding: 8px 14px; font-size: 13px; }
+  .week-tab { white-space: nowrap; padding: var(--space-2) var(--space-3); font-size: 13px; }
   .week-grid table { min-width: 420px; }
   .week-grid td.period-col, .week-grid th:first-child {
     position: sticky; left: 0; z-index: 1;
@@ -1405,9 +1413,9 @@ html { -webkit-text-size-adjust: 100%; }
 
   /* 모달은 하단 시트 */
   .modal { max-height: 92vh; padding-bottom: env(safe-area-inset-bottom); }
-  .modal-body { padding: 14px 16px; }
-  .modal-footer { padding: 12px 16px; }
-  .modal-footer .btn-primary, .modal-footer .btn-secondary { flex: 1; padding: 12px; }
+  .modal-body { padding: var(--space-3) var(--space-3); }
+  .modal-footer { padding: var(--space-2) var(--space-3); }
+  .modal-footer .btn-primary, .modal-footer .btn-secondary { flex: 1; padding: var(--space-2); }
 
   .toast { bottom: calc(20px + env(safe-area-inset-bottom)); max-width: 90vw; white-space: normal; text-align: center; }
 }
@@ -1416,38 +1424,38 @@ html { -webkit-text-size-adjust: 100%; }
 @media (pointer: coarse) {
   .edit-btn, .btn-del, .modal-close { min-width: 44px; min-height: 44px; }
   .step-btn { width: 40px; height: 40px; font-size: 18px; }
-  .save-btn, .classnote-save-btn, .classnote-cancel-btn { padding: 9px 16px; font-size: 13px; }
-  .subj-tab-btn { padding: 9px 16px; font-size: 13px; }
-  .settings-item { padding: 16px; }
-  .prog-group-header { padding: 14px 4px 10px; }
-  .period-check-label { padding: 7px 10px; font-size: 12px; }
-  .allday-toggle { font-size: 13px; padding: 4px 0; }
+  .save-btn, .classnote-save-btn, .classnote-cancel-btn { padding: var(--space-2) var(--space-3); font-size: 13px; }
+  .subj-tab-btn { padding: var(--space-2) var(--space-3); font-size: 13px; }
+  .settings-item { padding: var(--space-3); }
+  .prog-group-header { padding: var(--space-3) var(--space-1) var(--space-2); }
+  .period-check-label { padding: var(--space-2) var(--space-2); font-size: 12px; }
+  .allday-toggle { font-size: 13px; padding: var(--space-1) 0; }
   .allday-toggle input[type="checkbox"], .period-check-label input[type="checkbox"] { width: 18px; height: 18px; }
   .edit-btn { opacity: .6; }
 }
 
 /* ---------- 태블릿 (768 ~ 1199px) ---------- */
 @media (min-width: 768px) {
-  #app-screen { max-width: 920px; padding-top: 28px; }
+  #app-screen { max-width: 920px; padding-top: var(--space-4); }
 
-  .tab { padding: 10px 18px 12px; font-size: 14px; }
+  .tab { padding: var(--space-2) var(--space-3) var(--space-2); font-size: 14px; }
   .date-main { font-size: 26px; }
   .date-sub  { font-size: 15px; }
 
   /* 오늘 수업: 배너·D-day는 전체 폭, 교시 카드는 2열 */
-  .period-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .period-card { padding: 14px 16px; height: 100%; }
+  .period-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .period-card { padding: var(--space-3) var(--space-3); height: 100%; }
   .class-topic { flex-basis: 100%; }
 
-  .exam-dday-card { padding: 12px 18px; }
+  .exam-dday-card { padding: var(--space-2) var(--space-3); }
   .exam-dday-label { flex-basis: 64px; }
   .exam-dday-class { font-size: 12px; }
   .exam-dday-count { font-size: 13px; }
 
   /* 주차별: 표 여유롭게 */
   .week-grid table { min-width: 0; }
-  .week-grid th { padding: 12px 6px; font-size: 13px; }
-  .week-grid td { padding: 12px 6px; font-size: 12px; }
+  .week-grid th { padding: var(--space-2) var(--space-1); font-size: 13px; }
+  .week-grid td { padding: var(--space-2) var(--space-1); font-size: 12px; }
   .week-grid td.period-col { width: 48px; font-size: 11px; }
   .th-date { font-size: 11px; }
   .cell-class   { font-size: 12px; }
@@ -1455,11 +1463,11 @@ html { -webkit-text-size-adjust: 100%; }
   .cell-topic   { font-size: 11px; }
 
   /* 진도표: 과목별 헤더는 전체 폭, 카드는 2열 */
-  .prog-group-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .prog-group-body { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .prog-group-body.hidden { display: none; }
 
   /* 설정: 섹션 2열 */
-  .settings-list { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 20px; align-items: start; }
+  .settings-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-4); align-items: start; }
   .settings-list > .settings-user { grid-column: 1 / -1; }
 
   .modal { max-width: 720px; }
@@ -1468,19 +1476,19 @@ html { -webkit-text-size-adjust: 100%; }
 
 /* ---------- PC (1200px~) ---------- */
 @media (min-width: 1200px) {
-  #app-screen { max-width: 1180px; padding-top: 36px; }
+  #app-screen { max-width: 1180px; padding-top: var(--space-5); }
 
-  .tabs { gap: 10px; margin-bottom: 28px; }
-  .tab { padding: 10px 22px 12px; font-size: 15px; }
+  .tabs { gap: var(--space-2); margin-bottom: var(--space-5); }
+  .tab { padding: var(--space-2) var(--space-4) var(--space-2); font-size: 15px; }
   .date-main { font-size: 30px; }
 
   /* 오늘 수업: 3열 */
-  .period-list { grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .banner { padding: 14px 20px; font-size: 14px; }
+  .period-list { grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+  .banner { padding: var(--space-3) var(--space-3); font-size: 14px; }
   .class-topic { font-size: 15px; }
 
   /* 진도표: 3열 */
-  .prog-group-body { grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .prog-group-body { grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 
   /* 설정: 3열 */
   .settings-list { grid-template-columns: repeat(3, 1fr); }
@@ -1499,7 +1507,7 @@ html { -webkit-text-size-adjust: 100%; }
 /* 가로 모드 폰: 세로 공간이 좁으므로 여백 축소 */
 @media (max-height: 480px) and (orientation: landscape) {
   .modal { max-height: 96vh; }
-  .modal-header { padding: 12px 16px; }
+  .modal-header { padding: var(--space-2) var(--space-3); }
   #app-screen { padding-top: 0; }
 }
 
@@ -1510,12 +1518,12 @@ html { -webkit-text-size-adjust: 100%; }
 /* 오늘만 교시 바꾸기 */
 .swap-btn { font-weight: 700; opacity: .5; }
 .swap-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  font-size: 12px; color: var(--text3); margin: 0 0 10px; padding: 0 2px;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  font-size: 12px; color: var(--text3); margin: 0 0 var(--space-2); padding: 0 2px;
 }
 .swap-bar button {
   border: 1px solid var(--border, #ccc); background: none; color: inherit;
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  border-radius: 8px; padding: var(--space-1) var(--space-2); font-size: 12px; cursor: pointer;
 }
 .period-card.swap-from   { outline: 2px solid #4f8cff; }
 .period-card.swap-target { outline: 2px dashed #4f8cff88; }
@@ -1530,25 +1538,25 @@ html { -webkit-text-size-adjust: 100%; }
 .special-badge {
   display: inline-block;
   font-size: 11px; font-weight: 700;
-  padding: 2px 7px; border-radius: 5px;
+  padding: 2px var(--space-2); border-radius: 5px;
   background: #fff8db; color: #8a6d00;
 }
 .special-card .class-badge { opacity: .7; }
 
 .special-row {
   flex-basis: 100%;
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  margin-top: 4px; padding-top: 8px;
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  margin-top: var(--space-1); padding-top: var(--space-2);
   border-top: 1px dashed var(--border);
 }
 .special-row-label { font-size: 12px; color: var(--text2); }
 .special-input {
   flex: 1 1 120px; min-width: 0;
-  padding: 6px 8px; font-size: 13px;
+  padding: var(--space-1) var(--space-2); font-size: 13px;
   border: 1px solid var(--border); border-radius: 6px;
 }
 .special-mark-btn, .special-undo-btn {
-  padding: 6px 10px; font-size: 12px; font-weight: 600;
+  padding: var(--space-1) var(--space-2); font-size: 12px; font-weight: 600;
   border-radius: 6px; cursor: pointer;
   border: 1px solid #e6cf6a; background: #fff8db; color: #8a6d00;
 }
@@ -1560,23 +1568,23 @@ html { -webkit-text-size-adjust: 100%; }
 .ledger-btn {
   margin-left: auto;
   background: none; border: 1px solid var(--border); border-radius: 6px;
-  font-size: 12px; padding: 3px 8px; cursor: pointer; color: var(--text2);
+  font-size: 12px; padding: var(--space-1) var(--space-2); cursor: pointer; color: var(--text2);
 }
 .ledger-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .ledger-select {
-  margin-left: auto; margin-right: 8px;
-  padding: 4px 8px; font-size: 13px;
+  margin-left: auto; margin-right: var(--space-2);
+  padding: var(--space-1) var(--space-2); font-size: 13px;
   border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
 }
 
 .ledger-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ledger-table th {
   position: sticky; top: -16px; background: var(--surface);
-  padding: 8px 6px; font-size: 11px; font-weight: 700; text-align: left;
+  padding: var(--space-2) var(--space-1); font-size: 11px; font-weight: 700; text-align: left;
   border-bottom: 2px solid var(--border); color: var(--text2);
 }
-.ledger-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.ledger-table td { padding: var(--space-2) var(--space-1); border-bottom: 1px solid var(--border); vertical-align: middle; }
 .ledger-date  { white-space: nowrap; font-family: var(--mono); font-size: 12px; }
 .ledger-date small { font-family: var(--font); color: var(--text3); }
 .ledger-p, .ledger-step { text-align: center; font-family: var(--mono); font-size: 12px; width: 40px; }
@@ -1593,30 +1601,30 @@ html { -webkit-text-size-adjust: 100%; }
 .modal-overlay.no-anim, .modal-overlay.no-anim .modal { animation: none; }
 
 .ledger-act {
-  padding: 3px 8px; font-size: 11px; white-space: nowrap;
+  padding: var(--space-1) var(--space-2); font-size: 11px; white-space: nowrap;
   border: 1px solid var(--border); border-radius: 5px;
   background: var(--surface); color: var(--text2); cursor: pointer;
 }
 .ledger-act:hover { border-color: var(--text2); color: var(--text); }
 
 .ledger-edit-row td { background: #fffdf2; }
-.ledger-edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
-.ledger-edit-hint { margin-top: 4px; font-size: 11px; color: var(--text3); }
+.ledger-edit { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: 12px; color: var(--text2); }
+.ledger-edit-hint { margin-top: var(--space-1); font-size: 11px; color: var(--text3); }
 
 @media (max-width: 480px) {
-  .ledger-table td, .ledger-table th { padding: 6px 3px; }
+  .ledger-table td, .ledger-table th { padding: var(--space-1) var(--space-1); }
   .ledger-p, .ledger-step { width: 30px; }
   .ledger-action { width: 64px; }
 }
-.week-grid td .special-badge { display: block; width: fit-content; margin: 2px auto 0; font-size: 10px; padding: 1px 5px; }
+.week-grid td .special-badge { display: block; width: fit-content; margin: 2px auto 0; font-size: 10px; padding: 1px var(--space-1); }
 .week-grid td.special-cell { background: #fffdf2; }
 
 /* ============================================================
    진도 점검 띠 · 진단 · 시간표 적용 시작일 (진도 엔진 v2)
    ============================================================ */
 .health-bar {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
-  margin: 0 0 12px; padding: 10px 14px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3);
   background: #fff7ed; border: 1px solid #f6c48e; border-radius: 12px;
   font-size: 13px; color: #8a4b0f; cursor: pointer;
 }
@@ -1627,20 +1635,20 @@ html { -webkit-text-size-adjust: 100%; }
 
 .ledger-pin { font-size: 11px; }
 
-.tt-effective { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; font-size: 13px; font-weight: 500; }
-.tt-effective input { padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.tt-effective { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 var(--space-2); font-size: 13px; font-weight: 500; }
+.tt-effective input { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: 8px; }
 
-.diag-h { margin: 18px 0 6px; font-size: 14px; }
+.diag-h { margin: var(--space-3) 0 var(--space-2); font-size: 14px; }
 .diag-h small { font-weight: 400; color: var(--text2); }
-.diag-issues { margin: 0 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.diag-issues { margin: 0 0 var(--space-3); padding-left: var(--space-3); font-size: 13px; line-height: 1.6; }
 .diag-issues .diag-error { color: var(--danger); }
 .diag-issues .diag-warn  { color: #8a4b0f; }
 .diag-issues .diag-info  { color: var(--text2); }
 
 /* 오늘 수업: 할 일 한 줄 */
 .todo-line {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; cursor: pointer;
-  margin: 0 0 10px; padding: 9px 14px; border-radius: 12px; font-size: 13px;
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; cursor: pointer;
+  margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: 12px; font-size: 13px;
   background: var(--current-bg); border: 1px solid var(--accent2); color: var(--accent);
 }
 .todo-line.has-over { background: #fdecec; border-color: var(--danger); color: var(--danger); }
@@ -1655,20 +1663,20 @@ html { -webkit-text-size-adjust: 100%; }
 .extra-badge {
   display: inline-block;
   font-size: 11px; font-weight: 700;
-  padding: 2px 7px; border-radius: 5px;
+  padding: 2px var(--space-2); border-radius: 5px;
   background: #e8f0fe; color: var(--info);
 }
-.extra-wrap { margin: 10px 0 24px; }
+.extra-wrap { margin: var(--space-2) 0 var(--space-4); }
 .extra-open-btn { width: 100%; margin-top: 0; min-height: 40px; }
 .extra-form {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 8px;
+  padding: var(--space-3) var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-2);
   animation: fadeUp .3s ease both;
 }
 .extra-hint { font-size: 12px; color: var(--text2); }
-.extra-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.extra-row .topic-input { flex: 1 1 110px; min-height: 34px; }
-.extra-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.extra-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.extra-row .topic-input { flex: 1 1 110px; min-height: 32px; }
+.extra-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
