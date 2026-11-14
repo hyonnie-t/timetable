@@ -715,7 +715,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     if (!cut) return {};
     return {
       label: `완료 · 칸을 ${cut.min}분으로 줄였어요`,
-      undo: () => ({ ...T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() }), ...T.planSetSlot(t, t.slot, { now: nowStamp() }) }),
+      // 칸·오늘 표시·이번만 초과를 끝내기 전 그대로 (planSetSlot 으로 되돌리면 오늘 표시가 지워졌다, 2026-11-15)
+      undo: () => ({ ...T.planUndoComplete({ ...t, status: 'done' }, { now: nowStamp() }), ...T.planRestoreFields(t, ['slot', 'today', 'extra'], { now: nowStamp() }) }),
     };
   }
   function hideUndo() {
@@ -1039,15 +1040,16 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     });
     $('#pl-e-arch')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planArchive(t, { now: nowStamp() }), 'archive', '보관했어요'); });
     $('#pl-e-clearslot')?.addEventListener('click', () => { closeModal('pl-modal-edit'); run(() => T.planSetSlot(t, null, { now: nowStamp() }), 'clearslot', '칸을 비웠어요'); });
+    // 지우기 — 확인 창 없이 지우고 6초 되돌리기 줄 (효니 답 2026-11-15 «바꿔»). 반복 건은 원래 날짜를 건너뛰고,
+    // 수업 준비는 다시 만들지 않게 남긴다. 되돌리면 할 일과 건너뛰기 표시가 지우기 전 그대로 돌아온다 (task-engine planDeleteTask)
     $('#pl-e-del').addEventListener('click', () => {
-      if (!confirm(`“${t.title}”를 완전히 지울까요? (보관은 나중에 복원할 수 있어요)`)) return;
+      let r;
+      try { r = T.planDeleteTask(t, store); } catch (e) { $('#pl-e-err').textContent = e.message; return; }
       closeModal('pl-modal-edit');
-      run(() => {
-        const patch = T.planDelete(t);
-        if (t.ruleId && t.due) Object.assign(patch, T.planSkipRuleDate(t.ruleId, t.due));   // 반복 건은 같은 날짜로 다시 만들지 않는다
-        if (t.src === 'prep') patch[`prepSkip/${t.id}`] = true;                                // 수업 준비도 지운 건 다시 만들지 않는다
-        return patch;
-      }, 'delete', '지웠어요');
+      run(() => r.patch, 'delete').then(saved => {
+        if (!saved) return;   // 저장이 안 됐으면 되돌리기 줄을 띄우지 않는다
+        showUndo(t, { label: '지웠어요', undo: () => r.undo });
+      });
     });
   }
 
@@ -1069,7 +1071,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     const prev = t.slot, now = nowStamp();
     run(() => T.planSetSlot(t, null, { now }), 'unplace').then(() => {
       if (byId(t.id)?.slot) return;   // 저장이 안 됐으면 되돌리기 줄을 띄우지 않는다
-      showUndo(t, { label: '목록으로 되돌렸어요', undo: () => T.planSetSlot({ ...t, slot: null }, prev, { now: nowStamp() }) });
+      showUndo(t, { label: '목록으로 되돌렸어요', undo: () => T.planRestoreFields({ ...t, slot: prev }, ['slot', 'today', 'extra'], { now: nowStamp() }) });
     });
   }
 

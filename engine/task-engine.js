@@ -237,6 +237,12 @@ export function planEditTask(task, changes, { now }) {
     fields[k] = merged[k] ?? null;
   }
   if (merged.kind === 'watch' && task.wait) fields.wait = null;   // 지켜보기로 바꾸면 기다림 표시도 지운다
+  // 지켜보기는 오늘 할 일·시간 칸에 들지 않는다 — 남은 칸·오늘 표시가 달력·작은 창·상한 셈에 남지 않게 비운다 (2026-11-15)
+  if (merged.kind === 'watch' && task.kind !== 'watch') {
+    if (task.slot || 'slot' in changes) fields.slot = null;
+    if (task.today || 'today' in changes) fields.today = null;
+    if (task.extra) fields.extra = null;
+  }
   if ('daily' in changes) fields.dailyDone = merged.dailyDone ?? null;   // 매일을 끄면 "오늘 몫 끝" 기록도 지운다
   return taskPatch_(task.id, fields, now);
 }
@@ -299,10 +305,44 @@ export function planDelete(task) {
   return { [`tasks/${task.id}`]: null };
 }
 
+// 반복 규칙으로 만든 건의 원래 날짜 — id(r_규칙_YYYYMMDD)에서 읽는다. 마감을 옮겨도 규칙이 다시 만드는 날짜는 이것이다
+export function ruleDateOf(task) {
+  if (!task?.ruleId) return null;
+  const m = String(task.id || '').match(/^r_(.+)_(\d{4})(\d{2})(\d{2})$/);
+  if (!m || m[1] !== String(task.ruleId)) return null;
+  const date = `${m[2]}-${m[3]}-${m[4]}`;
+  return isDateStr(date) ? date : null;
+}
+
+// 할 일 지우기 + 되돌리기 — 반복 건은 원래 날짜를 건너뛰게(다시 만들지 않게), 수업 준비는 prepSkip 에 남긴다.
+// undo 는 지운 건 전체와 건너뛰기 표시를 지우기 전 값으로 되돌린다 (planner 는 지금 저장된 값, 2026-11-15)
+export function planDeleteTask(task, planner = {}) {
+  const patch = planDelete(task);
+  const { id, ...value } = task;
+  const undo = { [`tasks/${id}`]: value };
+  const rd = ruleDateOf(task);
+  if (rd && isValidId(task.ruleId)) {
+    Object.assign(patch, planSkipRuleDate(task.ruleId, rd));
+    undo[`rules/${task.ruleId}/skip/${rd}`] = planner?.rules?.[task.ruleId]?.skip?.[rd] ?? null;
+  }
+  if (task.src === 'prep') {
+    patch[`prepSkip/${id}`] = true;
+    undo[`prepSkip/${id}`] = planner?.prepSkip?.[id] ?? null;
+  }
+  return { patch, undo };
+}
+
+// 되돌리기용 — 고른 칸들을 task(바꾸기 전 모습)의 값으로 다시 쓴다
+export function planRestoreFields(task, keys, { now }) {
+  const fields = {};
+  for (const k of keys) fields[k] = task[k] ?? null;
+  return taskPatch_(task.id, fields, now);
+}
+
 // 날짜를 미룬다 — 마감을 옮기고 지난 칸·오늘 표시는 비운다
 export function planPostpone(task, newDate, { now }) {
   if (!isDateStr(newDate)) throw new Error('미룰 날짜가 올바르지 않습니다');
-  return taskPatch_(task.id, { due: newDate, dueText: null, today: null, slot: null }, now);
+  return taskPatch_(task.id, { due: newDate, dueText: null, today: null, slot: null, extra: null }, now);   // «이번만 초과»도 그날 것이라 비운다
 }
 
 // 한 건을 둘로 나눈다 — 새 건은 마감·기간·오늘·영역·매일·링크·메모를 원래 건 그대로 따르고, 시간 칸만 비운다.
@@ -343,6 +383,8 @@ export function planSetSlot(task, slot, { now, extra }) {
   const clean = cleanSlot_(slot);
   const fields = { slot: clean, today: clean ? null : task.today ?? null };
   if (extra !== undefined) fields.extra = extra && clean ? clean.date : null;
+  // 안 정했으면 «이번만 초과»는 바뀐 뒤에도 그날(칸 날짜·오늘 표시)에 남을 때만 지킨다 — 칸을 빼거나 다른 날로 옮기면 비운다 (2026-11-15)
+  else if (task.extra && task.extra !== clean?.date && task.extra !== fields.today) fields.extra = null;
   return taskPatch_(task.id, fields, now);
 }
 
