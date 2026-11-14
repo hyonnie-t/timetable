@@ -68,7 +68,7 @@
 .pl-chip b { font-family: var(--mono); font-weight: 700; margin-left: 2px; color: var(--text3); }
 .pl-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pl-chip.on b { color: #fff; }
-/* 기다림 거르기 칩 — 영역 칩 위 한 줄. 3일 넘게 기다리는 일이 있으면 «남 기다림»에 작은 빨간 수를 단다 */
+/* 기다림 거르기 칩 — 영역 칩 위 한 줄. 3일 넘은 일이 있으면 그 상태 칩에 작은 주황 수를 단다 */
 .pl-wait-filter { margin-bottom: var(--space-2); }
 .pl-wchip { position: relative; min-height: 32px; padding: var(--space-1) var(--space-3); font-size: 13px; font-weight: 600; }
 .pl-wchip-long {
@@ -90,12 +90,11 @@
 .pl-wait-blocked.pl-wait-long { background: var(--danger); border-color: var(--danger); }
 /* «✓ 받았음» — 표시 바로 옆 작은 버튼 (카드 오른쪽 버튼 줄을 늘리지 않게) */
 .pl-got {
-  display: inline-flex; align-items: center; min-height: 24px; padding: 0 var(--space-2); border-radius: 99px;
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 var(--space-2); border-radius: 99px;
   border: 1px solid var(--accent2); background: var(--surface); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600;
   white-space: nowrap; cursor: pointer; transition: background .12s;
 }
 .pl-got:hover { background: var(--current-bg); }
-@media (pointer: coarse) { .pl-got { min-height: 32px; } }
 
 /* 묶음 */
 .pl-sec { margin-bottom: var(--space-4); }

@@ -273,7 +273,11 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   function addFromInput() {
     const input = root()?.querySelector('#pl-add-input');
     if (!input) return;
-    if (addByText(input.value, { ask: true }).ok) input.value = '';
+    if (addByText(input.value, { ask: true }).ok) {
+      input.value = '';
+      // 새 일은 «내 차례»라 기다림으로 거르는 중이면 안 보인다 — 추가한 일이 사라진 것처럼 보이지 않게 거르기를 푼다
+      if (filterWait && filterWait !== 'mine') { filterWait = ''; store_('plannerWait', ''); renderLists(); }
+    }
     updateHint();
   }
 
@@ -506,9 +510,13 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     // 기다림 칩 (건수는 고른 영역 안의 열린 일 기준 — 지켜보기는 «전체»에만 센다)
     const wc = T.waitCounts(inArea);
     const wn = { '': wc.all, mine: wc.mine, waiting: wc.waiting, blocked: wc.blocked };
-    const longN = inArea.filter(t => t.status === 'open' && T.isWaitLong(t, today)).length;
+    // 3일 넘은 일은 그 상태의 칩에만 작은 수로 단다 (막힘만 오래됐는데 «남 기다림»에 뜨지 않게)
+    const longOf = k => (k === 'waiting' || k === 'blocked') ? inArea.filter(t => t.status === 'open' && T.waitState(t) === k && T.isWaitLong(t, today)).length : 0;
     root().querySelector('#pl-wait-filter').innerHTML = WAIT_FILTERS
-      .map(([k, name]) => `<button type="button" class="pl-chip pl-wchip${k ? ` pl-wchip-${k}` : ''}${filterWait === k ? ' on' : ''}" data-act="wait-filter" data-w="${k}" aria-pressed="${filterWait === k}"${k === 'waiting' && longN ? ` title="${T.WAIT_LONG_DAYS}일 넘게 기다리는 일 ${longN}건"` : ''}>${name} <b>${wn[k]}</b>${k === 'waiting' && longN ? `<i class="pl-wchip-long" aria-label="${T.WAIT_LONG_DAYS}일 넘음 ${longN}건">${longN}</i>` : ''}</button>`)
+      .map(([k, name]) => {
+        const longN = longOf(k);
+        return `<button type="button" class="pl-chip pl-wchip${k ? ` pl-wchip-${k}` : ''}${filterWait === k ? ' on' : ''}" data-act="wait-filter" data-w="${k}" aria-pressed="${filterWait === k}"${longN ? ` title="${T.WAIT_LONG_DAYS}일 넘은 일 ${longN}건"` : ''}>${name} <b>${wn[k]}</b>${longN ? `<i class="pl-wchip-long" aria-label="${T.WAIT_LONG_DAYS}일 넘음 ${longN}건">${longN}</i>` : ''}</button>`;
+      })
       .join('');
     if (waitAnim) { lists.classList.remove('pl-lists-swap'); void lists.offsetWidth; lists.classList.add('pl-lists-swap'); waitAnim = false; }
 
