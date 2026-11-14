@@ -552,7 +552,7 @@ async function checkDateRollover() {
     if (pipWindow) renderPipWidget();
     lastRefreshAt = 0;
   }
-  if (Date.now() - lastRefreshAt > REFRESH_MIN_INTERVAL_MS) await refreshFromServer();
+  if (Date.now() - lastRefreshAt > REFRESH_MIN_INTERVAL_MS - 5000) await refreshFromServer();   // 읽기가 끝난 시각 기준이라 5초 여유 — 1분 타이머가 한 번씩 건너뛰지 않게
 }
 
 // ============================================================
@@ -881,7 +881,7 @@ function renderToday() {
         <div class="period-num">${p}${periodTimeHtml(p)}</div>
         <div class="period-divider"></div>
         <div class="period-body">
-          ${cell?.class && PE.isInSchoolEvent(ev) ? `<div class="class-info"><span class="class-badge">${escapeHtml(cell.class)}</span><span class="event-badge badge-${ev.type}">${escapeHtml(ev.label)}</span></div>` : `<span class="event-badge badge-${ev.type}">${ev.label}</span>
+          ${cell?.class && PE.isInSchoolEvent(ev) ? `<div class="class-info"><span class="class-badge">${escapeHtml(cell.class)}</span><span class="event-badge badge-${ev.type}">${escapeHtml(ev.label)}</span></div>` : `<span class="event-badge badge-${ev.type}">${escapeHtml(ev.label)}</span>
           <span class="empty-label"></span>`}
         </div>
       `;
@@ -897,8 +897,8 @@ function renderToday() {
         <div class="period-divider"></div>
         <div class="period-body">
           <div class="class-info">
-            <span class="class-badge">${cls}</span>
-            <span class="class-subject">${subject}</span>
+            <span class="class-badge">${escapeHtml(cls)}</span>
+            <span class="class-subject">${escapeHtml(subject)}</span>
             <span class="special-badge">특별 · ${escapeHtml(sp.label)}</span>
           </div>
           ${renderClassNoteBlock(key)}
@@ -1202,6 +1202,7 @@ window.toggleEditor = function(p) {
 window.adjustStep = function(p, delta) {
   const disp = document.getElementById(`step-disp-${p}`);
   if (!disp) return;
+  if (disp.textContent.trim() === '–') { showToast('학기 기간 밖이라 차시를 정할 수 없어요'); return; }
   const cur  = parseInt(disp.textContent) || 1;
   const step = Math.max(1, cur + delta); // 이 수업의 차시 (1차시부터)
   disp.textContent = step;
@@ -1254,6 +1255,7 @@ window.saveStep = async function(p) {
     if (c.querySelector(`#editor-${p}`)) key = c.dataset.key;
   });
   if (!key) return;
+  if (disp.textContent.trim() === '–') { showToast('학기 기간 밖이라 차시를 저장할 수 없어요'); return; }   // 학기 밖 날짜 (2026-11-15)
 
   btn.disabled    = true;
   btn.textContent = '저장 중…';
@@ -1483,11 +1485,11 @@ function renderProgress() {
             </div>
             <div class="prog-row next-row">
               <span class="r-label">다음</span>
-              <span class="r-topic">${nextTopicRaw || '주제 미설정'}</span>
+              <span class="r-topic">${escapeHtml(nextTopicRaw) || '주제 미설정'}</span>
             </div>
             <div class="prog-row after-row">
               <span class="r-label">다다음</span>
-              <span class="r-topic">${afterTopicRaw || '주제 미설정'}</span>
+              <span class="r-topic">${escapeHtml(afterTopicRaw) || '주제 미설정'}</span>
             </div>
           </div>
           ${renderClassNoteBlock(item.key)}
@@ -1499,7 +1501,7 @@ function renderProgress() {
             <span class="topic-label" id="prog-topic-label-${idx}">${current}차시 주제</span>
             <input class="topic-input" id="prog-topic-inp-${idx}" value="${escapeHtml(currTopicRaw)}" placeholder="수업 주제 입력" />
             <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
-            <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
+            <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${escapeHtml(currNote)}</textarea>
             <button class="save-btn" id="prog-save-btn-${idx}" onclick="window.saveProgStep(${idx})">저장</button>
           </div>
         </div>`;
