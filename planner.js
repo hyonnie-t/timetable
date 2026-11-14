@@ -968,7 +968,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         if (changed) {
           const c = T.slotConflict(getSchoolData() || {}, tasks(), sd, ss, sm, { ignoreId: t.id, settings: store.settings });
           if (!c.ok) { $('#pl-e-err').textContent = reasonText(c); return; }
-          if (sd === todayStr() && !(t.today === sd || t.slot?.date === sd)) {
+          if (sd === todayStr() && $('#pl-e-kind').value !== 'watch' && !(t.today === sd || t.slot?.date === sd)) {   // 지켜보기는 칸·오늘에 들지 않아 상한을 묻지 않는다
             const chk = T.checkTodayAdd(tasks(), t, sd, store.settings);
             if (!chk.ok) capChk = chk;
           }
