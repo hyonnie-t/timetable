@@ -957,6 +957,41 @@ export function guessArea(title) {
 
 // 여러 줄 붙여넣기 — 줄마다 할 일 하나. 글머리표(-, •, *)·번호(1. / 1))·체크박스([ ], ☐)는 떼고 빈 줄은 버린다(최대 max줄).
 // Claude·노션·공문에서 뽑은 목록을 입력칸에 통째로 붙일 때 쓴다. 각 줄의 날짜·영역 해석은 parseQuickInput 그대로.
+// 여러 줄 붙여넣기 검사 — 한 줄 입력(addByText)과 같은 규칙을 줄마다, 위에서부터 차례로 적용한다 (2026-11-15).
+// rows: [{ p: parseQuickInput 결과, area, picked }] — picked 가 false 인 줄은 검사만 하고 다음 줄 계산에 넣지 않는다.
+// 앞 줄에서 놓은 칸·오늘 상한·제목은 뒷줄 검사에 들어간다(줄끼리 겹침). 돌려주는 줄마다:
+//   dup: 'open'(같은 제목의 열린 일이 이미 있음) | 'line'(위 줄과 같은 제목) | null
+//   slot: 실제로 저장할 칸(겹치거나 오늘 상한이면 null), slotNote: 칸을 비운 까닭(없으면 '')
+export function checkBulkRows(rows, { tasks = [], data = {}, today, settings = DEFAULT_SETTINGS } = {}) {
+  const virtual = [...tasks];
+  const seen = new Set();
+  const norm = s => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  return rows.map((r, i) => {
+    const title = norm(r.p?.title);
+    const out = { dup: null, slot: null, slotNote: '' };
+    if (!title) return out;
+    if (findOpenTaskByTitle(tasks, title)) out.dup = 'open';
+    else if (seen.has(title)) out.dup = 'line';
+    let slot = r.p.slot || null;
+    if (slot) {
+      const c = slotConflict(data, virtual, slot.date, slot.start, slot.min, { settings });
+      if (!c.ok) {
+        out.slotNote = c.reason === 'class' ? `수업(${c.with.label})과 겹쳐요` : c.reason === 'task' ? `할 일(${c.with.title})과 겹쳐요` : '하루 칸 밖이에요';
+        slot = null;
+      } else if (slot.date === today && !checkTodayAdd(virtual, { id: '' }, today, settings).ok) {
+        out.slotNote = `오늘 할 일이 ${resolveSettings(settings).todayCap}개라서`;
+        slot = null;
+      }
+    }
+    out.slot = slot;
+    if (r.picked !== false) {
+      seen.add(title);
+      virtual.push({ id: `bulk${i}`, title, kind: 'once', status: 'open', slot, today: null, daily: r.p.daily === true, due: r.p.due ?? null });
+    }
+    return out;
+  });
+}
+
 export function splitBulkLines(text, max = 50) {
   const LEAD = /^\s*(?:[-*•·▪■□☐✓✔]|\[[ xX]?\]|\d{1,2}[.)]|\(\d{1,2}\))\s+/;
   return String(text ?? '').normalize('NFC').split(/\r?\n/)

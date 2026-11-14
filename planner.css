@@ -255,10 +255,13 @@
 /* 여러 줄 붙여넣기 창 — 줄마다 체크박스 + 제목 + (영역·날짜) */
 .pl-bulk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .pl-bulk-row label { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); align-items: center; padding: var(--space-2) var(--space-2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
-.pl-bulk-row input { width: 18px; height: 18px; grid-row: span 2; margin: 0; }
+.pl-bulk-row input { width: 18px; height: 18px; grid-row: span 3; margin: 0; }
 .pl-bulk-title { font-weight: 600; }
 .pl-bulk-meta { font-size: 12px; color: var(--text3); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .pl-bulk-bad { opacity: .55; }
+/* 줄마다 한 줄 입력과 같은 검사 결과(같은 제목·칸 겹침·오늘 상한) — 2026-11-15 */
+.pl-bulk-note { grid-column: 2; font-size: 12px; color: var(--warn); }
+.pl-bulk-note:empty { display: none; }
 
 /* 태블릿·PC: 목록이 한 줄로 길어지지 않게 두 칸 */
 @media (min-width: 768px) {
