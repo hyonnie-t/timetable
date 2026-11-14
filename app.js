@@ -2792,6 +2792,7 @@ const PIP_CSS = `
   .pip-badge { padding:1px 8px; border-radius:5px; background:#fdf0e3; color:#e07c24; font-size:10px; font-weight:600; }
   .pip-todo-chk.daily { border-style:dashed; }
   .pip-daily { color:#2d6a4f; font-weight:700; margin-right:4px; }
+  .pip-wait { margin-right:4px; cursor:help; }
   .pip-over { margin:8px 4px 0; font-size:10.5px; font-weight:700; color:#c0392b; }
   .pip-row-todos { flex-basis:100%; margin-top:2px; border-top:1px dashed rgba(0,0,0,.1); }
   .pip-row-todos .pip-todo { padding:4px 0 2px; border-bottom:none; }
@@ -2874,12 +2875,15 @@ function pipRowsHtml(items = [], used = new Set()) {
 }
 
 // 관리자만: 오늘 고른 할 일 (간단히 보기에서는 앞의 3개만)
+// 기다림(⏳ 남 기다림 / 🚧 막힘)은 제목 앞 작은 표시만 — ✓ 동작은 그대로 (목록과 같은 말을 툴팁에, 2026-11-15)
 function pipTodoRow(t) {
   const tip = t.daily ? '매일 하는 일 · 누르면 오늘 몫 끝(내일 다시 떠요)' : '완료';
+  const w = t.wait;
+  const waitHtml = w ? `<span class="pip-wait" role="img" title="${escapeHtml(w.text)}" aria-label="${escapeHtml(w.text)}">${w.icon}</span>` : '';
   return `
     <div class="pip-todo">
       <button type="button" class="pip-todo-chk${t.daily ? ' daily' : ''}" data-id="${escapeHtml(t.id)}" aria-label="${escapeHtml(tip)}" title="${escapeHtml(tip)}"></button>
-      <span class="pip-todo-t">${t.daily ? '<span class="pip-daily" title="매일">↻</span>' : ''}${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
+      <span class="pip-todo-t">${waitHtml}${t.daily ? '<span class="pip-daily" title="매일">↻</span>' : ''}${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
     </div>`;
 }
 

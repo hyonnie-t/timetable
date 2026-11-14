@@ -14,6 +14,9 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const hhmm = min => T.minToTime(min);
 const parts = s => s.split('-').map(Number);
 const dowOf = s => { const [y, m, d] = parts(s); return new Date(y, m - 1, d).getDay(); };
+// 기다림 작은 표시 — 목록과 같은 말(task-engine waitMark). 블록·칩 제목 앞 아이콘 하나만, 자세한 말은 툴팁 (2026-11-15)
+const waitIcon = (t, td) => { const m = T.waitMark(t, td); return m ? `<span class="pl-cal-wait" role="img" aria-label="${esc(m.text)}">${m.icon}</span> ` : ''; };
+const waitTip = (t, td) => { const m = T.waitMark(t, td); return m ? ` · ${esc(m.text)}` : ''; };
 
 export function reasonText(c) {
   if (c.ok) return '';
@@ -112,7 +115,7 @@ export function createCalendar({ root, getTasks, getData, getLessonInfo, getSett
       const shown = due.slice(0, mode === 'day' ? 6 : 2);
       return `<div class="pl-ch${d === td ? ' today' : ''}">
         <div class="pl-ch-d"><b>${parts(d)[2]}</b> ${DOW_KO[dowOf(d)]}</div>
-        ${shown.map(t => `<button type="button" class="pl-chip-due pl-r-${esc(t.area)}" data-id="${esc(t.id)}" title="${esc(t.title)} — 끌어서 시간 칸에 놓기">${esc(t.title)}</button>`).join('')}
+        ${shown.map(t => `<button type="button" class="pl-chip-due pl-r-${esc(t.area)}" data-id="${esc(t.id)}" title="${esc(t.title)}${waitTip(t, td)} — 끌어서 시간 칸에 놓기">${waitIcon(t, td)}${esc(t.title)}</button>`).join('')}
         ${due.length > shown.length ? `<span class="pl-chip-more">+${due.length - shown.length}</span>` : ''}
       </div>`;
     }).join('');
@@ -122,7 +125,7 @@ export function createCalendar({ root, getTasks, getData, getLessonInfo, getSett
       .sort((a, b) => (b.today === td) - (a.today === td) || (a.due || '9999').localeCompare(b.due || '9999') || (a.createdAt || '').localeCompare(b.createdAt || ''));
     const tray = trayAll.length ? `<div class="pl-cal-tray" aria-label="시간표에 놓을 일">
       <span class="pl-tray-t">끌어 놓기</span>
-      ${trayAll.slice(0, 8).map(t => `<button type="button" class="pl-chip-due pl-tray-chip pl-r-${esc(t.area)}" data-id="${esc(t.id)}" title="${esc(t.title)} — 끌어서 시간 칸에 놓기">${esc(t.title)}</button>`).join('')}
+      ${trayAll.slice(0, 8).map(t => `<button type="button" class="pl-chip-due pl-tray-chip pl-r-${esc(t.area)}" data-id="${esc(t.id)}" title="${esc(t.title)}${waitTip(t, td)} — 끌어서 시간 칸에 놓기">${waitIcon(t, td)}${esc(t.title)}</button>`).join('')}
       ${trayAll.length > 8 ? `<span class="pl-chip-more">+${trayAll.length - 8}</span>` : ''}
     </div>` : '';
 
@@ -152,10 +155,10 @@ export function createCalendar({ root, getTasks, getData, getLessonInfo, getSett
         const s = timeToMin(t.slot.start);
         const top = yOf(s), h = Math.max(14, t.slot.min * HOUR_PX / 60);
         return `<div class="pl-blk pl-blk-task pl-r-${esc(t.area)}" data-id="${esc(t.id)}" tabindex="0" role="button"
-          style="top:${top}px;height:${h}px" title="${esc(t.title)} ${t.slot.start}–${hhmm(s + t.slot.min)}">
+          style="top:${top}px;height:${h}px" title="${esc(t.title)} ${t.slot.start}–${hhmm(s + t.slot.min)}${waitTip(t, td)}">
           <button type="button" class="pl-blk-un" data-unplace="${esc(t.id)}" aria-label="목록으로 되돌리기" title="시간 칸에서 빼 목록으로 되돌리기">↩</button>
           <button type="button" class="pl-blk-chk" data-done="${esc(t.id)}" aria-label="완료" title="완료"></button>
-          <div class="pl-blk-t">${esc(t.title)}</div>
+          <div class="pl-blk-t">${waitIcon(t, td)}${esc(t.title)}</div>
           ${h >= 34 ? `<div class="pl-blk-m">${t.slot.start}–${hhmm(s + t.slot.min)}</div>` : ''}
           <span class="pl-rs" aria-hidden="true"></span>
         </div>`;

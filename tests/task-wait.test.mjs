@@ -39,7 +39,7 @@ test('칩 건수와 거르기', () => {
     { ...base, id: 'd', kind: 'watch' }, { ...base, id: 'e', status: 'done', wait: { state: 'waiting' } }];
   assert.deepEqual(T.waitCounts(list), { all: 4, mine: 1, waiting: 1, blocked: 1 });
   assert.equal(list.filter(t => T.matchesWait(t, 'mine')).length, 1);
-  assert.equal(list.filter(t => T.matchesWait(t, 'waiting')).length, 2);   // 끝낸 일도 걸러진다 (목록 쪽에서 묶음별로 나뉜다)
+  assert.equal(list.filter(t => T.matchesWait(t, 'waiting')).length, 1);   // 끝낸 일은 거를 때 빠진다 (2026-11-15 바뀜 — 전에는 끝낸 일 묶음에 섞였다)
 });
 
 test('planEditTask: wait 를 고치고, 지켜보기로 바꾸면 지운다', () => {
