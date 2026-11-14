@@ -1,7 +1,7 @@
 // 할 일 엔진 — 화면·DB와 상관없는 순수 함수만 모았다 (테스트: tests/task-engine.test.mjs)
 //
 // 저장 위치는 users/{uid}/planner/ — 진도 데이터(v2)와 따로 둔다.
-//   tasks/{id}   할 일 한 건
+//   tasks/{id}   할 일 한 건 (기다림 표시: wait = { state: 'waiting'|'blocked', who, since } — 없으면 «내 차례»)
 //   rules/{id}   반복 규칙 (날짜가 되면 tasks 로 펼친다)
 //   settings     { todayCap, dayStart, dayEnd, reviewedOn }
 //   log/{id}     변경 이력
@@ -22,6 +22,11 @@ const MAX_TITLE = 200;
 const MAX_NOTE = 6000;
 const MAX_LINK = 500;
 const MAX_DUETEXT = 20;
+const MAX_WHO = 30;
+
+// 기다림 — 내 손을 떠나 남의 답(결재·회신)을 기다리거나 막혀 있는 일. 보통 할 일(once)에만 붙는다
+export const WAIT_STATES = ['waiting', 'blocked'];
+export const WAIT_LONG_DAYS = 3;   // 이 날수를 넘기면 «오래 기다림»으로 진하게 보인다 (아침 브리핑도 같은 기준)
 
 export function isTimeStr(s) { return typeof s === 'string' && TIME_RE.test(s); }
 
@@ -54,6 +59,16 @@ export function isValidId(id) { return typeof id === 'string' && ID_RE.test(id);
 // 새 id — 시각 + 무작위. 같은 기기에서 연달아 만들어도 겹치지 않게 무작위 꼬리를 붙인다
 export function newTaskId(nowMs = Date.now(), rand = Math.random) {
   return `t${nowMs.toString(36)}${Math.floor(rand() * 36 ** 3).toString(36).padStart(3, '0')}`;
+}
+
+// 저장된 값이 어긋나도(옛 기기·손으로 고친 DB) 할 일 전체를 막지 않게, 틀린 기다림은 «내 차례»(null)로 본다
+function cleanWait_(w) {
+  if (!w || typeof w !== 'object' || !WAIT_STATES.includes(w.state)) return null;
+  const out = { state: w.state };
+  const who = String(w.who ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, MAX_WHO);
+  if (who) out.who = who;
+  if (isDateStr(w.since)) out.since = w.since;
+  return out;
 }
 
 function cleanSlot_(slot) {
@@ -104,7 +119,53 @@ export function normalizeTask(raw, { now = '' } = {}) {
     t.daily = true;
     if (isDateStr(raw.dailyDone)) t.dailyDone = raw.dailyDone;
   }
+  const wait = kind === 'once' ? cleanWait_(raw.wait) : null;
+  if (wait) t.wait = wait;
   return t;
+}
+
+// 기다림 상태: 'mine'(내 차례) | 'waiting'(남 기다림) | 'blocked'(막힘). 지켜보기는 기다림이 없다
+export function waitState(t) {
+  return t?.kind !== 'watch' && WAIT_STATES.includes(t?.wait?.state) ? t.wait.state : 'mine';
+}
+
+// 기다린 날수 (since 가 오늘이면 0). since 가 없으면 null
+export function waitDays(t, today) {
+  if (waitState(t) === 'mine' || !isDateStr(t.wait.since) || !isDateStr(today)) return null;
+  const u = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+  return Math.max(0, Math.round((u(today) - u(t.wait.since)) / 86400000));
+}
+
+export function isWaitLong(t, today) {
+  const d = waitDays(t, today);
+  return d != null && d > WAIT_LONG_DAYS;
+}
+
+// 고친 기다림 값 — 상태가 그대로면 «언제부터»를 지키고, 새로 기다리기 시작하거나 상태가 바뀌면 오늘로 둔다
+export function nextWait(prev, state, who, today) {
+  if (!WAIT_STATES.includes(state)) return null;
+  const old = cleanWait_(prev);
+  const since = old && old.state === state && old.since ? old.since : today;
+  if (!isDateStr(since)) throw new Error('기다림 시작 날짜가 올바르지 않습니다');
+  return cleanWait_({ state, who, since });
+}
+
+// 기다림 거르기 칩 건수 — 열린 일만 센다. 지켜보기는 «전체»에만 들고 «내 차례»에는 넣지 않는다
+export function waitCounts(tasks) {
+  const out = { all: 0, mine: 0, waiting: 0, blocked: 0 };
+  for (const t of tasks || []) {
+    if (t.status !== 'open') continue;
+    out.all++;
+    if (t.kind === 'watch') continue;
+    out[waitState(t)]++;
+  }
+  return out;
+}
+
+export function matchesWait(t, filter) {
+  if (!filter) return true;
+  if (filter === 'mine') return t.kind !== 'watch' && waitState(t) === 'mine';
+  return waitState(t) === filter;
 }
 
 // date 에 "오늘 몫"이 남은 매일 할 일인가 (마감이 지났으면 아님 — 마감 지남 묶음으로 간다)
@@ -151,15 +212,27 @@ export function planAddTask(input, { id, now }) {
 export function planEditTask(task, changes, { now }) {
   const merged = normalizeTask({ ...task, ...changes }, { now });
   const fields = {};
-  for (const k of ['title', 'area', 'kind', 'due', 'dueText', 'today', 'slot', 'link', 'note', 'daily']) {
+  for (const k of ['title', 'area', 'kind', 'due', 'dueText', 'today', 'slot', 'link', 'note', 'daily', 'wait']) {
     if (!(k in changes)) continue;
     fields[k] = merged[k] ?? null;
   }
+  if (merged.kind === 'watch' && task.wait) fields.wait = null;   // 지켜보기로 바꾸면 기다림 표시도 지운다
   if ('daily' in changes) fields.dailyDone = merged.dailyDone ?? null;   // 매일을 끄면 "오늘 몫 끝" 기록도 지운다
   return taskPatch_(task.id, fields, now);
 }
 
 // 매일 하는 일의 "오늘 몫 끝" — 그날만 오늘 묶음에서 빠지고 다음 날 다시 뜬다 (끝낸 게 아니다)
+// 기다림 표시 바꾸기 — state 가 null 이면 «내 차례»로 돌린다(«받았음»). today 는 기다리기 시작한 날로 쓴다
+export function planSetWait(task, state, { who = task?.wait?.who ?? '', today, now }) {
+  if (task.kind === 'watch' && state) throw new Error('지켜보기에는 기다림을 붙일 수 없습니다');
+  return taskPatch_(task.id, { wait: nextWait(task.wait, state, who, today) }, now);
+}
+
+// 되돌리기용 — 예전 기다림 값을 그대로 다시 쓴다
+export function planRestoreWait(task, prevWait, { now }) {
+  return taskPatch_(task.id, { wait: task.kind === 'watch' ? null : cleanWait_(prevWait) }, now);
+}
+
 export function planDailyDone(task, date, { now }) {
   if (!isDateStr(date)) throw new Error('날짜가 올바르지 않습니다');
   if (task.daily !== true) throw new Error('매일 하는 일이 아닙니다');

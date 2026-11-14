@@ -67,6 +67,11 @@ function matchesSearch(t, words) {
   return words.every(w => hay.includes(w));
 }
 
+// 기다림 거르기 칩 — [값, 이름]. 값 '' 은 전체
+const WAIT_FILTERS = [['', '전체'], ['mine', '내 차례'], ['waiting', '⏳ 남 기다림'], ['blocked', '🚧 막힘']];
+const WAIT_ICON = { waiting: '⏳', blocked: '🚧' };
+const WAIT_NAME = { waiting: '남 기다림', blocked: '막힘' };
+
 function store_(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* 저장소가 막힌 환경 */ } return null; }
 
 // 화면 확인용 — 데모에서만 쓰는 예시 (오늘 날짜 기준)
@@ -75,7 +80,9 @@ function demoSeed(today) {
   const mk = (title, area, f = {}) => ({ title, area, kind: 'once', status: 'open', createdAt: `${d(-20)} 09:00:00`, updatedAt: `${d(-20)} 09:00:00`, ...f });
   return {
     tasks: {
-      d1: mk('고사원안 검토', '수업', { due: d(5) }),
+      d1: mk('고사원안 검토', '수업', { due: d(5), wait: { state: 'waiting', who: '부장님 결재', since: d(-4) } }),
+      d11: mk('체험학습 결과 보고', '학교', { due: d(3), wait: { state: 'waiting', who: '교육청 회신', since: d(-1) } }),
+      d12: mk('학생회 예산 집행', '학생회', { due: d(7), wait: { state: 'blocked', who: '행정실 품의 반려', since: d(-2) } }),
       d2: mk('학생회 안건 정리', '학생회', { today }),
       d3: mk('ESG 경영 녹화 강의 듣기', '대학원', { due: today }),
       d4: mk('도서관 서평 쓰기 대회 제출', '독서', { due: d(9), link: 'https://example.com' }),
@@ -105,6 +112,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   let loadError = '';
   let unsub = null;
   let filterArea = store_('plannerArea') || '';
+  let filterWait = WAIT_FILTERS.some(([k]) => k === store_('plannerWait')) ? store_('plannerWait') : '';   // '' | mine | waiting | blocked
+  let waitAnim = false;          // 기다림 칩을 바꾼 직후 한 번만 목록을 살짝 띄워 보인다
   let addArea = store_('plannerAddArea') || '수업';
   let undo = null;               // { id, timer }
   let reviewDismissed = false;   // 이번 화면(새로고침 전)에서 "나중에"를 누름
@@ -192,6 +201,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
                      placeholder="🔍 할 일 검색 (제목·메모, 끝낸 일 포함)" aria-label="할 일 검색" />
               <button type="button" class="pl-search-clear" data-act="search-clear" aria-label="검색 지우기" hidden>✕</button>
             </div>
+            <div class="pl-filter pl-wait-filter" id="pl-wait-filter" role="group" aria-label="내 차례·기다림으로 거르기"></div>
             <div class="pl-filter" id="pl-filter"></div>
             <div class="pl-lists" id="pl-lists"></div>
           </div>
@@ -263,7 +273,11 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   function addFromInput() {
     const input = root()?.querySelector('#pl-add-input');
     if (!input) return;
-    if (addByText(input.value, { ask: true }).ok) input.value = '';
+    if (addByText(input.value, { ask: true }).ok) {
+      input.value = '';
+      // 새 일은 «내 차례»라 기다림으로 거르는 중이면 안 보인다 — 추가한 일이 사라진 것처럼 보이지 않게 거르기를 푼다
+      if (filterWait && filterWait !== 'mine') { filterWait = ''; store_('plannerWait', ''); renderLists(); }
+    }
     updateHint();
   }
 
@@ -423,6 +437,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     // 매일 하는 일: 동그라미는 «오늘 몫 끝»(내일 다시 뜸), 완전히 끝내는 건 «다 끝냄» 버튼
     const isDaily = t.status === 'open' && t.daily === true && t.kind !== 'watch';
     const dailyDoneToday = isDaily && t.dailyDone === today;
+    // 기다림 표시: «⏳ 부장님 결재 · 4일째» — 3일 넘으면 진하게. 끝낸 일에는 보이지 않는다
+    const ws = t.status === 'open' ? T.waitState(t) : 'mine';
+    const wd = ws === 'mine' ? null : T.waitDays(t, today);
+    const waitBadge = ws === 'mine' ? '' : `<span class="pl-wait pl-wait-${ws}${T.isWaitLong(t, today) ? ' pl-wait-long' : ''}" title="${WAIT_NAME[ws]}${t.wait.since ? ` · ${esc(fmtMD(t.wait.since))}부터` : ''}">${WAIT_ICON[ws]} ${esc(t.wait.who || WAIT_NAME[ws])}${wd == null ? '' : ` · ${wd === 0 ? '오늘부터' : `${wd}일째`}`}</span>`;
     return `
       <li class="pl-row pl-r-${esc(t.area)}${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
         ${t.status === 'open' && DRAGGABLE.includes(section)
@@ -436,6 +454,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           <span class="pl-title">${esc(t.title)}</span>
           ${note ? `<span class="pl-note">${esc(note)}</span>` : ''}
           <span class="pl-meta">
+            ${waitBadge}${ws !== 'mine' ? `<button type="button" class="pl-got" data-act="wait-clear" title="답을 받았거나 풀렸어요 — 다시 «내 차례»로">✓ ${ws === 'blocked' ? '풀림' : '받았음'}</button>` : ''}
             <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
             ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}${t.dueText && !t.slot ? ' pl-due-fuzzy' : ''}">${t.dueText && !t.slot ? '<lucian-clock size="14" tone="line"></lucian-clock> ' : ''}${esc(label)}</span>` : ''}
             ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
@@ -461,7 +480,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
 
     const today = todayStr();
     const all = tasks();
-    const visible = filterArea ? all.filter(t => t.area === filterArea) : all;
+    const inArea = filterArea ? all.filter(t => t.area === filterArea) : all;
+    const visible = filterWait ? inArea.filter(t => T.matchesWait(t, filterWait)) : inArea;
     const c = T.classify(visible, today);
     // 오늘 적어 넣은 일은 날짜가 있든 없든 맨 위(최근 것이 먼저)로 — 원래 묶음에서는 뺀다
     c.fresh = visible.filter(t => T.isFresh(t, today)).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || b.id.localeCompare(a.id)).slice(0, FRESH_MAX);
@@ -487,6 +507,18 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         .filter(([a, , n]) => a === '' || n > 0 || a === filterArea)
         .map(([a, name, n]) => `<button class="pl-chip${filterArea === a ? ' on' : ''}" data-act="filter" data-area="${esc(a)}">${esc(name)} <b>${n}</b></button>`)
         .join('');
+    // 기다림 칩 (건수는 고른 영역 안의 열린 일 기준 — 지켜보기는 «전체»에만 센다)
+    const wc = T.waitCounts(inArea);
+    const wn = { '': wc.all, mine: wc.mine, waiting: wc.waiting, blocked: wc.blocked };
+    // 3일 넘은 일은 그 상태의 칩에만 작은 수로 단다 (막힘만 오래됐는데 «남 기다림»에 뜨지 않게)
+    const longOf = k => (k === 'waiting' || k === 'blocked') ? inArea.filter(t => t.status === 'open' && T.waitState(t) === k && T.isWaitLong(t, today)).length : 0;
+    root().querySelector('#pl-wait-filter').innerHTML = WAIT_FILTERS
+      .map(([k, name]) => {
+        const longN = longOf(k);
+        return `<button type="button" class="pl-chip pl-wchip${k ? ` pl-wchip-${k}` : ''}${filterWait === k ? ' on' : ''}" data-act="wait-filter" data-w="${k}" aria-pressed="${filterWait === k}"${longN ? ` title="${T.WAIT_LONG_DAYS}일 넘은 일 ${longN}건"` : ''}>${name} <b>${wn[k]}</b>${longN ? `<i class="pl-wchip-long" aria-label="${T.WAIT_LONG_DAYS}일 넘음 ${longN}건">${longN}</i>` : ''}</button>`;
+      })
+      .join('');
+    if (waitAnim) { lists.classList.remove('pl-lists-swap'); void lists.offsetWidth; lists.classList.add('pl-lists-swap'); waitAnim = false; }
 
     // 검색 중에는 묶음 대신 맞는 일만 한 목록으로 (열린 일 → 끝낸 일 → 보관 순)
     const words = searchWords(searchQ);
@@ -504,7 +536,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       return;
     }
 
-    const inboxItems = T.listInbox(store);
+    const inboxItems = filterWait === 'waiting' || filterWait === 'blocked' ? [] : T.listInbox(store);   // 새 후보는 «기다림»과 상관없다
     let html = inboxItems.length ? `<section class="pl-sec pl-sec-inbox">
         <h3 class="pl-sec-title">쿨메신저 후보 <span class="pl-sec-n">${inboxItems.length}</span><small>담으면 할 일에 들어가요</small></h3>
         <ul class="pl-ul">${inboxItems.map(i => `<li class="pl-inbox-row" data-inbox="${esc(i.id)}">
@@ -517,7 +549,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     const inboxLen = html.length;
     for (const [key, name, sub0] of SECTIONS) {
       const items = c[key];
-      if (!items.length && key !== 'today') continue;
+      if (!items.length && (key !== 'today' || filterWait)) continue;   // 기다림으로 거를 때는 빈 «오늘» 안내도 숨긴다
       // 오늘 묶음에는 마감이 오늘이라 저절로 들어온 일도 있어서, 위 "오늘 N/5"(내가 고른 것)와 건수가 다를 수 있다
       const forced = key === 'today' ? items.filter(t => t.today !== today && t.slot?.date !== today).length : 0;
       const extras = key === 'today' ? items.filter(t => t.extra === today).length : 0;
@@ -538,7 +570,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         ${showClosed ? `<ul class="pl-ul">${closed.map(t => rowHtml(t, today, 'closed')).join('')}</ul>` : ''}
       </section>`;
     }
-    if (!visible.length) html = html.slice(0, inboxLen) + `<div class="pl-empty pl-empty-art"><img src="images/planner_empty.webp" alt="" width="140" height="140"><div>${all.length ? '이 영역에는 할 일이 없어요' : '할 일이 없어요. 위에서 추가해 보세요'}</div></div>`;
+    if (!visible.length) html = html.slice(0, inboxLen) + `<div class="pl-empty pl-empty-art"><img src="images/planner_empty.webp" alt="" width="140" height="140"><div>${!all.length ? '할 일이 없어요. 위에서 추가해 보세요' : filterWait && inArea.length ? `«${esc(WAIT_FILTERS.find(([k]) => k === filterWait)[1])}»인 할 일이 없어요` : '이 영역에는 할 일이 없어요'}</div></div>`;
     lists.innerHTML = html;
   }
 
@@ -574,6 +606,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (view === 'cal') cal.setDate(cal.date);   // 숨겨져 있던 달력은 보일 때 다시 그려 맞는 시각으로 스크롤
     } else if (act === 'place') { if (e.detail === 0 && t) openPlaceModal({ task: t }); }   // 마우스·터치는 pointerdown 쪽에서 처리, 키보드만 여기
     else if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
+    else if (act === 'wait-filter') { filterWait = btn.dataset.w || ''; store_('plannerWait', filterWait); waitAnim = true; renderLists(); }
     else if (act === 'search-clear') setSearch('');
     else if (act === 'toggle-closed') { showClosed = !showClosed; renderLists(); }
     else if (act === 'more') { expanded.add(btn.dataset.sec); renderLists(); }
@@ -596,6 +629,11 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     } else if (act === 'daily-undo') run(() => T.planDailyUndo(t, today, { now }), 'daily-undo', '오늘 몫을 되돌렸어요');
     else if (act === 'undo') run(() => T.planUndoComplete(t, { now }), 'undo', '되돌렸어요');
     else if (act === 'restore') run(() => T.planRestore(t, { now }), 'restore', '복원했어요');
+    else if (act === 'wait-clear') {
+      const prev = t.wait;
+      run(() => T.planSetWait(t, null, { today, now }), 'wait-clear');
+      showUndo(t, { label: '내 차례로 돌렸어요', undo: () => T.planRestoreWait(t, prev, { now: nowStamp() }) });
+    }
     else if (act === 'edit') openEdit(t);
     else if (act === 'pin') togglePin(t, today, now);
   }
@@ -839,6 +877,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           <label class="pl-f">영역<select id="pl-e-area">${T.AREAS.map(a => `<option${a === t.area ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
           <label class="pl-f">종류<select id="pl-e-kind"><option value="once"${t.kind === 'once' ? ' selected' : ''}>할 일</option><option value="watch"${t.kind === 'watch' ? ' selected' : ''}>지켜보기</option></select></label>
         </div>
+        <div class="pl-f-row pl-f-row2 pl-e-waitrow"${t.kind === 'watch' ? ' hidden' : ''}>
+          <label class="pl-f">차례<select id="pl-e-wait">
+            <option value="">내 차례</option>
+            <option value="waiting"${T.waitState(t) === 'waiting' ? ' selected' : ''}>⏳ 남 기다림</option>
+            <option value="blocked"${T.waitState(t) === 'blocked' ? ' selected' : ''}>🚧 막힘</option>
+          </select></label>
+          <label class="pl-f">누구를·무엇을<input id="pl-e-who" type="text" maxlength="30" placeholder="예: 부장님 결재, 교육청 회신" value="${esc(t.wait?.who || '')}"${T.waitState(t) === 'mine' ? ' disabled' : ''}></label>
+        </div>
+        ${T.waitState(t) !== 'mine' && t.wait?.since ? `<div class="pl-hint pl-e-since">${esc(fmtMD(t.wait.since))}부터 ${WAIT_NAME[T.waitState(t)]} · 상태를 바꾸면 오늘부터 다시 세요</div>` : ''}
         <div class="pl-f-row pl-f-row2">
           <label class="pl-f">마감일<input id="pl-e-due" type="date" value="${esc(t.due || '')}"></label>
           <label class="pl-f">또는 기간으로
@@ -883,6 +930,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       if (f) $('#pl-e-due').value = f.due;
     });
     $('#pl-e-due').addEventListener('input', () => { $('#pl-e-fuzzy').value = ''; });
+    // 기다림은 보통 할 일에만 — 지켜보기로 바꾸면 줄을 숨기고, «내 차례»면 누구를 칸을 잠근다
+    $('#pl-e-kind').addEventListener('change', e => { $('.pl-e-waitrow').hidden = e.target.value === 'watch'; });
+    $('#pl-e-wait').addEventListener('change', e => { $('#pl-e-who').disabled = !e.target.value; if (e.target.value) $('#pl-e-who').focus(); });
     // 입력값을 검사해 patch 로 만든다 (틀리면 창 안에 이유를 띄우고 null)
     const collect = () => {
       const due = $('#pl-e-due').value || null;
@@ -891,6 +941,14 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         due, dueText: due ? ($('#pl-e-fuzzy').value || null) : null, link: $('#pl-e-link').value.trim(), note: $('#pl-e-note').value.trim(),
         daily: $('#pl-e-daily').checked && $('#pl-e-kind').value === 'once',
       };
+      // 기다림: 상태나 누구를이 바뀌었을 때만 쓴다 (같은 상태면 «언제부터»를 지킨다)
+      const ws = $('#pl-e-kind').value === 'watch' ? '' : $('#pl-e-wait').value;
+      const who = $('#pl-e-who').value.trim();
+      const ws0 = T.waitState(t);
+      if ((ws || 'mine') !== ws0 || (ws && who !== (t.wait?.who || ''))) {
+        try { changes.wait = T.nextWait(t.wait, ws || null, who, todayStr()); }
+        catch (e) { $('#pl-e-err').textContent = e.message; return; }
+      }
       const sd = $('#pl-e-sdate').value, ss = $('#pl-e-sstart').value, sm = Number($('#pl-e-smin').value);
       let capChk = null;   // 오늘 칸에 새로 놓는데 상한이 찼으면 저장할 때 고르는 창을 띄운다
       if (sd && ss) {
