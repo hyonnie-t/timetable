@@ -68,6 +68,24 @@
 .pl-chip b { font-family: var(--mono); font-weight: 700; margin-left: 2px; color: var(--text3); }
 .pl-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pl-chip.on b { color: #fff; }
+/* 기다림 거르기 칩 — 영역 칩 위 한 줄. 3일 넘게 기다리는 일이 있으면 «남 기다림»에 작은 빨간 수를 단다 */
+.pl-wait-filter { margin-bottom: var(--space-2); }
+.pl-wchip { position: relative; min-height: 32px; padding: var(--space-1) var(--space-3); font-size: 13px; font-weight: 600; }
+.pl-wchip-long {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; margin-left: var(--space-1);
+  padding: 0 var(--space-1); border-radius: 99px; background: var(--warn); color: #fff; font-style: normal; font-size: 11px; font-weight: 700;
+}
+.pl-lists-swap { animation: plSearchIn .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .pl-lists-swap { animation: none; } }
+/* 카드의 기다림 표시 «⏳ 부장님 결재 · 4일째» — 3일 넘으면 진하게 */
+.pl-wait {
+  display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border-radius: 99px;
+  border: 1px solid #e8d9b5; background: #fff8e8; color: #8a6414; font-size: 12px; font-weight: 600; line-height: 20px;
+}
+.pl-wait-blocked { border-color: #e9c3c3; background: #fdf1f1; color: #a23b3b; }
+.pl-wait-long { background: var(--warn); border-color: var(--warn); color: #fff; }
+.pl-wait-blocked.pl-wait-long { background: var(--danger); border-color: var(--danger); }
+.pl-got { min-height: 32px; padding: var(--space-1) var(--space-2); font-size: 12px; align-self: center; white-space: nowrap; }
 
 /* 묶음 */
 .pl-sec { margin-bottom: var(--space-4); }
