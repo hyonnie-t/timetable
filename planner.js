@@ -450,7 +450,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           <span class="pl-title">${esc(t.title)}</span>
           ${note ? `<span class="pl-note">${esc(note)}</span>` : ''}
           <span class="pl-meta">
-            ${waitBadge}
+            ${waitBadge}${ws !== 'mine' ? `<button type="button" class="pl-got" data-act="wait-clear" title="답을 받았거나 풀렸어요 — 다시 «내 차례»로">✓ ${ws === 'blocked' ? '풀림' : '받았음'}</button>` : ''}
             <span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span>
             ${label ? `<span class="pl-due${over ? ' pl-due-over' : ''}${label === '오늘' ? ' pl-due-today' : ''}${t.dueText && !t.slot ? ' pl-due-fuzzy' : ''}">${t.dueText && !t.slot ? '<lucian-clock size="14" tone="line"></lucian-clock> ' : ''}${esc(label)}</span>` : ''}
             ${t.ruleId ? '<span class="pl-tag">반복</span>' : ''}
@@ -458,7 +458,6 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
             ${t.link ? `<a class="pl-link" href="${esc(t.link)}" target="_blank" rel="noopener" title="원본 열기">원본 ↗</a>` : ''}
           </span>
         </div>
-        ${ws !== 'mine' ? `<button class="pl-got btn-secondary" data-act="wait-clear" title="답을 받았거나 풀렸어요 — 다시 «내 차례»로">${ws === 'blocked' ? '풀림' : '받았음'}</button>` : ''}
         ${t.status === 'open' && t.kind !== 'watch'
         ? `<button class="pl-place${t.slot ? ' on' : ''}" data-act="place" aria-label="시간 칸에 놓기" title="누르면 시간 칸을 고르고, 끌어서 시간표에 놓을 수도 있어요"><lucian-calendar size="20"></lucian-calendar><span class="pl-bl">${t.slot ? '시간 칸' : '시간 정하기'}</span></button>` : ''}
         ${t.status === 'open' && t.kind !== 'watch' && !isDaily
@@ -529,7 +528,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       return;
     }
 
-    const inboxItems = T.listInbox(store);
+    const inboxItems = filterWait === 'waiting' || filterWait === 'blocked' ? [] : T.listInbox(store);   // 새 후보는 «기다림»과 상관없다
     let html = inboxItems.length ? `<section class="pl-sec pl-sec-inbox">
         <h3 class="pl-sec-title">쿨메신저 후보 <span class="pl-sec-n">${inboxItems.length}</span><small>담으면 할 일에 들어가요</small></h3>
         <ul class="pl-ul">${inboxItems.map(i => `<li class="pl-inbox-row" data-inbox="${esc(i.id)}">
@@ -542,7 +541,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     const inboxLen = html.length;
     for (const [key, name, sub0] of SECTIONS) {
       const items = c[key];
-      if (!items.length && key !== 'today') continue;
+      if (!items.length && (key !== 'today' || filterWait)) continue;   // 기다림으로 거를 때는 빈 «오늘» 안내도 숨긴다
       // 오늘 묶음에는 마감이 오늘이라 저절로 들어온 일도 있어서, 위 "오늘 N/5"(내가 고른 것)와 건수가 다를 수 있다
       const forced = key === 'today' ? items.filter(t => t.today !== today && t.slot?.date !== today).length : 0;
       const extras = key === 'today' ? items.filter(t => t.extra === today).length : 0;
