@@ -286,10 +286,15 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     if (!input) return;
     if (addByText(input.value, { ask: true }).ok) {
       input.value = '';
-      // 새 일은 «내 차례»라 기다림으로 거르는 중이면 안 보인다 — 추가한 일이 사라진 것처럼 보이지 않게 거르기를 푼다
-      if (filterWait && filterWait !== 'mine') { filterWait = ''; store_('plannerWait', ''); renderLists(); }
+      releaseWaitFilter();
     }
     updateHint();
+  }
+
+  // 새 일은 «내 차례»라 기다림으로 거르는 중이면 안 보인다 — 추가한 일이 사라진 것처럼 보이지 않게 거르기를 푼다.
+  // 한 줄 입력·여러 줄 붙여넣기·놓기 창 새 일·브리핑 바로 저장이 같이 쓴다 (2026-11-15)
+  function releaseWaitFilter() {
+    if (filterWait && filterWait !== 'mine') { filterWait = ''; store_('plannerWait', ''); renderLists(); }
   }
 
   // 한 줄 입력으로 추가 — 목록의 입력칸과 미니창이 같이 쓴다. { ok, msg } 를 돌려 준다
@@ -360,6 +365,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       r = addByText(s, { area, quiet: true });
     }
     if (!r.ok || !(await r.saved)) { prefillInput(s); return { status: 'fail', title: title || s }; }
+    releaseWaitFilter();
     showUndo({ title: r.title }, { label: `${r.msg} · ${r.area}`, undo: () => T.planDelete({ id: r.id }) });
     return { status: 'added', id: r.id, title: r.title, area: r.area };
   }
@@ -393,8 +399,20 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       const when = p.daily ? (p.due ? `${fmtMD(p.due)}까지 매일` : '끝낼 때까지 매일')
         : p.slot ? `${fmtMD(p.slot.date)} ${p.slot.start}부터 ${p.slot.min}분`
         : p.due ? `${p.dueText ? `${p.dueText} → ` : '마감 '}${fmtMD(p.due)}` : '날짜 없음';
-      return { line, p, area, when, ok: !!p.title };
+      return { line, p, area, when, ok: !!p.title, picked: !!p.title };
     });
+    // 검사: 처음엔 모두 고른 셈으로 돌려 같은 제목(열린 일·위 줄)은 체크를 빼 두고, 체크가 바뀔 때마다 다시 돌린다
+    const ctx = () => ({ tasks: tasks(), data: getSchoolData() || {}, today, settings: store.settings });
+    let checks = T.checkBulkRows(rows, ctx());
+    rows.forEach((r, i) => { if (checks[i].dup) r.picked = false; });
+    checks = T.checkBulkRows(rows, ctx());
+    const noteOf = (r, c) => {
+      const bits = [];
+      if (c.dup === 'open') bits.push('같은 제목의 할 일이 이미 있어요');
+      else if (c.dup === 'line') bits.push('위 줄과 제목이 같아요');
+      if (r.p.slot && !c.slot) bits.push(`${c.slotNote} — 칸은 비우고 넣어요`);
+      return bits.join(' · ');
+    };
     const ov = openModal('pl-modal-bulk', `
       <div class="modal-header"><h2>여러 줄 붙여넣기</h2><button class="modal-close" data-close aria-label="닫기">✕</button></div>
       <div class="modal-body">
@@ -402,9 +420,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         <ul class="pl-bulk">
           ${rows.map((r, i) => `
             <li class="pl-bulk-row${r.ok ? '' : ' pl-bulk-bad'}">
-              <label><input type="checkbox" data-i="${i}" ${r.ok ? 'checked' : 'disabled'}>
+              <label><input type="checkbox" data-i="${i}" ${!r.ok ? 'disabled' : r.picked ? 'checked' : ''}>
                 <span class="pl-bulk-title">${esc(r.p.title || r.line)}</span>
                 <span class="pl-bulk-meta"><span class="pl-area pl-a-${esc(r.area)}">${esc(r.area)}</span><span>${esc(r.when)}</span></span>
+                <span class="pl-bulk-note" data-note="${i}" aria-live="polite">${esc(noteOf(r, checks[i]))}</span>
               </label>
             </li>`).join('')}
         </ul>
@@ -414,6 +433,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         <button class="btn-primary" data-bulk-add>추가</button>
       </div>`, { small: false });
     const syncBtn = () => {
+      ov.querySelectorAll('input[data-i]').forEach(c => { rows[+c.dataset.i].picked = c.checked; });
+      checks = T.checkBulkRows(rows, ctx());
+      ov.querySelectorAll('[data-note]').forEach(el => { const i = +el.dataset.note; el.textContent = noteOf(rows[i], checks[i]); });
       const n = ov.querySelectorAll('input[data-i]:checked').length;
       const b = ov.querySelector('[data-bulk-add]');
       b.textContent = `${n}개 추가`; b.disabled = n === 0;
@@ -422,18 +444,19 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     ov.addEventListener('change', syncBtn);
     ov.addEventListener('click', e => {
       if (!e.target.closest('[data-bulk-add]')) return;
-      const picked = [...ov.querySelectorAll('input[data-i]:checked')].map(c => rows[+c.dataset.i]);
+      syncBtn();   // 저장 직전 상태로 한 번 더 검사 (그사이 다른 기기에서 바뀐 것까지)
+      const picked = rows.map((r, i) => [r, checks[i]]).filter(([r]) => r.ok && r.picked);
       if (!picked.length) return;
       const now = nowStamp();
       const patch = {};
       let dropped = 0;
-      for (const r of picked) {
-        let slot = r.p.slot;
-        if (slot && !T.slotConflict(getSchoolData() || {}, tasks(), slot.date, slot.start, slot.min, { settings: store.settings }).ok) { slot = null; dropped++; }
-        Object.assign(patch, T.planAddTask({ title: r.p.title, area: r.area, due: r.p.due, dueText: r.p.dueText, slot, daily: r.p.daily }, { id: T.newTaskId(), now }));
+      for (const [r, c] of picked) {
+        if (r.p.slot && !c.slot) dropped++;
+        Object.assign(patch, T.planAddTask({ title: r.p.title, area: r.area, due: r.p.due, dueText: r.p.dueText, slot: c.slot, daily: r.p.daily }, { id: T.newTaskId(), now }));
       }
       closeModal('pl-modal-bulk');
-      run(() => patch, 'bulk-add', `${picked.length}개 추가했어요${dropped ? ` (겹치는 ${dropped}개는 시간 칸을 비웠어요)` : ''}`);
+      releaseWaitFilter();
+      run(() => patch, 'bulk-add', `${picked.length}개 추가했어요${dropped ? ` (${dropped}개는 시간 칸을 비웠어요)` : ''}`);
       const input = root()?.querySelector('#pl-add-input');
       if (input) { input.value = ''; updateHint(); }
     });
@@ -1174,6 +1197,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       const title = $('#pl-p-new').value.trim();
       if (!title) { $('#pl-p-msg').textContent = '새 할 일 이름을 적어 주세요'; return; }
       const id = T.newTaskId();
+      releaseWaitFilter();
       const add = ({ now, extra }) => T.planAddTask({ title, area: addArea, due: s.date, slot: s, extra: extra ? s.date : null }, { id, now });
       const chk = s.date === today ? T.checkTodayAdd(tasks(), { id: '' }, today, store.settings) : { ok: true };
       // 상한이 찼으면 놓기 창 위에 고르는 창을 띄운다 (고르지 않고 닫으면 놓기 창으로 돌아온다)
