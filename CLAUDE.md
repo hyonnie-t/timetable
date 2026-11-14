@@ -23,7 +23,46 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - 서비스 워커 캐시를 바꾸면 버전을 올려 옛 캐시가 남지 않게 한다. Firebase 설정값은 새로 적지 않는다.
 - 수정 뒤 `demo/`와 배포 주소를 내장 브라우저로 직접 열어 확인한다. 테스트는 `tests/`를 먼저 돌린다.
 - **history26 교사 대시보드 «📅 오늘» 탭(v134, 2026-11-02)이 이 앱을 불러 쓴다**: 같은 origin이라 `firebase.js`·`engine/progress-engine.js`·`engine/task-engine.js`를 배포 주소에서 동적 import해 오늘 수업·반별 진도·할 일을 보여 주고, 할 일 ✓/↺는 `planComplete`·`planDailyDone`·`planUndoComplete`·`planDailyUndo` + `assertPlannerPatch`로 `users/{uid}/planner`에 쓴다. 이 파일 경로·export 이름·`?tab=tasks`·planner `log/` 모양을 바꾸면 history26 `js/08-dash-today.js`도 같이 고친다.
-- **시작 주소 규칙(2026-11-02)**: `?tab=today|weekly|progress|subject|tasks|settings`로 그 탭에서 시작한다. `?tab=tasks&task=ID`는 그 할 일 고치기 창, `?tab=tasks&add=글`은 빠른 입력에 미리 적기(`?tab=tasks`와 함께일 때만 동작하고, 그때 한 번 쓰고 주소에서 지움, `planner.openById`·`prefill`). 여기에 `&save=1`을 붙이면 바로 저장하고 되돌리기 줄을 띄운다(`&area=영역` 선택, `&due=YYYY-MM-DD`가 있으면 글을 해석하지 않고 제목 그대로 저장, 같은 제목의 열린 할 일이 있으면 또 넣지 않음, 실패하면 입력칸에 남김, `planner.quickSave`, 아침 브리핑 `클로드작업\도구\예약작업\briefing-render.ps1`이 쓴다). **받는 창(2026-11-10)**: 브리핑은 이 주소에 `&close=1&ref=항목번호`를 붙여 작은 팝업으로 연다. 저장이 끝나면 `window.opener`에 `{type:'timetable-inbox', ref, status: added|dup|fail, id, title, area}`를 보내고 스스로 닫힌다(fail이면 닫지 않음). `?tab=tasks&del=ID&close=1&ref=..`은 브리핑 «↺ 등록 취소»로, 만든 뒤 손대지 않은 열린 할 일만 지운다(`planner.removeById`, status removed|kept|gone|fail). 숨은 iframe은 저장소 분할 때문에 로그인을 못 읽어 쓰지 않는다. `manifest.json` shortcuts(할 일·진도표)도 이 규칙을 쓴다. 반대 방향은 `window.openHistory26('today'|'records', { cls })`가 history26 `?dash=탭&cls=반`으로 연다(관리자 화면에만: 오늘 탭 머리·수업 카드 «📘 기록»·할 일 탭 «📘 포털»·설정 «연결된 앱»). 주소 규칙을 바꾸면 history26 `js/08-dash-today.js`의 `tdDeepLink_`·`tdOpenTimetable_`도 같이 고친다.
+- **시작 주소 규칙(2026-11-02)**: `?tab=today|weekly|progress|subject|tasks|settings`로 그 탭에서 시작한다. `?tab=tasks&task=ID`는 그 할 일 고치기 창, `?tab=tasks&add=글`은 빠른 입력에 미리 적기(`?tab=tasks`와 함께일 때만 동작하고, 그때 한 번 쓰고 주소에서 지움, `planner.openById`·`prefill`). 여기에 `&save=1`을 붙이면 바로 저장하고 되돌리기 줄을 띄운다(`&area=영역` 선택, `&due=YYYY-MM-DD`가 있으면 글을 해석하지 않고 제목 그대로 저장 — 이때 `&note=설명`이 있으면 할 일 메모로 넣는다(브리핑 «💬 무슨 일이에요?», [2026-11-15 설명 더함]), 같은 제목의 열린 할 일이 있으면 또 넣지 않음, 실패하면 입력칸에 남김, `planner.quickSave`, 아침 브리핑 `클로드작업\도구\예약작업\briefing-render.ps1`이 쓴다). **받는 창(2026-11-10)**: 브리핑은 이 주소에 `&close=1&ref=항목번호`를 붙여 작은 팝업으로 연다. 저장이 끝나면 `window.opener`에 `{type:'timetable-inbox', ref, status: added|dup|fail, id, title, area}`를 보내고 스스로 닫힌다(fail이면 닫지 않음). `?tab=tasks&del=ID&close=1&ref=..`은 브리핑 «↺ 등록 취소»로, 만든 뒤 손대지 않은 열린 할 일만 지운다(`planner.removeById`, status removed|kept|gone|fail). 숨은 iframe은 저장소 분할 때문에 로그인을 못 읽어 쓰지 않는다. `manifest.json` shortcuts(할 일·진도표)도 이 규칙을 쓴다. 반대 방향은 `window.openHistory26('today'|'records', { cls })`가 history26 `?dash=탭&cls=반`으로 연다(관리자 화면에만: 오늘 탭 머리·수업 카드 «📘 기록»·할 일 탭 «📘 포털»·설정 «연결된 앱»). 주소 규칙을 바꾸면 history26 `js/08-dash-today.js`의 `tdDeepLink_`·`tdOpenTimetable_`도 같이 고친다.
 - **바탕화면 위젯(2026-11-11)**: `?widget=1`(보통 `?tab=today&widget=1`)은 앱 화면을 숨기고 위젯 화면을 창 전체에 띄운다(효니 «PiP랑 똑같아 위젯 느낌이 없다» → 같은 날 다시 꾸밈): 큰 시계, «지금/다음 ○교시» 카드(남은 시간 막대·다음 수업), 교시 칩 한 줄, 할 일 카드(✓·되돌리기), 한 줄 입력, 간단히(시계+카드만)/전체, ◢ 크기 손잡이. 화면은 `mountDeskWidget_`·`renderDeskWidget_`·`DESK_CSS`, 할 일·안내 줄은 PiP와 같이 쓴다(`pipTodoHtml`·`pipMessage`, `renderPipWidget`이 위젯이면 `renderDeskWidget_`로 넘김). 창 틀은 ps1이 창 모양을 잘라 감추므로 페이지가 창 제목으로 알린다: 머리를 누르면 «오늘 시간표 ·move», ◢는 «·size», 틀 두께는 «·m=위,왼,오른,아래,둥글기»(실제 화소, 처음·크기 바뀔 때·30초마다 잠깐). 창 제목 규칙을 바꾸면 ps1도 고친다. ↗ 앱 열기·↻ 새로고침 버튼, 창 너비 280px 기준 최대 1.6배 확대, 로그인 풀림 안내, 20시간 넘게 켜져 있으면 스스로 새로고침, 간단히 설정은 `widgetCompact`(PiP는 `pipCompact`). 학교 PC에서는 `클로드작업\도구\시간표-위젯.ps1`이 시간표 앱에 로그인된 브라우저(웨일→크롬→엣지 순으로 찾음, 학교 PC는 웨일 Profile 1)의 `--app` 창으로 연다(창 제목 «오늘 시간표»로 찾고 자리·크기는 `%USERPROFILE%\.claude\timetable-widget.txt`)(시작프로그램 등록은 `시간표-위젯-설치.ps1`). 데모 확인은 `?demo=demo&widget=1`.
 - 데모는 주소 뒤에 `?demo=demo`를 붙여 연다(`?demo`만 쓰면 값이 비어 로그인 창에서 멈춘다). 로그인 없이 `demo/demo.json`으로 화면을 띄우고 저장하지 않는다.
+- **새 칸·단추·창을 더하면 아래 «연결 점검표»에 줄을 더하고 빈칸을 채운 뒤 PR한다** (출처: 효니 말 2026-11-14 "새로운 기능을 넣으면 기존의 기능과 모두 연결성과 호환성이 이어지도록 해야해"). 계산은 `engine/`의 순수 함수로 넣고 `tests/`에 시험, 되돌리기가 있는 동작은 `tests/roundtrip.test.mjs`에 «바꾸기 → 되돌리기 = 처음»을 더한다.
 - **교내 행사 학급 표시(2026-11-05)**: 학사일정 표시 이름에 «교내»가 있는 `event`는 임장 지도를 위해 그 교시 수업 반을 같이 보여 준다(`PE.isInSchoolEvent`, 오늘·주차별·NOW/NEXT·작은 창·할 일 달력). 교외체험·시험·동아리는 일정 이름만 보인다. 새 교내 행사는 이름에 `(교내)`를 붙인다.
+
+## 연결 점검표 (2026-11-15, 연결 점검 PR 87~90)
+새 칸·단추·창을 더할 때 이 표에 줄을 더하고, 칸마다 «이 흐름에서 이 값은 어떻게 되나»를 코드를 읽어 채운 뒤 PR한다. O 이어짐, - 해당 없음. 2026-11-15 점검 때 빈칸·어긋남이던 곳은 모두 고쳤다(괄호는 그때 고친 곳). 처음 점검 결과 페이지: `교사업무\클로드작업\산출물\도구설정\2026-11-15_시간표-연결-점검\`.
+
+### 흐름 목록
+- 할 일: 넣기(한 줄 입력·여러 줄 붙여넣기·브리핑 바로 저장 `quickSave`·쿨메신저 후보 담기) / 고치기(고치기 창·둘로 나누기·지켜보기로 바꾸기) / 끝내기(완료 ✓·완료 되돌리기·매일 «오늘 몫 끝»·보관·복원) / 지우기(6초 되돌리기·브리핑 등록 취소 `removeById`) / 반복(규칙 펼치기 `planMaterialize`·수업 준비 `planPrepSync`) / 달력(칸 놓기·끌기·늘이기·칸 빼기·미루기·마감 지남 정리 창) / 보기(찾기·영역 거르기·기다림 거르기·오늘 상한)
+- 시간표·진도: 탭 6개 / 차시 +/-·주제·메모·오늘만 교시 바꾸기·보강·특별 수업·시간표 편집·교시 시간 / 학사일정(편집·붙여넣기·교내 행사 반 표시·날짜별 단축 시정 `PERIOD_OVERRIDES`) / 새 학기
+- 겉 화면: 작은 창(PiP)·바탕화면 위젯(창 제목으로 ps1과 통신)·시작 주소·데모·새로고침·홈 화면 추가·새 버전 감지(`CODE_FILES` 내용 비교, 서비스워커는 앱 파일을 캐시하지 않음)
+- 저장이 두 갈래: 할 일은 실시간(`onValue`), 시간표·진도는 다시 읽기(포커스·1분/5분 타이머, 입력 중엔 건너뜀) → «여러 기기·별도 창(위젯)» 흐름이 있다
+- 바깥에서 쓰는 곳: history26 대시보드 «오늘» 탭(엔진 파일 직접 import), 아침 브리핑(주소로 등록·취소, `waiting-read.js`가 기다림 읽기), 위젯 ps1(창 제목), 쿨메신저 후보(inbox)
+
+### 할 일: 칸 × 흐름
+| 칸 | 넣기(한 줄·붙여넣기·브리핑) | 고치기 창 | 완료·되돌리기 | 반복·수업 준비 | 지우기·되돌리기 | 달력 놓기·빼기·미루기·정리 | 나누기 | 작은 창·위젯 | 달력 표시 | 찾기·거르기 | 대시보드·브리핑 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 기다림 wait | O(붙여넣기·브리핑도 거르기 풂, PR 89) | O(끝낸 일은 «차례» 숨김, PR 87) | O(값 보존, 끝낸 동안 표시·거르기 빠짐) | - | O(통째 되살림, PR 88) | O(정리 창 ⏳/🚧, PR 87) | O(뒷부분 «내 차례», PR 87) | O(⏳/🚧, PR 87) | O(블록·칩·띠, PR 87) | O(끝낸 일 제외·«누구를»도 찾음, PR 87) | O(history26 PR 144·브리핑 blocked도 셈) |
+| 매일·오늘 몫 | O | O | O | - | O | O | O | O(목록 동그라미와 같은 기준 `isDailyTask`, PR 87) | O | O | 대시보드는 `isDailyDue` 기준(아래 메모) |
+| 이번만 초과 extra | O(붙여넣기는 상한 차면 칸을 비움) | O(지켜보기면 상한 창 안 띄움, PR 88) | O(되살림, PR 88) | - | O | O(미루기·칸 빼기·다른 날로 옮기면 비움, PR 88) | O | O | - | O | - |
+| 칸 slot | O(줄끼리 겹침 검사, PR 89) | O | O(일찍 끝내 줄인 칸은 6초 안에만 돌아옴) | - | O | O | O | O | O(지켜보기로 바꾸면 비움, PR 88) | - | O |
+| 오늘 표시 today | - | O | O(되살림, PR 88) | - | O | O(칸 빼기 되돌리면 되살림, PR 88) | O | O | - | O | O |
+| 마감 due | O | O | O | O | O(반복 건은 id 의 원래 날짜를 건너뜀, PR 88) | O | O | O | O | O | O |
+| 반복 ruleId | - | O | O | O | O(skip 되살림, PR 88) | O | 지움 | - | - | - | - |
+| 제목·영역·메모·링크 | O(붙여넣기는 같은 제목 체크 빼 둠, PR 89) | O | O | O | O(통째 되살림, PR 88) | O | O | O | O | O | O |
+
+### 시간표·진도: 칸 × 흐름
+| 칸 | 오늘 | 주차별 | 진도·주제 | 작은 창 | 위젯 | 할 일 달력 | 대시보드 |
+|---|---|---|---|---|---|---|---|
+| 학기 범위 | O(밖이면 차시 숨김, PR 90) | O(PR 90) | O | O | O | O | O |
+| 교시 시간·단축 시정 | O(지금 교시는 시작 분~끝 분 전, `PE.periodAt`, PR 90) | O | - | O | O | O | O(`PE.nextLesson` 같은 기준) |
+| 오늘만 교시 바꾸기 | O(NEXT 는 수업 있는 교시만 `PE.nextPeriodAfter`, PR 90) | O | O | O | O | O | O |
+| 보강 수업 | O | O(PR 90) | O | O(PR 90) | O(PR 90) | O | O(history26 PR 144) |
+| 수업 주제·메모 | O(입력칸 값 이스케이프, PR 90) | O(PR 90) | O(PR 90) | O | O | O | O |
+| 교내 행사 반 표시 | O | O | - | O | O | O | O(history26 PR 144) |
+
+### 남은 메모
+- 일찍 끝내 줄어든 칸은 6초가 지나면 원래 길이로 안 돌아온다(새 저장 칸이 필요, 2026-11-15 안 고치기로).
+- 새 학기 × 수업 준비 id 겹침, 반 이름 하드코드(`app.js` 반 목록·기말고사 묶음)는 2027-03 새 학기 전에 볼 일.
+- 두 기기에서 같은 일을 동시에 고치면 한쪽이 덮일 수 있다(코드만 읽은 판단, 재현 못 함).
+- history26 `08-dash-today.js`는 매일 할 일 ✓ 분기에 `isDailyDue`를 쓴다 — 마감이 지난 매일 일은 대시보드 ✓가 일 전체 완료다(앱 목록·작은 창은 «오늘 몫 끝», 2026-11-15 PR 87 검토에서 찾음, 아직 안 고침).

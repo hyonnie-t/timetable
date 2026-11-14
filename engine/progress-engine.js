@@ -99,6 +99,24 @@ export const PERIOD_OVERRIDES = {
 // 단, 그날 시간표(요일 바꾸기·하루 바꾸기 포함)에 그 뒤 교시 수업이 있으면 남긴다.
 export const LAST_PERIOD_BY_DAY = { mon: 6, wed: 6, fri: 6 };
 
+// «지금 교시»·«지난 교시»·«다음 교시»를 한 기준으로 (2026-11-15) — 교시는 시작 분부터 끝 분 «전»까지다.
+// 끝 분(예: 09:45)에는 이미 쉬는 시간이고 그 교시는 지났다(nextLesson·진도 장부와 같은 기준). periods 는 periodsOn 결과
+export function isPeriodOver(t, nowMin) {
+  return t != null && timeToMin(t.end) <= nowMin;
+}
+export function periodAt(periods, nowMin) {
+  for (const [p, t] of Object.entries(periods || {})) {
+    if (timeToMin(t.start) <= nowMin && nowMin < timeToMin(t.end)) return Number(p);
+  }
+  return null;
+}
+// nowMin 뒤에 시작하는 첫 교시 중 busy(p)가 참인 것 (없으면 null). 오늘 탭 NEXT·작은 창·위젯이 같이 쓴다
+export function nextPeriodAfter(periods, nowMin, busy = () => true) {
+  const list = Object.keys(periods || {}).map(Number).sort((a, b) => a - b);
+  for (const p of list) if (timeToMin(periods[p].start) > nowMin && busy(p)) return p;
+  return null;
+}
+
 export function periodsOn(data, date) {
   const base = PERIOD_OVERRIDES[date] || data?.periods || {};
   const last = isDateStr(date) ? LAST_PERIOD_BY_DAY[weekdayKey(date)] : undefined;

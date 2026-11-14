@@ -138,28 +138,15 @@ function getPeriods(date = todayStr()) {
   return PE.periodsOn({ ...userData, periods: getBasePeriods() }, date);
 }
 
+// 지금·다음 교시 — 끝 분에는 이미 쉬는 시간(PE.periodAt·nextPeriodAfter, 위젯·작은 창·진도 장부와 같은 기준, 2026-11-15)
+function nowMinutes() { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
 function getCurrentPeriod() {
-  const periods = getPeriods();
-  const now = new Date();
-  const cur = now.getHours() * 60 + now.getMinutes();
-  for (const [p, t] of Object.entries(periods)) {
-    const s = parseTimeToMin(t.start);
-    const e = parseTimeToMin(t.end);
-    if (cur >= s && cur <= e) return Number(p);
-  }
-  return null;
+  return PE.periodAt(getPeriods(), nowMinutes());
 }
 
+// 다음에 «수업이 있는» 교시 — 빈 칸(반 없음)은 건너뛴다 (전에는 빈 칸에서 멈춰 NEXT 줄이 안 보였다)
 function getNextPeriod(schedule) {
-  const periods = getPeriods();
-  const now = new Date();
-  const cur = now.getHours() * 60 + now.getMinutes();
-  const sorted = Object.keys(periods).map(Number).sort((a,b) => a-b);
-  for (const p of sorted) {
-    const s = parseTimeToMin(periods[p].start);
-    if (s > cur && schedule[p]) return p;
-  }
-  return null;
+  return PE.nextPeriodAfter(getPeriods(), nowMinutes(), p => !!schedule[p]?.class);
 }
 
 function formatPeriodTime(p) {
@@ -332,7 +319,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-11-10-fastboot';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-11-15-connect';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -465,6 +452,8 @@ async function loadUserData() {
 // 최신 데이터를 다시 읽는다. (진도는 자동 저장하지 않으므로 다른 기기 값을 덮어쓸 일은 없다)
 // 입력 중(편집기·모달·입력창)에는 화면이 다시 그려지며 입력이 날아가므로 건너뛴다.
 const REFRESH_MIN_INTERVAL_MS = 60 * 1000;
+// 날짜 넘어감·다른 기기 변경 확인 주기 — 바탕화면 위젯은 포커스를 거의 받지 않아 1분, 보통 화면은 5분 (2026-11-15)
+const ROLLOVER_MS = (WIDGET_MODE ? 1 : 5) * 60 * 1000;
 
 function isEditingNow() {
   const a = document.activeElement;
@@ -839,11 +828,11 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[curP];
       const info  = lessonCellInfo(today, curP, schedule[curP]);
-      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : info.topic;
+      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : escapeHtml(info.topic || '');
       el.innerHTML += `
         <div class="banner banner-now">
           <span class="banner-label">NOW</span>
-          <span class="banner-info">${curP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-info">${curP}교시 · <b>${escapeHtml(cls)}</b> ${escapeHtml(subject)} ${topic ? '— ' + topic : ''}</span>
           <span class="banner-time">${formatPeriodTime(curP)}${isPeriodChanged(curP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
     } else if (PE.isInSchoolEvent(ev)) {
@@ -859,11 +848,11 @@ function renderToday() {
     if (!ev) {
       const { class: cls, subject } = schedule[nextP];
       const info  = lessonCellInfo(today, nextP, schedule[nextP]);
-      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : info.topic;
+      const topic = info.special ? `특별 · ${escapeHtml(info.special.label)}` : escapeHtml(info.topic || '');
       el.innerHTML += `
         <div class="banner banner-next">
           <span class="banner-label">NEXT</span>
-          <span class="banner-info">${nextP}교시 · <b>${cls}</b> ${subject} ${topic ? '— ' + topic : ''}</span>
+          <span class="banner-info">${nextP}교시 · <b>${escapeHtml(cls)}</b> ${escapeHtml(subject)} ${topic ? '— ' + topic : ''}</span>
           <span class="banner-time">${formatPeriodTime(nextP)}${isPeriodChanged(nextP) ? ' ⏰시간 변경' : ''}</span>
         </div>`;
     } else if (PE.isInSchoolEvent(ev)) {
@@ -937,24 +926,24 @@ function renderToday() {
         <div class="period-divider"></div>
         <div class="period-body">
           <div class="class-info">
-            <span class="class-badge">${cls}</span>
-            <span class="class-subject">${subject}</span>
+            <span class="class-badge">${escapeHtml(cls)}</span>
+            <span class="class-subject">${escapeHtml(subject)}</span>
             ${cell.extra ? '<span class="extra-badge">보강</span>' : ''}
-            <span class="class-topic" id="topic-display-${p}">${topic || '주제 미설정'}</span>
-            <span class="class-step" id="step-display-${p}">${current}차시</span>
+            <span class="class-topic" id="topic-display-${p}">${escapeHtml(topic) || '주제 미설정'}</span>
+            <span class="class-step" id="step-display-${p}">${current != null ? `${current}차시` : ''}</span>
             ${isAdmin ? `<button type="button" class="portal-link portal-link-sm" data-cls="${escapeHtml(cls)}" onclick="window.openHistory26('records', { cls: this.dataset.cls })" title="history26 대시보드 «학생 기록» 탭을 이 반으로 열기">📘 기록</button>` : ''}
           </div>
-          ${note ? `<div class="class-note" id="note-display-${p}">📝 ${note}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
+          ${note ? `<div class="class-note" id="note-display-${p}">📝 ${escapeHtml(note)}</div>` : `<div class="class-note" id="note-display-${p}" style="display:none"></div>`}
           ${renderClassNoteBlock(key)}
           <div class="step-editor" id="editor-${p}">
             <div class="step-editor-label">이 수업(${p}교시)은 몇 차시?</div>
             <button class="step-btn" onclick="window.adjustStep(${p}, -1)">−</button>
-            <span class="step-display" id="step-disp-${p}">${current}</span>
+            <span class="step-display" id="step-disp-${p}">${current ?? '–'}</span>
             <button class="step-btn" onclick="window.adjustStep(${p}, +1)">+</button>
-            <span class="topic-label" id="topic-label-${p}">${current}차시 주제</span>
-            <input class="topic-input" id="topic-inp-${p}" value="${topic}" placeholder="수업 주제 입력" />
-            <span class="note-label" id="note-label-${p}">${completedStep}차시 메모</span>
-            <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${note}</textarea>
+            <span class="topic-label" id="topic-label-${p}">${current != null ? `${current}차시 ` : ''}주제</span>
+            <input class="topic-input" id="topic-inp-${p}" value="${escapeHtml(topic)}" placeholder="수업 주제 입력" />
+            <span class="note-label" id="note-label-${p}">${current != null ? `${completedStep}차시 ` : ''}메모</span>
+            <textarea class="note-input" id="note-inp-${p}" placeholder="메모 (선택, 어디까지 나갔는지 등)">${escapeHtml(note)}</textarea>
             <button class="save-btn" id="save-btn-${p}" onclick="window.saveStep(${p})">저장</button>
             ${cell.extra ? `<div class="special-row"><span class="special-row-label">추가한 보강 수업이에요</span><button class="special-undo-btn" onclick="window.removeExtra(${p})">보강 취소</button></div>` : ''}
             <div class="special-row">
@@ -1369,16 +1358,17 @@ function renderWeekly() {
         } else if (ev) {
           html += `<td class="event-cell${isToday ? ' today-col' : ''}">
             ${cell?.class && PE.isInSchoolEvent(ev) ? `<span class="cell-class">${escapeHtml(cell.class)}</span>` : ''}
-            <span class="cell-badge badge-${ev.type}">${ev.label}</span>
+            <span class="cell-badge badge-${ev.type}">${escapeHtml(ev.label)}</span>
           </td>`;
         } else if (cell?.class) {
           const { special, step, topic } = lessonCellInfo(dateStr, p, cell);
           html += `<td class="has-class${special ? ' special-cell' : ''}${isToday ? ' today-col' : ''}">
-            <span class="cell-class">${cell.class}</span>
-            <span class="cell-subject">${cell.subject}</span>
+            <span class="cell-class">${escapeHtml(cell.class)}</span>
+            <span class="cell-subject">${escapeHtml(cell.subject)}</span>
+            ${cell.extra ? '<span class="extra-badge">보강</span>' : ''}
             ${special ? `<span class="special-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}
-            ${topic ? `<span class="cell-topic">${topic}</span>` : ''}
-            ${special ? '' : `<span class="cell-step">${step}차시</span>`}
+            ${topic ? `<span class="cell-topic">${escapeHtml(topic)}</span>` : ''}
+            ${special || step == null ? '' : `<span class="cell-step">${step}차시</span>`}
           </td>`;
         } else {
           html += `<td class="empty-cell${isToday ? ' today-col' : ''}">·</td>`;
@@ -1485,11 +1475,11 @@ function renderProgress() {
           <div class="prog-dates">
             <div class="prog-row current-row">
               <span class="r-label">이번</span>
-              <span class="r-topic">${currTopicRaw || '주제 미설정'}</span>
+              <span class="r-topic">${escapeHtml(currTopicRaw) || '주제 미설정'}</span>
             </div>
             <div class="prog-row note-row" id="prog-note-row-${idx}" style="${currNote ? '' : 'display:none'}">
               <span class="r-label">메모</span>
-              <span class="r-topic" id="prog-note-display-${idx}">${currNote}</span>
+              <span class="r-topic" id="prog-note-display-${idx}">${escapeHtml(currNote)}</span>
             </div>
             <div class="prog-row next-row">
               <span class="r-label">다음</span>
@@ -1507,7 +1497,7 @@ function renderProgress() {
             <span class="step-display" id="prog-step-disp-${idx}">${current}</span>
             <button class="step-btn" onclick="window.adjustProgStep(${idx}, +1)">+</button>
             <span class="topic-label" id="prog-topic-label-${idx}">${current}차시 주제</span>
-            <input class="topic-input" id="prog-topic-inp-${idx}" value="${currTopicRaw.replace(/"/g,'&quot;')}" placeholder="수업 주제 입력" />
+            <input class="topic-input" id="prog-topic-inp-${idx}" value="${escapeHtml(currTopicRaw)}" placeholder="수업 주제 입력" />
             <span class="note-label" id="prog-note-label-${idx}">${completedStep}차시 메모</span>
             <textarea class="note-input" id="prog-note-inp-${idx}" placeholder="메모 (선택)">${currNote}</textarea>
             <button class="save-btn" id="prog-save-btn-${idx}" onclick="window.saveProgStep(${idx})">저장</button>
@@ -1545,7 +1535,7 @@ window.openLedger = function(key) {
   const today   = todayStr();
   const nowMin  = new Date().getHours() * 60 + new Date().getMinutes();
   const periods = getPeriods();
-  const isPast  = r => r.date < today || (r.date === today && parseTimeToMin(periods[r.p]?.end) <= nowMin);
+  const isPast  = r => r.date < today || (r.date === today && PE.isPeriodOver(periods[r.p], nowMin));
   const nextRow = rows.find(r => !isPast(r) && !r.ev && !r.sp);
 
   const cnt = { reg: 0, sp: 0, ev: 0, done: 0 };
@@ -2325,10 +2315,11 @@ const TRANSITION_CALENDAR = [
   _ev('2026-11-09', 'event',   '오목대회(교내)', _P(1, 4)),
   _ev('2026-11-12', 'event',   '노동인권교육(교내)', _P(5, 7)),
   _ev('2026-11-16', 'event',   '고고학(교내)', [5, 6]),
-  _ev('2026-11-18', 'event',   '장애이해교육',                 [1], ''),
-  _ev('2026-11-18', 'event',   '학생도박예방교육',             [2], ''),
-  _ev('2026-11-18', 'event',   '아동학대예방교육',             [3], ''),
-  _ev('2026-11-18', 'event',   '금연교육',                     [4], ''),
+  // 교내 교육은 임장 지도라 반을 보여 준다 — (교내) (효니 답 2026-11-15, 실제 학사일정도 같은 날 고침)
+  _ev('2026-11-18', 'event',   '장애이해교육(교내)',           [1], ''),
+  _ev('2026-11-18', 'event',   '학생도박예방교육(교내)',       [2], ''),
+  _ev('2026-11-18', 'event',   '아동학대예방교육(교내)',       [3], ''),
+  _ev('2026-11-18', 'event',   '금연교육(교내)',               [4], ''),
   _ev('2026-11-20', 'holiday', '재량휴업일'),
   _ev('2026-11-26', 'event',   '서울식물원(1-4반)/서울퓨처랩(5-8반)', _P(1, 7)),
   // 12월
@@ -2344,9 +2335,9 @@ const TRANSITION_CALENDAR = [
   _ev('2026-12-25', 'holiday', '성탄절'),
   // 1월
   _ev('2027-01-01', 'holiday', '신정'),
-  _ev('2027-01-04', 'event',   '학생인권교육', [1, 2], ''),
-  _ev('2027-01-04', 'event',   '약물오남용예방교육', [3], ''),
-  _ev('2027-01-04', 'event',   '사이버 중독 예방교육', [4], ''),
+  _ev('2027-01-04', 'event',   '학생인권교육(교내)', [1, 2], ''),
+  _ev('2027-01-04', 'event',   '약물오남용예방교육(교내)', [3], ''),
+  _ev('2027-01-04', 'event',   '사이버 중독 예방교육(교내)', [4], ''),
   _ev('2027-01-06', 'event',   '졸업식 꽃풍선 만들기(교내)', _P(1, 4)),
   _ev('2027-01-07', 'event',   '졸업식 예행연습 및 롤링페이퍼(교내)', _P(1, 7)),
   _ev('2027-01-08', 'event',   '졸업식(교내)', _P(1, 6)),
@@ -2403,7 +2394,7 @@ function calRowHtml(idx, g) {
         <option value="swap"    ${isSwap            ?'selected':''}>요일 대체</option>
       </select>
     </td>
-    <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${g.label||''}" placeholder="표시 텍스트" /></td>
+    <td><input class="cal-input" data-idx="${idx}" data-field="label" value="${escapeHtml(g.label||'')}" placeholder="표시 텍스트" /></td>
     <td><button class="btn-del" onclick="document.getElementById('cal-row-${idx}').remove()">✕</button></td>
   </tr>`;
 }
@@ -2643,7 +2634,7 @@ onAuthStateChanged(auth, async (user) => {
         if (JSON.stringify(fresh) !== JSON.stringify(userProfile)) { userProfile = fresh; startPlanner_(); }
       }).catch(() => {});
       await loadUserData();
-      if (!dateRolloverTimer) dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+      if (!dateRolloverTimer) dateRolloverTimer = setInterval(checkDateRollover, ROLLOVER_MS);
       return;
     }
 
@@ -2670,7 +2661,7 @@ onAuthStateChanged(auth, async (user) => {
     await loadUserData();
 
     if (!dateRolloverTimer) {
-      dateRolloverTimer = setInterval(checkDateRollover, 5 * 60 * 1000);
+      dateRolloverTimer = setInterval(checkDateRollover, ROLLOVER_MS);
     }
   } else {
     stopPlanner_();
@@ -2834,14 +2825,14 @@ function pipRowsHtml(items = [], used = new Set()) {
 
   // 지금 교시, 쉬는 시간이면 다음 교시
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const focusP = curP ?? periodList.find(p => parseTimeToMin(periods[p].start) > nowMin) ?? null;
+  const focusP = curP ?? PE.nextPeriodAfter(periods, nowMin);
 
   let shown = periodList;
   if (pipCompact) {
     if (focusP === null) return `<div class="pip-empty">오늘 수업이 모두 끝났어요</div>`;
     const hasLesson = p => schedule[p]?.class || getCalendarEvent(today, String(p));
-    const nextP = periodList.find(p => p > focusP && hasLesson(p));
-    shown = nextP === undefined ? [focusP] : [focusP, nextP];
+    const nextP = PE.nextPeriodAfter(periods, parseTimeToMin(periods[focusP].start), hasLesson);
+    shown = nextP === null ? [focusP] : [focusP, nextP];
   }
 
   return shown.map(p => {
@@ -2858,6 +2849,7 @@ function pipRowsHtml(items = [], used = new Set()) {
       body = `
         <span class="pip-class">${escapeHtml(cell.class)}</span>
         <span>${escapeHtml(cell.subject)}</span>
+        ${cell.extra ? '<span class="pip-badge">보강</span>' : ''}
         ${special ? `<span class="pip-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}
         ${topic ? `<span class="pip-topic">${escapeHtml(topic)}</span>` : ''}
         ${note  ? `<span class="pip-note">🗒 ${escapeHtml(note)}</span>` : ''}
@@ -3151,7 +3143,7 @@ function deskCardBody_(today, p, c) {
   if (c.kind === 'lesson') {
     const { key, special, topic } = lessonCellInfo(today, p, c.cell);
     const note = userData.classNotes?.[key]?.text || '';
-    return `<div class="dw-main"><span class="dw-class">${escapeHtml(c.cell.class)}</span><span class="dw-subj">${escapeHtml(c.cell.subject || '')}</span>${special ? `<span class="dw-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}</div>`
+    return `<div class="dw-main"><span class="dw-class">${escapeHtml(c.cell.class)}</span><span class="dw-subj">${escapeHtml(c.cell.subject || '')}</span>${c.cell.extra ? '<span class="dw-badge">보강</span>' : ''}${special ? `<span class="dw-badge">특별 · ${escapeHtml(special.label)}</span>` : ''}</div>`
       + (topic ? `<div class="dw-topic">${escapeHtml(topic)}</div>` : '')
       + (note ? `<div class="dw-note">🗒 ${escapeHtml(note)}</div>` : '');
   }
@@ -3203,7 +3195,7 @@ function renderDeskWidget_() {
     nowEl.innerHTML = card('rest', 'none', '오늘은 수업이 없어요', '', '');
     dayEl.innerHTML = '';
   } else {
-    const nextBusy = from => periodList.find(p => parseTimeToMin(periods[p].start) > from && busy(p));
+    const nextBusy = from => PE.nextPeriodAfter(periods, from, busy) ?? undefined;
     if (curP !== null) {
       const s = parseTimeToMin(periods[curP].start), e = parseTimeToMin(periods[curP].end);
       const pct = Math.min(100, Math.max(0, Math.round((nowMin - s) / Math.max(1, e - s) * 100)));
@@ -3224,7 +3216,7 @@ function renderDeskWidget_() {
     }
     dayEl.innerHTML = periodList.map(p => {
       const c = cells[p];
-      const past = curP !== p && parseTimeToMin(periods[p].end) < nowMin;
+      const past = curP !== p && PE.isPeriodOver(periods[p], nowMin);
       const cls = ['dw-chip', c.kind === 'lesson' ? 'lesson' : c.kind === 'event' ? 'event' : '', p === curP ? 'cur' : '', past ? 'past' : ''].join(' ');
       return `<div class="${cls}" title="${p}교시 ${escapeHtml(c.kind === 'free' ? '공강' : c.short)}"><b>${p}</b>${escapeHtml(c.short.length > 4 ? c.short.slice(0, 3) + '…' : c.short)}</div>`;
     }).join('');
@@ -3287,7 +3279,8 @@ function mountDeskWidget_(host) {
   addEl.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || e.isComposing || !addEl.value.trim()) return;
     const r = planner?.addByText?.(addEl.value);
-    if (r?.ok) addEl.value = '';
+    // 저장하면 포커스를 푼다 — 입력칸에 포커스가 남아 있으면 «입력 중»으로 보여 시간표 다시 읽기가 계속 미뤄졌다 (2026-11-15)
+    if (r?.ok) { addEl.value = ''; addEl.blur(); }
     if (r) pipMessage(r.msg);
   });
 
