@@ -61,16 +61,24 @@ function dueLabel(t, today) {
 }
 
 // 할 일 검색 — 띄어 쓴 낱말이 제목이나 메모에 모두 들어 있으면 맞는 것으로 본다 (대소문자 무시)
+// 열린 일의 «누구를·무엇을 기다림»(⏳ 부장님 결재)도 줄에 보이므로 같이 찾는다 (2026-11-15)
 function searchWords(q) { return String(q || '').toLowerCase().split(/\s+/).filter(Boolean); }
 function matchesSearch(t, words) {
-  const hay = `${t.title || ''} ${t.note || ''}`.toLowerCase();
+  const who = T.waitMark(t, '')?.who || '';
+  const hay = `${t.title || ''} ${t.note || ''} ${who}`.toLowerCase();
   return words.every(w => hay.includes(w));
 }
 
 // 기다림 거르기 칩 — [값, 이름]. 값 '' 은 전체
 const WAIT_FILTERS = [['', '전체'], ['mine', '내 차례'], ['waiting', '⏳ 남 기다림'], ['blocked', '🚧 막힘']];
-const WAIT_ICON = { waiting: '⏳', blocked: '🚧' };
-const WAIT_NAME = { waiting: '남 기다림', blocked: '막힘' };
+const WAIT_ICON = T.WAIT_ICONS;
+const WAIT_NAME = T.WAIT_NAMES;
+// 목록 줄·마감 지남 정리 창이 같이 쓰는 기다림 표시 «⏳ 부장님 결재 · 4일째» (3일 넘으면 진하게). 내 차례·끝낸 일은 빈 글
+function waitBadgeHtml(t, today) {
+  const m = T.waitMark(t, today);
+  if (!m) return '';
+  return `<span class="pl-wait pl-wait-${m.state}${m.long ? ' pl-wait-long' : ''}" title="${WAIT_NAME[m.state]}${t.wait.since ? ` · ${esc(fmtMD(t.wait.since))}부터` : ''}">${esc(m.text)}</span>`;
+}
 
 function store_(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* 저장소가 막힌 환경 */ } return null; }
 
@@ -83,6 +91,9 @@ function demoSeed(today) {
       d1: mk('고사원안 검토', '수업', { due: d(5), wait: { state: 'waiting', who: '부장님 결재', since: d(-4) } }),
       d11: mk('체험학습 결과 보고', '학교', { due: d(3), wait: { state: 'waiting', who: '교육청 회신', since: d(-1) } }),
       d12: mk('학생회 예산 집행', '학생회', { due: d(7), wait: { state: 'blocked', who: '행정실 품의 반려', since: d(-2) } }),
+      // 오늘·마감 지남인 기다림 — 작은 창·위젯·달력·마감 지남 정리 창의 ⏳/🚧 표시 확인용 (2026-11-15)
+      d13: mk('방과후 강사 계약서', '학교', { due: today, wait: { state: 'waiting', who: '강사 서명', since: d(-1) } }),
+      d14: mk('동아리 물품 구입', '학교', { due: d(-2), wait: { state: 'blocked', who: '예산 미배정', since: d(-5) } }),
       d2: mk('학생회 안건 정리', '학생회', { today }),
       d3: mk('ESG 경영 녹화 강의 듣기', '대학원', { due: today }),
       d4: mk('도서관 서평 쓰기 대회 제출', '독서', { due: d(9), link: 'https://example.com' }),
@@ -439,8 +450,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     const dailyDoneToday = isDaily && t.dailyDone === today;
     // 기다림 표시: «⏳ 부장님 결재 · 4일째» — 3일 넘으면 진하게. 끝낸 일에는 보이지 않는다
     const ws = t.status === 'open' ? T.waitState(t) : 'mine';
-    const wd = ws === 'mine' ? null : T.waitDays(t, today);
-    const waitBadge = ws === 'mine' ? '' : `<span class="pl-wait pl-wait-${ws}${T.isWaitLong(t, today) ? ' pl-wait-long' : ''}" title="${WAIT_NAME[ws]}${t.wait.since ? ` · ${esc(fmtMD(t.wait.since))}부터` : ''}">${WAIT_ICON[ws]} ${esc(t.wait.who || WAIT_NAME[ws])}${wd == null ? '' : ` · ${wd === 0 ? '오늘부터' : `${wd}일째`}`}</span>`;
+    const waitBadge = waitBadgeHtml(t, today);
     return `
       <li class="pl-row pl-r-${esc(t.area)}${over ? ' pl-over' : ''}${t.status === 'done' ? ' pl-done' : ''}" data-id="${esc(t.id)}">
         ${t.status === 'open' && DRAGGABLE.includes(section)
@@ -877,7 +887,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           <label class="pl-f">영역<select id="pl-e-area">${T.AREAS.map(a => `<option${a === t.area ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
           <label class="pl-f">종류<select id="pl-e-kind"><option value="once"${t.kind === 'once' ? ' selected' : ''}>할 일</option><option value="watch"${t.kind === 'watch' ? ' selected' : ''}>지켜보기</option></select></label>
         </div>
-        <div class="pl-f-row pl-f-row2 pl-e-waitrow"${t.kind === 'watch' ? ' hidden' : ''}>
+        <div class="pl-f-row pl-f-row2 pl-e-waitrow"${t.kind === 'watch' || t.status !== 'open' ? ' hidden' : ''}>
           <label class="pl-f">차례<select id="pl-e-wait">
             <option value="">내 차례</option>
             <option value="waiting"${T.waitState(t) === 'waiting' ? ' selected' : ''}>⏳ 남 기다림</option>
@@ -885,7 +895,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           </select></label>
           <label class="pl-f">누구를·무엇을<input id="pl-e-who" type="text" maxlength="30" placeholder="예: 부장님 결재, 교육청 회신" value="${esc(t.wait?.who || '')}"${T.waitState(t) === 'mine' ? ' disabled' : ''}></label>
         </div>
-        ${T.waitState(t) !== 'mine' && t.wait?.since ? `<div class="pl-hint pl-e-since">${esc(fmtMD(t.wait.since))}부터 ${WAIT_NAME[T.waitState(t)]} · 상태를 바꾸면 오늘부터 다시 세요</div>` : ''}
+        ${t.status === 'open' && T.waitState(t) !== 'mine' && t.wait?.since ? `<div class="pl-hint pl-e-since">${esc(fmtMD(t.wait.since))}부터 ${WAIT_NAME[T.waitState(t)]} · 상태를 바꾸면 오늘부터 다시 세요</div>` : ''}
         <div class="pl-f-row pl-f-row2">
           <label class="pl-f">마감일<input id="pl-e-due" type="date" value="${esc(t.due || '')}"></label>
           <label class="pl-f">또는 기간으로
@@ -931,7 +941,8 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     });
     $('#pl-e-due').addEventListener('input', () => { $('#pl-e-fuzzy').value = ''; });
     // 기다림은 보통 할 일에만 — 지켜보기로 바꾸면 줄을 숨기고, «내 차례»면 누구를 칸을 잠근다
-    $('#pl-e-kind').addEventListener('change', e => { $('.pl-e-waitrow').hidden = e.target.value === 'watch'; });
+    // 끝낸 일·보관은 «차례»를 보이지 않는다(목록에서도 기다림 표시가 사라지므로, 2026-11-15)
+    $('#pl-e-kind').addEventListener('change', e => { $('.pl-e-waitrow').hidden = e.target.value === 'watch' || t.status !== 'open'; });
     $('#pl-e-wait').addEventListener('change', e => { $('#pl-e-who').disabled = !e.target.value; if (e.target.value) $('#pl-e-who').focus(); });
     // 입력값을 검사해 patch 로 만든다 (틀리면 창 안에 이유를 띄우고 null)
     const collect = () => {
@@ -1186,7 +1197,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
           <li class="pl-row pl-over" data-id="${esc(t.id)}">
             <div class="pl-main">
               <span class="pl-title">${esc(t.title)}</span>
-              <span class="pl-meta"><span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span><span class="pl-due pl-due-over">${esc(dueLabel(t, today))}</span></span>
+              <span class="pl-meta">${waitBadgeHtml(t, today)}<span class="pl-area pl-a-${esc(t.area)}">${esc(t.area)}</span><span class="pl-due pl-due-over">${esc(dueLabel(t, today))}</span></span>
               <div class="pl-rv-actions">
                 <button class="btn-done" data-rv="done">✓ 이미 했어요</button>
                 <button class="btn-primary" data-rv="today">오늘 하기</button>
@@ -1291,7 +1302,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     if (!t) return null;
     const today = todayStr(), now = nowStamp();
     let opts;
-    if (T.isDailyDue(t, today)) {
+    // 목록의 동그라미와 같은 기준 — 매일 하는 일은 마감 당일에도 «오늘 몫 끝»이고, 이미 끝냈으면 아무것도 하지 않는다
+    if (T.isDailyTask(t)) {
+      if (t.dailyDone === today) return null;
       run(() => T.planDailyDone(t, today, { now }), 'daily-done');
       opts = { label: '오늘 몫 끝 · 내일 다시 떠요', undo: () => T.planDailyUndo({ ...t, dailyDone: today }, today, { now: nowStamp() }) };
     } else {
@@ -1321,13 +1334,9 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       return { chosen: T.chosenFor(tasks(), today).length, cap: settings().todayCap, overdue: c.overdue.length, loaded };
     },
     // 미니창용: 오늘 고른 일(칸에 놓은 건 시각 순, 나머지는 그 뒤). 끝낸 일은 빠진다.
-    todayItems() {
-      const today = todayStr();
-      // 목록의 «오늘» 묶음과 같게 — 고른 일뿐 아니라 «이번만 초과»·마감이 오늘인 일도 미니창에서 끝낼 수 있게
-      return T.classify(tasks(), today).today
-        .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
-        .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '', daily: T.isDailyDue(t, today) }));
-    },
+    // 목록의 «오늘» 묶음과 같게 — 고른 일뿐 아니라 «이번만 초과»·마감이 오늘인 일도 미니창에서 끝낼 수 있게.
+    // 기다림 표시(wait: { state, icon, who, text } | null)도 같이 넘긴다 (계산은 task-engine todayItems)
+    todayItems() { return T.todayItems(tasks(), todayStr()); },
     // 미니창용: 마감이 지난 채 남은 일 수
     overdueCount() { return T.classify(tasks(), todayStr()).overdue.length; },
     // 미니창 입력칸 — 목록의 한 줄 입력과 같은 규칙

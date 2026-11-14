@@ -162,10 +162,30 @@ export function waitCounts(tasks) {
   return out;
 }
 
+// 기다림 거르기 — 거를 때는 열린 일만 본다(끝낸 일·보관에 남은 옛 기다림 값이 «⏳ 남 기다림»에 섞이지 않게, 2026-11-15)
 export function matchesWait(t, filter) {
   if (!filter) return true;
+  if (t.status !== 'open') return false;
   if (filter === 'mine') return t.kind !== 'watch' && waitState(t) === 'mine';
   return waitState(t) === filter;
+}
+
+// 기다림 작은 표시 — 목록 밖 화면(작은 창·위젯·달력·마감 지남 정리)이 목록과 같은 말을 쓰게 한 곳에서 만든다.
+// 열린 일이 아니거나 «내 차례»면 null. text 는 «⏳ 부장님 결재 · 4일째» 같은 한 줄(툴팁·읽어 주기용)
+export const WAIT_ICONS = { waiting: '⏳', blocked: '🚧' };
+export const WAIT_NAMES = { waiting: '남 기다림', blocked: '막힘' };
+export function waitMark(t, today) {
+  const state = t?.status === 'open' ? waitState(t) : 'mine';
+  if (state === 'mine') return null;
+  const who = t.wait.who || '';
+  const days = waitDays(t, today);
+  const when = days == null ? '' : days === 0 ? ' · 오늘부터' : ` · ${days}일째`;
+  return { state, icon: WAIT_ICONS[state], who, days, long: isWaitLong(t, today), text: `${WAIT_ICONS[state]} ${who || WAIT_NAMES[state]}${when}` };
+}
+
+// 매일 하는 일인가 (열린 «할 일»만) — 목록의 동그라미가 «오늘 몫 끝»이 되는 기준. 작은 창도 같은 기준을 쓴다
+export function isDailyTask(t) {
+  return t?.status === 'open' && t.daily === true && t.kind !== 'watch';
 }
 
 // date 에 "오늘 몫"이 남은 매일 할 일인가 (마감이 지났으면 아님 — 마감 지남 묶음으로 간다)
@@ -311,7 +331,8 @@ export function planSplitTask(task, { id, now, firstMin = null, keepToday = true
   const copy = { ...task, title: titles.second, slot: null, createdAt: now, src: 'app' };
   if (!keepToday) copy.today = null;
   if (!keepDaily) delete copy.daily;
-  for (const k of ['id', 'status', 'doneAt', 'archivedAt', 'order', 'extra', 'dailyDone', 'ruleId', 'prepDue']) delete copy[k];
+  // 기다림은 원래 건에만 남긴다 — 나눈 뒷부분은 «내 차례»로 시작한다(효니에게 물을 것 2의 기본값, 2026-11-15)
+  for (const k of ['id', 'status', 'doneAt', 'archivedAt', 'order', 'extra', 'dailyDone', 'ruleId', 'prepDue', 'wait']) delete copy[k];
   const patch = { ...taskPatch_(task.id, fields, now), [`tasks/${id}`]: normalizeTask(copy, { now }) };
   return { patch, newId: id, undo: { ...taskPatch_(task.id, { title: task.title, slot: task.slot ?? null }, now), [`tasks/${id}`]: null } };
 }
@@ -409,6 +430,16 @@ export function classify(tasks, today) {
   for (const k of ['watch', 'undated']) out[k].sort(byOrder_);
   out.done.sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return out;
+}
+
+// 작은 창·위젯용 오늘 할 일 — 목록의 «오늘» 묶음과 같은 일을, 칸에 놓은 건 시각 순(나머지는 그 뒤)으로.
+// 매일 하는 일은 오늘 몫을 끝냈으면 뺀다(작은 창은 «지금 할 일»만 보여 주고, ✓는 목록 동그라미처럼 «오늘 몫 끝»이라
+// 마감 당일에 한 번 더 누르면 일 전체가 끝나 버리던 어긋남을 막는다, 2026-11-15). wait 는 waitMark 모양(없으면 null)
+export function todayItems(tasks, today) {
+  return classify(tasks, today).today
+    .filter(t => !(isDailyTask(t) && t.dailyDone === today))
+    .sort((a, b) => (a.slot?.date === today ? a.slot.start : '99:99').localeCompare(b.slot?.date === today ? b.slot.start : '99:99'))
+    .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '', daily: isDailyTask(t), wait: waitMark(t, today) }));
 }
 
 // 오늘 처음 열었을 때 결정해야 하는 것 — 마감 지난 일이 있고 오늘 정리를 아직 안 했으면 그 목록
