@@ -3129,7 +3129,7 @@ function deskSendMetrics_() {
   deskMetricsTimer = setTimeout(() => { if (!deskTitleMode) document.title = DESK_TITLE; }, 600);
 }
 
-// 바탕화면 펫(클로드작업\도구\펫-위젯.ps1)에 알리기 (2026-11-16): «오늘 시간표 ·pet={...}» 를 0.8초만 띄운다.
+// 바탕화면 펫(클로드작업\도구\펫-위젯.ps1)에 알리기 (2026-11-16): «오늘 시간표 ·pet={...}» 를 1.6초 띄운다(펫은 0.32초마다 읽음).
 // 값은 engine/desk-pet.js petPayload. 바뀌면 바로, 아니어도 30초마다(틀 두께 신호와 15초 엇갈리게). 다른 신호가 떠 있으면 1초 뒤 다시.
 let deskPetData = null;
 let deskPetSent = '';
@@ -3143,7 +3143,7 @@ function deskSendPet_(tries = 0) {
   deskPetSent = JSON.stringify(deskPetData);
   document.title = `${DESK_TITLE} ·pet=${deskPetSent}`;
   clearTimeout(deskPetTimer);
-  deskPetTimer = setTimeout(() => { if (!deskTitleMode && document.title.startsWith(`${DESK_TITLE} ·pet=`)) document.title = DESK_TITLE; }, 800);
+  deskPetTimer = setTimeout(() => { if (!deskTitleMode && document.title.startsWith(`${DESK_TITLE} ·pet=`)) document.title = DESK_TITLE; }, 1600);
 }
 
 const hm = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
@@ -3246,7 +3246,9 @@ function renderDeskWidget_() {
   todoEl.innerHTML = pipTodoHtml(items, new Set()) || (planner ? '<div class="pip-empty">오늘 할 일이 없어요</div>' : '');
 
   // 바탕화면 펫에 같은 기준(지금·다음 교시, 오늘 할 일)으로 알린다 — 바뀌었을 때만 바로 보냄
-  deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner?.overdueCount?.() || 0 });
+  // 로그인이 풀렸거나 할 일이 아직 안 떴으면 보내지 않는다(펫이 «할 일 다 했어요»로 잘못 말하지 않게)
+  if (!planner || document.documentElement.classList.contains('widget-signed-out')) { deskPetData = null; return; }
+  deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner.overdueCount?.() || 0 });
   if (JSON.stringify(deskPetData) !== deskPetSent) deskSendPet_();
 }
 
@@ -3311,7 +3313,8 @@ function mountDeskWidget_(host) {
 
   setPipCompact(pipCompact);
   clearInterval(pipRefreshTimer);
-  pipRefreshTimer = setInterval(() => { renderPipWidget(); deskSendMetrics_(); }, 30000);
+  // 틀 두께를 먼저 보내야 같은 틱에 바뀐 펫 신호가 덮이지 않고 1초 뒤 다시 나간다
+  pipRefreshTimer = setInterval(() => { deskSendMetrics_(); renderPipWidget(); }, 30000);
   setTimeout(() => setInterval(() => deskSendPet_(), 30000), 15000);   // 펫 신호는 틀 두께 신호와 15초 엇갈리게
 }
 
