@@ -3247,7 +3247,7 @@ function renderDeskWidget_() {
 
   // 바탕화면 펫에 같은 기준(지금·다음 교시, 오늘 할 일)으로 알린다 — 바뀌었을 때만 바로 보냄
   // 로그인이 풀렸거나 할 일이 아직 안 떴으면 보내지 않는다(펫이 «할 일 다 했어요»로 잘못 말하지 않게)
-  if (!planner || document.documentElement.classList.contains('widget-signed-out')) { deskPetData = null; return; }
+  if (!planner || !planner.isLoaded?.() || document.documentElement.classList.contains('widget-signed-out')) { deskPetData = null; return; }
   deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner.overdueCount?.() || 0 });
   if (JSON.stringify(deskPetData) !== deskPetSent) deskSendPet_();
 }
