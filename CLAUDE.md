@@ -25,6 +25,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - **history26 교사 대시보드 «📅 오늘» 탭(v134, 2026-11-02)이 이 앱을 불러 쓴다**: 같은 origin이라 `firebase.js`·`engine/progress-engine.js`·`engine/task-engine.js`를 배포 주소에서 동적 import해 오늘 수업·반별 진도·할 일을 보여 주고, 할 일 ✓/↺는 `planComplete`·`planDailyDone`·`planUndoComplete`·`planDailyUndo` + `assertPlannerPatch`로 `users/{uid}/planner`에 쓴다. 이 파일 경로·export 이름·`?tab=tasks`·planner `log/` 모양을 바꾸면 history26 `js/08-dash-today.js`도 같이 고친다.
 - **시작 주소 규칙(2026-11-02)**: `?tab=today|weekly|progress|subject|tasks|settings`로 그 탭에서 시작한다. `?tab=tasks&task=ID`는 그 할 일 고치기 창, `?tab=tasks&add=글`은 빠른 입력에 미리 적기(`?tab=tasks`와 함께일 때만 동작하고, 그때 한 번 쓰고 주소에서 지움, `planner.openById`·`prefill`). 여기에 `&save=1`을 붙이면 바로 저장하고 되돌리기 줄을 띄운다(`&area=영역` 선택, `&due=YYYY-MM-DD`가 있으면 글을 해석하지 않고 제목 그대로 저장 — 이때 `&note=설명`이 있으면 할 일 메모로 넣는다(브리핑 «💬 무슨 일이에요?», [2026-11-15 설명 더함]), 같은 제목의 열린 할 일이 있으면 또 넣지 않음, 실패하면 입력칸에 남김, `planner.quickSave`, 아침 브리핑 `클로드작업\도구\예약작업\briefing-render.ps1`이 쓴다). **받는 창(2026-11-10)**: 브리핑은 이 주소에 `&close=1&ref=항목번호`를 붙여 작은 팝업으로 연다. 저장이 끝나면 `window.opener`에 `{type:'timetable-inbox', ref, status: added|dup|fail, id, title, area}`를 보내고 스스로 닫힌다(fail이면 닫지 않음). `?tab=tasks&del=ID&close=1&ref=..`은 브리핑 «↺ 등록 취소»로, 만든 뒤 손대지 않은 열린 할 일만 지운다(`planner.removeById`, status removed|kept|gone|fail). 숨은 iframe은 저장소 분할 때문에 로그인을 못 읽어 쓰지 않는다. `manifest.json` shortcuts(할 일·진도표)도 이 규칙을 쓴다. 반대 방향은 `window.openHistory26('today'|'records', { cls })`가 history26 `?dash=탭&cls=반`으로 연다(관리자 화면에만: 오늘 탭 머리·수업 카드 «📘 기록»·할 일 탭 «📘 포털»·설정 «연결된 앱»). 주소 규칙을 바꾸면 history26 `js/08-dash-today.js`의 `tdDeepLink_`·`tdOpenTimetable_`도 같이 고친다.
 - **바탕화면 위젯(2026-11-11)**: `?widget=1`(보통 `?tab=today&widget=1`)은 앱 화면을 숨기고 위젯 화면을 창 전체에 띄운다(효니 «PiP랑 똑같아 위젯 느낌이 없다» → 같은 날 다시 꾸밈): 큰 시계, «지금/다음 ○교시» 카드(남은 시간 막대·다음 수업), 교시 칩 한 줄, 할 일 카드(✓·되돌리기), 한 줄 입력, 간단히(시계+카드만)/전체, ◢ 크기 손잡이. 화면은 `mountDeskWidget_`·`renderDeskWidget_`·`DESK_CSS`, 할 일·안내 줄은 PiP와 같이 쓴다(`pipTodoHtml`·`pipMessage`, `renderPipWidget`이 위젯이면 `renderDeskWidget_`로 넘김). 창 틀은 ps1이 창 모양을 잘라 감추므로 페이지가 창 제목으로 알린다: 머리를 누르면 «오늘 시간표 ·move», ◢는 «·size», 틀 두께는 «·m=위,왼,오른,아래,둥글기»(실제 화소, 처음·크기 바뀔 때·30초마다 잠깐). 창 제목 규칙을 바꾸면 ps1도 고친다. ↗ 앱 열기·↻ 새로고침 버튼, 창 너비 280px 기준 최대 1.6배 확대, 로그인 풀림 안내, 20시간 넘게 켜져 있으면 스스로 새로고침, 간단히 설정은 `widgetCompact`(PiP는 `pipCompact`). 학교 PC에서는 `클로드작업\도구\시간표-위젯.ps1`이 시간표 앱에 로그인된 브라우저(웨일→크롬→엣지 순으로 찾음, 학교 PC는 웨일 Profile 1)의 `--app` 창으로 연다(창 제목 «오늘 시간표»로 찾고 자리·크기는 `%USERPROFILE%\.claude\timetable-widget.txt`)(시작프로그램 등록은 `시간표-위젯-설치.ps1`). 데모 확인은 `?demo=demo&widget=1`.
+- **바탕화면 펫 신호(2026-11-16)**: 위젯은 «오늘 시간표 ·pet={JSON}»을 0.8초 띄워 바탕화면 펫(`클로드작업\도구\펫-위젯.ps1`, 곰=수업 5분 전·고양이=할 일·16:20 퇴근, 수업 중엔 조용히)에 알린다. 값은 `engine/desk-pet.js` `petPayload`(키 v·q·cur·n·nl·done·wk·t·ts·tt·o, 시험 `tests/desk-pet.test.mjs`), 보내기는 `app.js` `deskSendPet_`(값이 바뀌면 바로, 아니어도 30초마다 틀 두께 신호와 15초 엇갈려, 다른 신호가 떠 있으면 1초 뒤 다시, 로그인 풀리면 안 보냄). 글 안의 «·»는 «∙»로 바꿔 ps1의 «·m=» 신호와 섞이지 않게 한다. 키 이름을 바꾸면 펫-위젯.ps1의 `Status`·`Check-Alerts`도 고친다. 출처: 효니 말 2026-11-16 «캐릭터 위젯 귀여운데», «둘 다 띄워놓고 역할 나누면 안 되냐?».
 - 데모는 주소 뒤에 `?demo=demo`를 붙여 연다(`?demo`만 쓰면 값이 비어 로그인 창에서 멈춘다). 로그인 없이 `demo/demo.json`으로 화면을 띄우고 저장하지 않는다.
 - **새 칸·단추·창을 더하면 아래 «연결 점검표»에 줄을 더하고 빈칸을 채운 뒤 PR한다** (출처: 효니 말 2026-11-14 "새로운 기능을 넣으면 기존의 기능과 모두 연결성과 호환성이 이어지도록 해야해"). 계산은 `engine/`의 순수 함수로 넣고 `tests/`에 시험, 되돌리기가 있는 동작은 `tests/roundtrip.test.mjs`에 «바꾸기 → 되돌리기 = 처음»을 더한다.
 - **교내 행사 학급 표시(2026-11-05)**: 학사일정 표시 이름에 «교내»가 있는 `event`는 임장 지도를 위해 그 교시 수업 반을 같이 보여 준다(`PE.isInSchoolEvent`, 오늘·주차별·NOW/NEXT·작은 창·할 일 달력). 교외체험·시험·동아리는 일정 이름만 보인다. 새 교내 행사는 이름에 `(교내)`를 붙인다.
@@ -37,7 +38,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - 시간표·진도: 탭 6개 / 차시 +/-·주제·메모·오늘만 교시 바꾸기·보강·특별 수업·시간표 편집·교시 시간 / 학사일정(편집·붙여넣기·교내 행사 반 표시·날짜별 단축 시정 `PERIOD_OVERRIDES`) / 새 학기
 - 겉 화면: 작은 창(PiP)·바탕화면 위젯(창 제목으로 ps1과 통신)·시작 주소·데모·새로고침·홈 화면 추가·새 버전 감지(`CODE_FILES` 내용 비교, 서비스워커는 앱 파일을 캐시하지 않음)
 - 저장이 두 갈래: 할 일은 실시간(`onValue`), 시간표·진도는 다시 읽기(포커스·1분/5분 타이머, 입력 중엔 건너뜀) → «여러 기기·별도 창(위젯)» 흐름이 있다
-- 바깥에서 쓰는 곳: history26 대시보드 «오늘» 탭(엔진 파일 직접 import), 아침 브리핑(주소로 등록·취소, `waiting-read.js`가 기다림 읽기), 위젯 ps1(창 제목), 쿨메신저 후보(inbox)
+- 바깥에서 쓰는 곳: history26 대시보드 «오늘» 탭(엔진 파일 직접 import), 아침 브리핑(주소로 등록·취소, `waiting-read.js`가 기다림 읽기), 위젯 ps1(창 제목), 바탕화면 펫 ps1(창 제목 «·pet=», 2026-11-16), 쿨메신저 후보(inbox)
 
 ### 할 일: 칸 × 흐름
 | 칸 | 넣기(한 줄·붙여넣기·브리핑) | 고치기 창 | 완료·되돌리기 | 반복·수업 준비 | 지우기·되돌리기 | 달력 놓기·빼기·미루기·정리 | 나누기 | 작은 창·위젯 | 달력 표시 | 찾기·거르기 | 대시보드·브리핑 |
@@ -60,6 +61,13 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 | 보강 수업 | O | O(PR 90) | O | O(PR 90) | O(PR 90) | O | O(history26 PR 144) |
 | 수업 주제·메모 | O(입력칸 값 이스케이프, PR 90) | O(PR 90) | O(PR 90) | O | O | O | O |
 | 교내 행사 반 표시 | O | O | - | O | O | O | O(history26 PR 144) |
+
+### 바탕화면 펫 신호 × 흐름 (2026-11-16, 저장 칸 없음)
+- 지금·다음 교시: 위젯 카드와 같은 `getCurrentPeriod`·`PE.nextPeriodAfter`·같은 busy(공강 아닌 칸)로 계산 → 카드와 펫이 다르게 말하지 않는다. 오늘만 교시 바꾸기·보강·교내 행사·단축 시정은 `daySchedule`·`getPeriods`를 거쳐 그대로 따라온다(시간표 다시 읽기 1·5분 주기도 위젯과 같음).
+- 할 일: `planner.todayItems()`·`overdueCount()` 그대로. 넣기·완료·되돌리기·지우기·칸 옮기기는 planner 구독으로 위젯이 다시 그려지며 값이 바뀌면 바로 보낸다. 매일 일 «오늘 몫 끝»은 todayItems가 이미 뺀다.
+- 창 제목 신호: 끄는 중(·move/·size)·틀 두께(·m=) 표시 중에는 보내지 않고 1초 뒤 다시(5번까지), 30초 주기는 틀 두께와 15초 엇갈림. 끌기 시작이 신호 표시 0.8초와 겹치면 끌기 제목이 덮어써 끌기가 이긴다.
+- 로그인 풀림: 보내지 않음 → 펫은 3분 뒤 «시간표 위젯이 꺼져 있어서 모름». 20시간 새로고침·새 버전 감지(`CODE_FILES`에 `engine/desk-pet.js` 더함)·데모(저장 없음)는 그대로. PiP(작은 창)는 보내지 않는다(위젯 화면에서만).
+- history26 대시보드·브리핑은 이 신호를 쓰지 않는다.
 
 ### 남은 메모
 - 일찍 끝내 줄어든 칸은 6초가 지나면 원래 길이로 안 돌아온다(새 저장 칸이 필요, 2026-11-15 안 고치기로).

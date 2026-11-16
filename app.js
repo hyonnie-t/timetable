@@ -4,6 +4,7 @@ import {
   signInWithPopup, signOut, onAuthStateChanged
 } from './firebase.js';
 import * as PE from './engine/progress-engine.js';
+import { petPayload } from './engine/desk-pet.js';
 import './icons/lucian/refresh.js';
 
 // ============================================================
@@ -490,7 +491,7 @@ function textSig_(t) {
 
 // 화면 코드가 여러 파일이라 app.js 하나만 보면 나머지가 바뀐 걸 못 알아챈다 → 모두 합쳐서 서명한다
 // (app.js 만 꼭 있어야 하고, 나머지는 없거나 못 받아도 넘어간다)
-const CODE_FILES = ['app.js', 'planner.js', 'planner-cal.js', 'engine/progress-engine.js', 'engine/task-engine.js'];
+const CODE_FILES = ['app.js', 'planner.js', 'planner-cal.js', 'engine/progress-engine.js', 'engine/task-engine.js', 'engine/desk-pet.js'];
 
 async function fetchCodeSig_(fresh) {
   const texts = await Promise.all(CODE_FILES.map(async (f, i) => {
@@ -3104,6 +3105,7 @@ function fitWidget_() {
 }
 function setWidgetSignedOut_(out) {
   document.documentElement.classList.toggle('widget-signed-out', !!out);
+  if (out) { deskPetData = null; deskPetSent = ''; }   // 로그인이 풀리면 펫에게 보내지 않는다(펫은 3분 뒤 «모름»으로 바뀜)
 }
 
 // 창 제목으로 ps1 에 알리기 (ps1 이 없으면 아무 일도 안 일어난다)
@@ -3125,6 +3127,23 @@ function deskSendMetrics_() {
   document.title = `${DESK_TITLE} ·m=${px(top)},${px(side)},${px(side)},${px(side)},${px(16 * zoom)}`;   // 마지막은 모서리 둥글기(#dw border-radius)
   clearTimeout(deskMetricsTimer);
   deskMetricsTimer = setTimeout(() => { if (!deskTitleMode) document.title = DESK_TITLE; }, 600);
+}
+
+// 바탕화면 펫(클로드작업\도구\펫-위젯.ps1)에 알리기 (2026-11-16): «오늘 시간표 ·pet={...}» 를 0.8초만 띄운다.
+// 값은 engine/desk-pet.js petPayload. 바뀌면 바로, 아니어도 30초마다(틀 두께 신호와 15초 엇갈리게). 다른 신호가 떠 있으면 1초 뒤 다시.
+let deskPetData = null;
+let deskPetSent = '';
+let deskPetTimer = null;
+function deskSendPet_(tries = 0) {
+  if (!deskPetData) return;
+  if (deskTitleMode || document.title !== DESK_TITLE) {
+    if (tries < 5) { clearTimeout(deskPetTimer); deskPetTimer = setTimeout(() => deskSendPet_(tries + 1), 1000); }
+    return;
+  }
+  deskPetSent = JSON.stringify(deskPetData);
+  document.title = `${DESK_TITLE} ·pet=${deskPetSent}`;
+  clearTimeout(deskPetTimer);
+  deskPetTimer = setTimeout(() => { if (!deskTitleMode && document.title.startsWith(`${DESK_TITLE} ·pet=`)) document.title = DESK_TITLE; }, 800);
 }
 
 const hm = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
@@ -3225,6 +3244,10 @@ function renderDeskWidget_() {
   }
 
   todoEl.innerHTML = pipTodoHtml(items, new Set()) || (planner ? '<div class="pip-empty">오늘 할 일이 없어요</div>' : '');
+
+  // 바탕화면 펫에 같은 기준(지금·다음 교시, 오늘 할 일)으로 알린다 — 바뀌었을 때만 바로 보냄
+  deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner?.overdueCount?.() || 0 });
+  if (JSON.stringify(deskPetData) !== deskPetSent) deskSendPet_();
 }
 
 function mountDeskWidget_(host) {
@@ -3289,6 +3312,7 @@ function mountDeskWidget_(host) {
   setPipCompact(pipCompact);
   clearInterval(pipRefreshTimer);
   pipRefreshTimer = setInterval(() => { renderPipWidget(); deskSendMetrics_(); }, 30000);
+  setTimeout(() => setInterval(() => deskSendPet_(), 30000), 15000);   // 펫 신호는 틀 두께 신호와 15초 엇갈리게
 }
 
 if (WIDGET_MODE) {
