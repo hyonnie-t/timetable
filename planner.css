@@ -491,7 +491,7 @@
 .pw-range { display: flex; flex-direction: column; min-width: 150px; text-align: center; line-height: 1.3; }
 .pw-range b { font-size: 16px; }
 .pw-range span { font-size: 12px; color: var(--text2); }
-.pw-back { height: 40px; }
+.pw-back, .pw-add { height: 40px; }
 .pw-count { margin-left: auto; font-size: 13px; color: var(--text2); padding: var(--space-1) var(--space-2); border-radius: 99px; background: var(--current-bg); }
 .pw-count b { color: var(--accent); }
 .pw-nudge { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: 12px; background: #fff6ea; border: 1px solid #f3dcbd; font-size: 13px; }
@@ -529,7 +529,7 @@
 .pw-chk::after { content: ''; position: absolute; inset: -8px; }   /* 눈금 밖 값(18px 동그라미): 좁은 칸이라 작게 그리고, 누르는 자리만 34px 로 넓힌다 */
 .pw-chk:hover { border-color: var(--accent); }
 .pw-chk.on { background: var(--accent2); border-color: var(--accent2); }
-.pw-dot { flex: 0 0 auto; width: 8px; height: 8px; margin: 6px 5px 0; border-radius: 50%; background: var(--accent2); }
+.pw-dot { flex: 0 0 auto; width: 8px; height: 8px; margin: var(--space-1) var(--space-1) 0; border-radius: 50%; background: var(--accent2); }
 .pw-t { min-width: 0; cursor: pointer; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; border-radius: 4px; }
 .pw-t:hover { color: var(--accent); }
 .pw-t:focus-visible, .pw-chk:focus-visible, .pw-nav:focus-visible, .pw-sub:focus-visible, .pw-nudge-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -569,6 +569,6 @@
   .pw-ul { flex: 1; gap: var(--space-2); }
   .pw-item { font-size: 14px; gap: var(--space-2); align-items: center; min-height: 32px; }
   .pw-chk { width: 24px; height: 24px; margin-top: 0; font-size: 13px; }
-  .pw-dot { margin: 0 8px; }
+  .pw-dot { margin: 0 var(--space-2); }
   .pw-count { margin-left: 0; }
 }

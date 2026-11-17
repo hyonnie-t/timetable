@@ -674,6 +674,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         <button type="button" class="pw-nav" data-act="week-nav" data-d="1" aria-label="다음 주">›</button>
         ${weekOff ? `<button type="button" class="btn-secondary pw-back" data-act="week-nav" data-d="0">이번 주로</button>` : ''}
         <span class="pw-count">${esc(name)} 기록 <b>${weekDone}</b></span>
+        <button type="button" class="btn-secondary pw-add" data-act="week-add" title="목록 보기의 입력칸으로 가요">+ 할 일</button>
       </div>
       ${weekOff === 0 && stale.length ? `<div class="pw-nudge"><b>오래 손 안 댄 영역</b>${stale.map(r => `<button type="button" class="pw-nudge-chip" data-act="week-area" data-area="${esc(r.area)}" title="누르면 목록에서 이 영역만 보여요">${esc(r.area)} <small>${r.lastDays == null ? '기록 없음' : `${r.lastDays}일 전`}</small></button>`).join('')}</div>` : ''}
       ${b.rows.length
@@ -717,6 +718,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       weekOff = d ? weekOff + d : 0;
       weekAnim = true;
       renderWeek();
+    } else if (act === 'week-add') {
+      setView('list');   // 입력칸(한 줄 입력·붙여넣기·영역 고르기)은 목록 보기 하나만 둔다
+      const input = root().querySelector('#pl-add-input');
+      if (input) { input.focus(); input.scrollIntoView({ block: 'center' }); }
     } else if (act === 'week-area') {
       // 줄 머리의 «밀림·날짜 없음»·오래 손 안 댄 영역 칩 → 목록에서 그 영역만 (거르기 칩을 누른 것과 같다)
       filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea);

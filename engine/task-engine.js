@@ -519,8 +519,8 @@ export function doneTodayCount(tasks, today) {
 //   칸에 드는 날: 열린 일은 classify 와 같은 기준(오늘 표시·칸·마감 중 오늘이 있으면 오늘, 아니면 칸 → 마감 → 오늘 표시),
 //                 끝낸 일은 끝낸 날, 매일 하는 일은 오늘(마감이 지났으면 마감 날).
 //   item.state: 'open' | 'over'(날짜가 지났는데 안 끝남) | 'done'(완료) | 'daily-done'(오늘 몫 끝) | 'rec'(지난 날의 오늘 몫 기록, 누를 것 없음)
-//   row: { area, cells[7], last(마지막 기록 날짜|null), lastDays, stale(열린 일이 있는데 STALE 일 넘게 기록 없음),
-//          openN(열린 할 일), carryN(이 주 전부터 밀린 일), undatedN(날짜 없음), weekDone(이 주 기록 수) }
+//   row: { area, cells[7], last(마지막 기록 날짜|null), lastDays, stale(«내 차례»인 열린 일이 있는데 STALE 일 넘게 기록 없음 — 기다림뿐이면 재촉 안 함),
+//          openN(열린 할 일), mineN(그중 내 차례), carryN(이 주 전부터 밀린 일), undatedN(날짜 없음), weekDone(이 주 기록 수) }
 // 지켜보기·보관은 칸에 넣지 않는다(보관한 일도 끝낸 적이 있으면 마지막 기록에는 센다).
 // ------------------------------------------------------------
 export const WEEK_STALE_DAYS = 7;
@@ -530,15 +530,20 @@ export function weekStartOf(date) { return mondayOf_(date); }
 
 // 열린 할 일이 놓이는 날(없으면 null) — classify 의 오늘/마감 지남/이번 주 가르기와 같은 값
 export function taskDay(t, today) {
-  if (isDailyTask(t)) return t.due && t.due < today ? t.due : today;
+  // 매일 하는 일은 마감 전이면 늘 오늘 칸(오늘 몫을 끝냈어도 ✓로 오늘 칸에 남는다). 마감이 지났으면 아래 보통 일과 같은 기준
+  if (isDailyTask(t) && (!t.due || t.due >= today)) return today;
   if (t.today === today || t.slot?.date === today || t.due === today) return today;
+  // classify 는 마감·칸·오늘 표시 중 하나라도 지났으면 «마감 지남» — 그때는 지난 날짜 중 가장 최근 날 칸에 둔다
+  // (어제 오늘 표시를 해 두고 마감은 다음 주인 일이 다음 주 칸으로 숨지 않게, 2026-11-17 검토)
+  const past = [t.due, t.slot?.date, t.today].filter(d => d && d < today).sort();
+  if (past.length) return past[past.length - 1];
   return t.slot?.date || t.due || t.today || null;
 }
 
 export function weekBoard(tasks, today, weekStart = weekStartOf(today)) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const weekEnd = days[6];
-  const rows = new Map(AREAS.map(a => [a, { area: a, cells: days.map(() => []), last: null, lastDays: null, stale: false, openN: 0, carryN: 0, undatedN: 0, weekDone: 0, any: false }]));
+  const rows = new Map(AREAS.map(a => [a, { area: a, cells: days.map(() => []), last: null, lastDays: null, stale: false, openN: 0, mineN: 0, carryN: 0, undatedN: 0, weekDone: 0, any: false }]));
   const put = (row, date, item) => { const i = dayDiff_(weekStart, date); if (i >= 0 && i < 7) row.cells[i].push(item); };
   const record = (row, date) => {
     if (!isDateStr(date)) return;
@@ -558,6 +563,7 @@ export function weekBoard(tasks, today, weekStart = weekStartOf(today)) {
       continue;
     }
     row.openN++;
+    if (waitState(t) === 'mine') row.mineN++;
     const daily = isDailyTask(t);
     if (daily && isDateStr(t.dailyDone)) record(row, t.dailyDone);
     const day = taskDay(t, today);
@@ -568,7 +574,8 @@ export function weekBoard(tasks, today, weekStart = weekStartOf(today)) {
     put(row, day, {
       ...base, daily, wait: waitMark(t, today),
       start: t.slot?.date === day ? t.slot.start : '',
-      state: daily && t.dailyDone === day ? 'daily-done' : over ? 'over' : 'open',
+      // «오늘 몫 끝» ✓는 오늘 칸에서만 — 마감이 지난 매일 일은 마지막 날 몫을 끝냈어도 목록처럼 «마감 지남»
+      state: over ? 'over' : daily && t.dailyDone === day ? 'daily-done' : 'open',
     });
   }
   const rank = { over: 0, open: 1, 'daily-done': 2, done: 3, rec: 4 };
@@ -577,7 +584,7 @@ export function weekBoard(tasks, today, weekStart = weekStartOf(today)) {
     if (!row.any && !row.last) continue;   // 한 번도 쓴 적 없는 영역은 줄을 만들지 않는다
     for (const c of row.cells) c.sort((a, b) => rank[a.state] - rank[b.state] || (a.start || '99:99').localeCompare(b.start || '99:99'));
     row.lastDays = row.last ? Math.max(0, dayDiff_(row.last, today)) : null;
-    row.stale = row.openN > 0 && (row.lastDays == null || row.lastDays >= WEEK_STALE_DAYS);
+    row.stale = row.mineN > 0 && (row.lastDays == null || row.lastDays >= WEEK_STALE_DAYS);
     delete row.any;
     out.push(row);
   }

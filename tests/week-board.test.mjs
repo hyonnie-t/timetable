@@ -86,6 +86,55 @@ test('weekBoard: 마지막 기록 — 완료·오늘 몫 끝만 세고, 열린 �
   assert.equal(T.lastRecordText(3), '3일 전 마지막 기록');
 });
 
+test('weekBoard: 목록 «마감 지남»인 일은 어느 조합이든 지난 날 칸(또는 밀림)에 over 로 — 검토 2026-11-17', () => {
+  const ts = [
+    mk('p', { today: MON, due: '2026-11-25' }),                                        // 어제 오늘 표시, 마감은 다음 주
+    mk('q', { due: '2026-11-10', slot: { date: '2026-11-24', start: '09:00', min: 30 } }), // 마감 지남, 칸은 다음 주
+    mk('r', { due: MON, slot: { date: '2026-11-19', start: '09:00', min: 30 } }),       // 마감 지남, 칸은 이번 주
+    { ...mk('s', { daily: true, due: MON }), dailyDone: MON },                         // 마감 지난 매일 일(마지막 날 몫은 끝냄)
+    mk('w', { area: '연수', due: '2026-11-30', wait: { state: 'waiting', who: '회신', since: MON } }),
+  ];
+  const c = T.classify(ts, TODAY);
+  assert.deepEqual(c.overdue.map(t => t.id).sort(), ['p', 'q', 'r', 's']);
+  const b = T.weekBoard(ts, TODAY);
+  const r = rowOf(b, '학교');
+  assert.deepEqual(ids(r.cells[0]).sort(), ['p:over', 'r:over', 's:over']);
+  assert.equal(r.carryN, 1);   // q
+  assert.deepEqual(ids(r.cells[3]), []);
+  for (const wk of ['2026-11-23', '2026-11-09']) {
+    const o = T.weekBoard(ts, TODAY, wk);
+    assert.ok(!o.rows.flatMap(x => x.cells.flat()).some(i => i.state === 'open' && ['p', 'q', 'r', 's'].includes(i.id)));
+  }
+  assert.equal(rowOf(b, '연수').stale, false);   // 기다림뿐인 영역은 «오래 손 안 댐»으로 재촉하지 않는다
+  assert.equal(rowOf(T.weekBoard(ts.filter(t => t.id !== 's'), TODAY), '학교').stale, true);   // 내 차례 일이 있고 기록이 없으면 재촉
+});
+
+test('weekBoard: 임의 조합 — over 칸 + 밀림 = 목록 «마감 지남», 오늘 칸 = 목록 «오늘»', () => {
+  const dates = [null, '2026-11-05', '2026-11-12', MON, TODAY, '2026-11-19', '2026-11-27'];
+  let n = 0, seed = 7;
+  const rnd = k => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % k; };
+  const ts = [];
+  for (let i = 0; i < 300; i++) {
+    const due = dates[rnd(7)], td = dates[rnd(7)], sd = dates[rnd(7)];
+    const daily = rnd(5) === 0;
+    const t = mk(`x${n++}`, { due, today: td, slot: sd ? { date: sd, start: '10:00', min: 30 } : null, daily });
+    if (daily && rnd(2)) t.dailyDone = dates[1 + rnd(4)];
+    ts.push(t);
+  }
+  const c = T.classify(ts, TODAY);
+  const b = T.weekBoard(ts, TODAY);
+  const prev = T.weekBoard(ts, TODAY, '2026-11-09'), prev2 = T.weekBoard(ts, TODAY, '2026-11-02');
+  const overIds = bb => bb.rows.flatMap(r => r.cells.flat()).filter(i => i.state === 'over').map(i => i.id);
+  // 하나만 일부러 다르다: 마감 전인 매일 일이 오늘 몫을 끝냈으면 목록 묶음이 어디든 이 화면은 오늘 칸 ✓
+  const doneToday = t => T.isDailyTask(t) && t.dailyDone === TODAY && (!t.due || t.due >= TODAY);
+  const wantOver = c.overdue.filter(t => !doneToday(t)).map(t => t.id).sort();
+  assert.deepEqual([...overIds(b), ...overIds(prev), ...overIds(prev2)].sort(), wantOver);
+  assert.equal(overIds(b).length + b.rows.reduce((s, r) => s + r.carryN, 0), wantOver.length);
+  const todayIds = b.rows.flatMap(r => r.cells[1]).filter(i => i.state === 'open' || i.state === 'daily-done').map(i => i.id).sort();
+  const wantToday = [...new Set([...c.today.map(t => t.id), ...ts.filter(doneToday).map(t => t.id)])].sort();
+  assert.deepEqual(todayIds, wantToday);
+});
+
 test('weekBoard: 다른 주 — 지난 주를 보면 그 주에 끝낸 일·밀린 일이 그 날 칸에', () => {
   const b = T.weekBoard(SAMPLE(), TODAY, '2026-11-09');
   const r = rowOf(b, '학교');
