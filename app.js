@@ -3082,9 +3082,41 @@ const DESK_CSS = `
   .dw-chip.past   { opacity:.45; }
   .dw-chip.cur    { background:#2d6a4f; color:#fff; border-color:#2d6a4f; }
   .dw-chip.cur b  { color:#cfe5d6; }
-  #dw-todos { flex:1 1 auto; overflow-y:auto; padding:0 8px 4px; font-size:12px; }
-  #dw-todos .pip-todo-h { margin:4px 2px 2px; }
-  #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:4px 8px; margin-bottom:8px; }
+  #dw-todos { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 var(--space-2) var(--space-1); font-size:12px; }
+  #dw-todos[hidden] { display:none; }
+  /* 오늘 할 일 묶음 (2026-11-17): 머리를 누르면 접기/펴기, 마감 지남이 먼저(할 일 탭과 같은 순서) */
+  .dw-todo-h { display:flex; align-items:center; gap:var(--space-1); width:100%; margin:var(--space-1) 0; padding:var(--space-1) 2px; border:none; background:none;
+    font:inherit; font-size:11px; font-weight:700; color:#b5690b; cursor:pointer; text-align:left; position:sticky; top:0; z-index:1;
+    background:linear-gradient(180deg, #f8f3e9 80%, rgba(248,243,233,0)); }
+  .dw-todo-h:hover { color:#24533f; }
+  .dw-todo-h:focus-visible { outline:2px solid #2d6a4f; outline-offset:1px; border-radius:6px; }
+  .dw-fold { display:inline-block; width:12px; color:#c9bda5; transition:transform .2s ease; }
+  .dw-todo-h[aria-expanded="false"] .dw-fold { transform:rotate(-90deg); }
+  .dw-over-n { margin-left:auto; padding:0 var(--space-2); border-radius:8px; background:#fbe9e6; color:#c0392b; font-weight:700; white-space:nowrap; }
+  .dw-todo-list.open { animation:dw-fade .2s ease-out; }   /* 펼 때만 — 30초 다시 그리기 때는 깜빡이지 않게 */
+  #dw #pip-foot { margin-top:auto; }   /* 할 일 묶음이 숨어도 입력칸은 아래에 */
+  #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:var(--space-1) var(--space-2); margin-bottom:var(--space-2); }
+  #dw-todos .pip-todo.over { border-color:#f1cfc8; background:#fff8f6; }
+  #dw-todos .pip-todo-t { overflow-wrap:anywhere; }
+  .dw-over-d { margin-right:var(--space-1); font-size:10px; font-weight:700; color:#c0392b; white-space:nowrap; }
+  #dw-todos .pip-todo.gone { opacity:0; transform:translateX(8px); transition:opacity .25s ease, transform .25s ease; }
+  /* 창이 낮을 때(학교 PC 342×317 등): 시계·카드를 줄여 할 일 두세 줄이 보이게 */
+  html.dw-short #dw-head { padding:var(--space-1) var(--space-2) 0; align-items:center; }
+  html.dw-short #dw-head > div:first-child { display:flex; align-items:baseline; gap:var(--space-2); min-width:0; }
+  html.dw-short #dw-time { font-size:22px; }
+  html.dw-short #dw-date { margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #dw-date .dw-ds, html.dw-short #dw-date .dw-dl, html.dw-narrow.dw-short #dw-date { display:none; }
+  html.dw-short #dw-date .dw-ds { display:inline; }
+  html.dw-short .dw-tools { padding-top:0; }
+  html.dw-short #dw-now { margin:var(--space-1) var(--space-2); }
+  html.dw-short .dw-card { padding:var(--space-1) var(--space-3); }
+  html.dw-short .dw-main { margin-top:0; }
+  html.dw-short .dw-class { font-size:18px; }
+  html.dw-short .dw-bar { margin-top:var(--space-1); }
+  html.dw-short .dw-after, html.dw-short .dw-note { display:none; }
+  html.dw-short .dw-topic { margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  html.dw-short .dw-chip { padding:2px 0; }
+  html.dw-short .dw-chip b { display:inline; margin-right:2px; }
   #dw .pip-empty { padding:4px 2px; }
   #dw #pip-foot { border-top:none; padding:4px 8px 8px; }
   #dw #pip-add { border-radius:10px; border-color:#e6dcc8; background:#fffdf8; padding:4px 8px; }
@@ -3092,7 +3124,8 @@ const DESK_CSS = `
   html.dw-compact #dw-day, html.dw-compact #dw-todos { display:none; }
   html.dw-compact #dw-now { flex:1 1 auto; }
   @keyframes dw-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
-  @media (prefers-reduced-motion: reduce) { .dw-card { animation:none; } .dw-bar i { transition:none; } }
+  @keyframes dw-fade { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce) { .dw-card, .dw-todo-list { animation:none; } .dw-bar i, .dw-fold, #dw-todos .pip-todo.gone { transition:none; } }
 `;
 
 function fitWidget_() {
@@ -3101,6 +3134,9 @@ function fitWidget_() {
   const z = Math.min(1.6, Math.max(1, window.innerWidth / 280));
   w.style.zoom   = String(z);
   w.style.height = (window.innerHeight / z) + 'px';
+  // 확대 뒤 높이가 낮으면 시계·카드를 줄여 할 일 칸을 남긴다(학교 PC 342×317 → 약 260, 2026-11-17)
+  document.documentElement.classList.toggle('dw-short', window.innerHeight / z < 400);
+  document.documentElement.classList.toggle('dw-narrow', window.innerWidth / z < 260);   // 시계 옆에 날짜 자리가 없음
   deskSendMetrics_();
 }
 function setWidgetSignedOut_(out) {
@@ -3171,13 +3207,41 @@ function deskCardBody_(today, p, c) {
   return `<div class="dw-main"><span class="dw-subj">공강</span></div>`;
 }
 
+// 바탕화면 위젯 «오늘 할 일» 묶음 (2026-11-17, 쪽지 «수업 말고 할일은 밑으로 안 뜨나?»)
+// 목록은 planner.widgetItems()(마감 지남 → 오늘, 할 일 탭과 같은 순서), ✓는 작은 창과 같은 completeTask.
+// 접기/펴기는 이 브라우저에만 기억(widgetTodoFold) — PiP·앱 화면에는 영향 없음
+let deskTodoFold = (() => { try { return localStorage.getItem('widgetTodoFold') === '1'; } catch { return false; } })();
+function deskTodoRow_(t) {
+  const tip = t.daily ? '매일 하는 일 · 누르면 오늘 몫 끝(내일 다시 떠요)' : '완료';
+  const w = t.wait;
+  const waitHtml = w ? `<span class="pip-wait" role="img" title="${escapeHtml(w.text)}" aria-label="${escapeHtml(w.text)}">${w.icon}</span>` : '';
+  const od = t.over && /^\d{4}-\d{2}-\d{2}$/.test(t.overDate) ? `${Number(t.overDate.slice(5, 7))}/${Number(t.overDate.slice(8))}` : '';
+  return `
+    <div class="pip-todo${t.over ? ' over' : ''}">
+      <button type="button" class="pip-todo-chk${t.daily ? ' daily' : ''}" data-id="${escapeHtml(t.id)}" aria-label="${escapeHtml(tip)}: ${escapeHtml(t.title)}" title="${escapeHtml(tip)}"></button>
+      <span class="pip-todo-t">${t.over ? `<span class="dw-over-d" title="마감 지남">⚠${od ? ` ${od}` : ''}</span>` : ''}${waitHtml}${t.daily ? '<span class="pip-daily" title="매일">↻</span>' : ''}${t.start ? `<span class="pip-todo-time">${t.start}</span>` : ''}${escapeHtml(t.title)}</span>
+    </div>`;
+}
+function deskTodoHtml_(list) {
+  if (!list.length) return '';
+  const overN = list.filter(t => t.over).length;
+  const head = `<button type="button" class="dw-todo-h" aria-expanded="${!deskTodoFold}" title="${deskTodoFold ? '펼치기' : '접기'}">`
+    + `<span class="dw-fold" aria-hidden="true">▾</span>${list.length > overN ? `오늘 할 일 ${list.length - overN}` : '할 일'}`
+    + (overN ? `<span class="dw-over-n">⚠ 마감 지남 ${overN}</span>` : '') + '</button>';
+  const open = deskTodoJustOpened; deskTodoJustOpened = false;
+  return deskTodoFold ? head : head + `<div class="dw-todo-list${open ? ' open' : ''}">${list.map(deskTodoRow_).join('')}</div>`;
+}
+let deskTodoJustOpened = false;
+let deskTodoLastHtml = null;
+
 let deskCardKey = null;
 function renderDeskWidget_() {
   const now = new Date();
   const timeEl = document.getElementById('dw-time');
   if (timeEl) timeEl.textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const dateEl = document.getElementById('dw-date');
-  if (dateEl) dateEl.textContent = `${now.getMonth() + 1}월 ${now.getDate()}일 ${DOW_KO[now.getDay()]}요일`;
+  // 낮은 창(dw-short)에서는 시계 옆 한 줄이라 짧은 날짜를 쓴다
+  if (dateEl) dateEl.innerHTML = `<span class="dw-dl">${now.getMonth() + 1}월 ${now.getDate()}일 ${DOW_KO[now.getDay()]}요일</span><span class="dw-ds">${now.getMonth() + 1}/${now.getDate()}(${DOW_KO[now.getDay()]})</span>`;
 
   const nowEl = document.getElementById('dw-now');
   const dayEl = document.getElementById('dw-day');
@@ -3243,12 +3307,21 @@ function renderDeskWidget_() {
     }).join('');
   }
 
-  todoEl.innerHTML = pipTodoHtml(items, new Set()) || (planner ? '<div class="pip-empty">오늘 할 일이 없어요</div>' : '');
+  // 오늘 할 일 묶음 — 할 일이 없으면(마감 지남도 없으면) 묶음째 숨긴다. 스크롤 자리는 다시 그려도 그대로
+  const todoList = planner?.isLoaded?.() ? (planner.widgetItems?.() || []) : [];
+  const todoHtml = deskTodoHtml_(todoList);
+  if (todoHtml !== deskTodoLastHtml) {   // 같으면 그대로 둔다(30초마다 줄을 새로 만들지 않게)
+    const scrollTop = todoEl.scrollTop;
+    todoEl.innerHTML = todoHtml;
+    todoEl.scrollTop = scrollTop;
+    deskTodoLastHtml = todoHtml.replace(' open"', '"');
+  }
+  todoEl.hidden = !todoList.length;
 
   // 바탕화면 펫에 같은 기준(지금·다음 교시, 오늘 할 일)으로 알린다 — 바뀌었을 때만 바로 보냄
   // 로그인이 풀렸거나 할 일이 아직 안 떴으면 보내지 않는다(펫이 «할 일 다 했어요»로 잘못 말하지 않게)
   if (!planner || !planner.isLoaded?.() || document.documentElement.classList.contains('widget-signed-out')) { deskPetData = null; return; }
-  deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner.overdueCount?.() || 0 });
+  deskPetData = petPayload({ nowMin, weekend, periods, cells, curP, items, overdue: planner.overdueCount?.() || 0, doneToday: planner.doneTodayCount?.() || 0 });
   if (JSON.stringify(deskPetData) !== deskPetSent) deskSendPet_();
 }
 
@@ -3297,10 +3370,24 @@ function mountDeskWidget_(host) {
   window.addEventListener('blur', release);
 
   document.getElementById('dw-todos').addEventListener('click', e => {
+    if (e.target.closest('.dw-todo-h')) {
+      deskTodoFold = !deskTodoFold;
+      deskTodoJustOpened = !deskTodoFold;
+      try { localStorage.setItem('widgetTodoFold', deskTodoFold ? '1' : '0'); } catch { /* 저장 못 해도 이번 창에선 접힘 */ }
+      renderDeskWidget_();
+      return;
+    }
     const chk = e.target.closest('.pip-todo-chk');
     if (!chk) return;
-    const done = planner?.completeTask?.(chk.dataset.id, { silent: true });
-    if (done) pipMessage(`“${done.title.length > 14 ? done.title.slice(0, 14) + '…' : done.title}” ${done.label}`, done.undo);
+    const row = chk.closest('.pip-todo');
+    if (row?.classList.contains('gone')) return;   // 사라지는 중에 또 누름
+    row?.classList.add('gone');
+    // 줄이 살짝 밀려 사라진 뒤 끝낸다(누른 줄이 무엇이었는지 보이게). 실패하면 줄을 되돌린다
+    setTimeout(() => {
+      const done = planner?.completeTask?.(chk.dataset.id, { silent: true });
+      if (done) pipMessage(`“${done.title.length > 14 ? done.title.slice(0, 14) + '…' : done.title}” ${done.label}`, done.undo);
+      else row?.classList.remove('gone');
+    }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220);
   });
   const addEl = document.getElementById('pip-add');
   addEl.addEventListener('keydown', e => {

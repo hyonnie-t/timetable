@@ -484,6 +484,35 @@ export function todayItems(tasks, today) {
     .map(t => ({ id: t.id, title: t.title, area: t.area, start: t.slot?.date === today ? t.slot.start : '', daily: isDailyTask(t), wait: waitMark(t, today) }));
 }
 
+// 바탕화면 위젯 «오늘 할 일» 묶음 (2026-11-17) — 할 일 탭과 같은 기준·같은 순서: «⚠ 마감 지남» 묶음 다음 «오늘» 묶음.
+// 두 묶음 모두 classify 그대로(마감·칸·만든 순). 매일 하는 일은 오늘 몫을 끝냈으면 뺀다(todayItems 와 같은 기준).
+// over: 마감 지남 묶음이면 true, overDate: 그 일의 원래 날짜(마감·칸·오늘 표시 중 있는 것, 'YYYY-MM-DD')
+export function widgetTodoItems(tasks, today) {
+  const c = classify(tasks, today);
+  const shape = (t, over) => ({
+    id: t.id, title: t.title, area: t.area,
+    start: !over && t.slot?.date === today ? t.slot.start : '',
+    daily: isDailyTask(t), wait: waitMark(t, today),
+    over, overDate: over ? (t.due || t.slot?.date || t.today || '') : '',
+  });
+  const notDoneToday = t => !(isDailyTask(t) && t.dailyDone === today);
+  return [
+    ...c.overdue.filter(notDoneToday).map(t => shape(t, true)),
+    ...c.today.filter(notDoneToday).map(t => shape(t, false)),
+  ];
+}
+
+// 바탕화면 펫 «dn» (2026-11-17): 오늘 끝낸 할 일 수 — 완료(doneAt 이 오늘)한 일 + 매일 하는 일의 «오늘 몫 끝».
+// 지우기·미루기·보관은 끝낸 게 아니라 세지 않는다. 완료를 되돌리면 다시 줄어든다.
+export function doneTodayCount(tasks, today) {
+  let n = 0;
+  for (const t of tasks) {
+    if (t.status === 'done' && String(t.doneAt || '').startsWith(today)) n++;
+    else if (isDailyTask(t) && t.dailyDone === today) n++;
+  }
+  return n;
+}
+
 // 오늘 처음 열었을 때 결정해야 하는 것 — 마감 지난 일이 있고 오늘 정리를 아직 안 했으면 그 목록
 export function reviewList(tasks, today, settings = {}) {
   if (resolveSettings(settings).reviewedOn === today) return [];

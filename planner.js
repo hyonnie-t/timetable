@@ -1365,6 +1365,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     todayItems() { return T.todayItems(tasks(), todayStr()); },
     // 미니창용: 마감이 지난 채 남은 일 수
     overdueCount() { return T.classify(tasks(), todayStr()).overdue.length; },
+    // 바탕화면 위젯용: 마감 지남 + 오늘 (할 일 탭과 같은 기준·순서, 2026-11-17)
+    widgetItems() { return T.widgetTodoItems(tasks(), todayStr()); },
+    // 바탕화면 펫 dn: 오늘 끝낸 할 일 수
+    doneTodayCount() { return T.doneTodayCount(tasks(), todayStr()); },
     // 미니창 입력칸 — 목록의 한 줄 입력과 같은 규칙
     addByText,
     // 미니창의 동그라미 — 매일 하는 일은 «오늘 몫 끝»(끝낸 게 아니다), 나머지는 완료
