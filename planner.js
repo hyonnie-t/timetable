@@ -103,6 +103,9 @@ function demoSeed(today) {
       d8: mk('투자 종목 점검', '투자', { kind: 'watch' }),
       d9: mk('자치 활동 기재록', '학생회', { due: d(30) }),
       d10: mk('법정의무연수 수강', '연수', { status: 'done', doneAt: `${today} 08:00:00`, due: d(-2) }),
+      // 이번 주 한 화면 확인용 (2026-11-17) — 어제 끝낸 일, 어제 몫을 끝낸 매일 일
+      d15: mk('3학년 활동지 인쇄', '수업', { status: 'done', doneAt: `${d(-1)} 15:00:00` }),
+      d16: mk('책 30쪽 읽기', '독서', { daily: true, dailyDone: d(-1) }),
     },
     rules: {},
     settings: {},
@@ -134,7 +137,10 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   let showClosed = false;
   const expanded = new Set();    // "더 보기"를 누른 묶음
 
-  let view = store_('plannerView') === 'cal' ? 'cal' : 'list';   // 좁은 화면에서 목록/달력 중 보이는 쪽 (넓으면 둘 다 보인다)
+  // 좁은 화면에서 목록/달력 중 보이는 쪽 (넓으면 둘 다 보인다). 'week' 는 «이번 주 한 화면»(영역×요일 칸) — 어느 폭에서나 혼자 보인다
+  let view = ['cal', 'week'].includes(store_('plannerView')) ? store_('plannerView') : 'list';
+  let weekOff = 0;               // 이번 주 한 화면에서 보고 있는 주 (0 = 이번 주, -1 = 지난 주). 저장하지 않는다
+  let weekAnim = false;          // 보기·주를 바꾼 직후 한 번만 살짝 띄워 보인다
   let cal = null;
 
   const subs = new Set();        // 미니창처럼 바깥에서 데이터가 바뀌면 알려 달라는 곳
@@ -187,6 +193,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         <div class="pl-view-switch" role="group" aria-label="보기">
           <button type="button" data-act="view" data-v="list" class="${view === 'list' ? 'on' : ''}"><lucian-list size="20"></lucian-list> 목록</button>
           <button type="button" data-act="view" data-v="cal" class="${view === 'cal' ? 'on' : ''}"><lucian-calendar size="20"></lucian-calendar> 시간표</button>
+          <button type="button" data-act="view" data-v="week" class="${view === 'week' ? 'on' : ''}" title="영역마다 한 줄 — 이번 주 할 일과 마지막 기록을 한 화면에"><span class="pw-ico" aria-hidden="true">▦</span> 이번 주</button>
         </div>
         <div class="pl-layout">
           <div class="pl-left">
@@ -217,6 +224,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
             <div class="pl-lists" id="pl-lists"></div>
           </div>
           <aside class="pl-cal" id="pl-cal" aria-label="시간표 달력"></aside>
+          <section class="pl-week" id="pl-week" aria-label="이번 주 한 화면"></section>
         </div>
       </div>`;
     cal = createCalendar({
@@ -259,7 +267,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
         if (t) cal.startPlaceDrag(e, t, t.slot?.min || 60, null, main, { row: true });
       }
     });
-    el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act]')) e.target.click(); });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pl-main[data-act], .pw-t[data-act]')) e.target.click(); });
   }
 
   function updateHint() {
@@ -338,6 +346,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   function prefillInput(text) {
     const input = root()?.querySelector('#pl-add-input');
     if (!input) return;
+    if (view !== 'list') setView('list');   // 입력칸은 목록 보기에 있다 — «이번 주»·«시간표» 보기로 저장돼 있어도 적은 글이 보이게
     input.value = String(text || '').slice(0, 200);
     updateHint();
     input.focus();
@@ -614,11 +623,82 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     renderLists();
   }
 
+  // ---------- 이번 주 한 화면 (영역×요일 칸 + 마지막 기록) — 계산은 task-engine weekBoard ----------
+  // 칸 안의 동그라미·제목은 목록 줄과 같은 data-act(done·daily-done·daily-undo·undo·edit)라 onClick 이 그대로 처리한다
+  function weekItemHtml(it) {
+    const chk = it.state === 'done'
+      ? `<button type="button" class="pw-chk on" data-act="undo" aria-label="완료함, 누르면 되돌리기" title="완료했어요 · 누르면 되돌리기">✓</button>`
+      : it.state === 'daily-done' || it.doneToday
+      ? `<button type="button" class="pw-chk on" data-act="daily-undo" aria-label="오늘 몫 끝냄, 누르면 되돌리기" title="오늘 몫 끝냈어요 · 누르면 되돌리기">✓</button>`
+      : it.state === 'rec'
+      ? `<span class="pw-dot" aria-hidden="true"></span>`
+      : `<button type="button" class="pw-chk" data-act="${it.daily ? 'daily-done' : 'done'}" aria-label="${it.daily ? '오늘 몫 끝' : '완료로 표시'}" title="${it.daily ? '오늘 몫 끝 (내일 다시 떠요)' : '완료'}"></button>`;
+    const tip = [it.state === 'over' ? '날짜가 지났어요' : it.state === 'rec' ? '이 날 몫을 끝낸 기록' : '', it.wait?.text || ''].filter(Boolean).join(' · ');
+    return `<li class="pw-item pw-s-${it.state}" data-id="${esc(it.id)}">${chk}<span class="pw-t" data-act="edit" role="button" tabindex="0"${tip ? ` title="${esc(tip)}"` : ''}>${
+      it.state === 'over' ? '<b class="pw-warn" aria-label="날짜 지남">⚠</b> ' : ''}${it.start ? `<i class="pw-time">${esc(it.start)}</i> ` : ''}${esc(it.title)}${
+      it.daily ? ' <i class="pw-daily" aria-label="매일">↻</i>' : ''}${it.wait ? ` <i class="pw-wait${it.wait.long ? ' long' : ''}">${it.wait.icon}</i>` : ''}</span></li>`;
+  }
+
+  function renderWeek() {
+    const box = root()?.querySelector('#pl-week');
+    if (!box || view !== 'week') return;
+    if (loadError) { box.innerHTML = `<div class="pl-empty pl-error">할 일을 불러오지 못했어요: ${esc(loadError)}</div>`; return; }
+    if (!loaded) { box.innerHTML = `<div class="pl-empty">불러오는 중…</div>`; return; }
+    const today = todayStr();
+    const b = T.weekBoard(tasks(), today, addDays(T.weekStartOf(today), weekOff * 7));
+    const name = weekOff === 0 ? '이번 주' : weekOff === -1 ? '지난 주' : weekOff === 1 ? '다음 주' : `${Math.abs(weekOff)}주 ${weekOff < 0 ? '전' : '뒤'}`;
+    const weekDone = b.rows.reduce((n, r) => n + r.weekDone, 0);
+    const stale = b.rows.filter(r => r.stale);
+    const dayHead = b.days.map(d => `<div class="pw-dh${d === today ? ' pw-today' : ''}${[0, 6].includes(dowOf(d)) ? ' pw-we' : ''}" role="columnheader">${DOW_KO[dowOf(d)]}<b>${parts(d)[2]}</b></div>`).join('');
+    const rowsHtml = b.rows.map(r => {
+      const subs = [
+        r.carryN ? `<button type="button" class="pw-sub pw-sub-over" data-act="week-area" data-area="${esc(r.area)}" title="이 주 전부터 밀린 일 — 누르면 목록에서 이 영역만 보여요">⚠ 밀림 ${r.carryN}</button>` : '',
+        r.undatedN ? `<button type="button" class="pw-sub" data-act="week-area" data-area="${esc(r.area)}" title="날짜를 안 정한 일 — 누르면 목록에서 이 영역만 보여요">날짜 없음 ${r.undatedN}</button>` : '',
+      ].join('');
+      return `<div class="pw-row pl-r-${esc(r.area)}${r.stale ? ' pw-stale' : ''}" role="row">
+        <div class="pw-area" role="rowheader">
+          <span class="pl-area pl-a-${esc(r.area)}">${esc(r.area)}</span>
+          <span class="pw-last${r.lastDays === 0 ? ' pw-last-today' : ''}">${esc(T.lastRecordText(r.lastDays))}</span>
+          ${subs ? `<span class="pw-subs">${subs}</span>` : ''}
+        </div>
+        ${r.cells.map((cell, i) => `<div class="pw-cell${b.days[i] === today ? ' pw-today' : ''}${cell.length ? '' : ' pw-empty'}" role="cell">
+          <span class="pw-dl">${DOW_KO[dowOf(b.days[i])]} <b>${parts(b.days[i])[2]}</b></span>
+          ${cell.length ? `<ul class="pw-ul">${cell.map(weekItemHtml).join('')}</ul>` : '<span class="pw-none" aria-hidden="true">·</span>'}
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="pw-head">
+        <button type="button" class="pw-nav" data-act="week-nav" data-d="-1" aria-label="앞 주">‹</button>
+        <div class="pw-range"><b>${esc(name)}</b><span>${esc(fmtMD(b.days[0]))} ~ ${esc(fmtMD(b.days[6]))}</span></div>
+        <button type="button" class="pw-nav" data-act="week-nav" data-d="1" aria-label="다음 주">›</button>
+        ${weekOff ? `<button type="button" class="btn-secondary pw-back" data-act="week-nav" data-d="0">이번 주로</button>` : ''}
+        <span class="pw-count">${esc(name)} 기록 <b>${weekDone}</b></span>
+        <button type="button" class="btn-secondary pw-add" data-act="week-add" title="목록 보기의 입력칸으로 가요">+ 할 일</button>
+      </div>
+      ${weekOff === 0 && stale.length ? `<div class="pw-nudge"><b>오래 손 안 댄 영역</b>${stale.map(r => `<button type="button" class="pw-nudge-chip" data-act="week-area" data-area="${esc(r.area)}" title="누르면 목록에서 이 영역만 보여요">${esc(r.area)} <small>${r.lastDays == null ? '기록 없음' : `${r.lastDays}일 전`}</small></button>`).join('')}</div>` : ''}
+      ${b.rows.length
+        ? `<div class="pw-grid" role="table" aria-label="${esc(name)} 영역별 할 일"><div class="pw-row pw-hrow" role="row"><div class="pw-corner" role="columnheader">영역 · 마지막 기록</div>${dayHead}</div>${rowsHtml}</div>`
+        : `<div class="pl-empty">할 일이 없어요. «목록»에서 추가해 보세요</div>`}`;
+    if (weekAnim) { box.classList.remove('pl-lists-swap'); void box.offsetWidth; box.classList.add('pl-lists-swap'); weekAnim = false; }
+  }
+
   function renderAll() {
     ensureShell();
     renderLists();
+    renderWeek();
     if (loaded && !loadError) cal.render();
     syncReview();
+  }
+
+  function setView(v) {
+    const was = view;
+    view = v;
+    store_('plannerView', view);
+    root().querySelector('.pl-shell').dataset.view = view;
+    root().querySelectorAll('[data-act=view]').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+    if (view === 'week') { weekAnim = true; renderWeek(); }
+    else if (view === 'cal' || was === 'week') cal.setDate(cal.date);   // 숨겨져 있던 달력은 보일 때 다시 그려 맞는 시각으로 스크롤
   }
 
   // ---------- 클릭 한 곳에서 처리 ----------
@@ -632,11 +712,22 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
     const today = todayStr();
 
     if (act === 'view') {
-      view = btn.dataset.v === 'cal' ? 'cal' : 'list';
-      store_('plannerView', view);
-      root().querySelector('.pl-shell').dataset.view = view;
-      root().querySelectorAll('[data-act=view]').forEach(b => b.classList.toggle('on', b.dataset.v === view));
-      if (view === 'cal') cal.setDate(cal.date);   // 숨겨져 있던 달력은 보일 때 다시 그려 맞는 시각으로 스크롤
+      setView(['cal', 'week'].includes(btn.dataset.v) ? btn.dataset.v : 'list');
+    } else if (act === 'week-nav') {
+      const d = Number(btn.dataset.d);
+      weekOff = d ? weekOff + d : 0;
+      weekAnim = true;
+      renderWeek();
+    } else if (act === 'week-add') {
+      setView('list');   // 입력칸(한 줄 입력·붙여넣기·영역 고르기)은 목록 보기 하나만 둔다
+      const input = root().querySelector('#pl-add-input');
+      if (input) { input.focus(); input.scrollIntoView({ block: 'center' }); }
+    } else if (act === 'week-area') {
+      // 줄 머리의 «밀림·날짜 없음»·오래 손 안 댄 영역 칩 → 목록에서 그 영역만 (거르기 칩을 누른 것과 같다)
+      filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea);
+      if (searchQ) { searchQ = ''; const si = root().querySelector('#pl-search'); if (si) si.value = ''; }
+      setView('list');
+      renderLists();
     } else if (act === 'place') { if (e.detail === 0 && t) openPlaceModal({ task: t }); }   // 마우스·터치는 pointerdown 쪽에서 처리, 키보드만 여기
     else if (act === 'filter') { filterArea = btn.dataset.area || ''; store_('plannerArea', filterArea); renderLists(); }
     else if (act === 'wait-filter') { filterWait = btn.dataset.w || ''; store_('plannerWait', filterWait); waitAnim = true; renderLists(); }
@@ -1317,7 +1408,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
       notify();
     }, err => {
       loadError = err?.message || String(err);
-      if (root()?.querySelector('.pl-shell')) renderLists();
+      if (root()?.querySelector('.pl-shell')) { renderLists(); renderWeek(); }
     });
   }
 
