@@ -18,9 +18,10 @@ export const PET_TITLE_MAX = 30;   // 할 일 제목은 이만큼만 (창 제목
 // curP     지금 교시 (위젯 getCurrentPeriod(), 없으면 null)
 // items    오늘 할 일 [{ title, start }] (planner.todayItems(), start 는 오늘 칸 시작 'HH:MM' 또는 '')
 // overdue  마감 지난 일 수
-// 돌려주는 값: { v, q, cur, n, nl, done, wk, t, ts, tt, o } — 빈 값은 '' 또는 0
-export function petPayload({ nowMin, weekend = false, periods = {}, cells = {}, curP = null, items = [], overdue = 0 }) {
-  const out = { v: 1, q: 0, cur: '', n: '', nl: '', done: 0, wk: weekend ? 1 : 0, t: 0, ts: '', tt: '', o: Number(overdue) || 0 };
+// doneToday 오늘 끝낸 할 일 수 (task-engine doneTodayCount, 2026-11-17 — 펫이 늘어난 걸 보고 칭찬)
+// 돌려주는 값: { v, q, cur, n, nl, done, wk, t, ts, tt, o, dn } — 빈 값은 '' 또는 0
+export function petPayload({ nowMin, weekend = false, periods = {}, cells = {}, curP = null, items = [], overdue = 0, doneToday = 0 }) {
+  const out = { v: 1, q: 0, cur: '', n: '', nl: '', done: 0, wk: weekend ? 1 : 0, t: 0, ts: '', tt: '', o: Number(overdue) || 0, dn: Math.max(0, Number(doneToday) || 0) };
   const list = Array.isArray(items) ? items : [];
   out.t = list.length;
   const next = list
