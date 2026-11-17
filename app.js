@@ -3093,7 +3093,8 @@ const DESK_CSS = `
   .dw-fold { display:inline-block; width:12px; color:#c9bda5; transition:transform .2s ease; }
   .dw-todo-h[aria-expanded="false"] .dw-fold { transform:rotate(-90deg); }
   .dw-over-n { margin-left:auto; padding:0 var(--space-2); border-radius:8px; background:#fbe9e6; color:#c0392b; font-weight:700; white-space:nowrap; }
-  .dw-todo-list { animation:dw-fade .2s ease-out; }
+  .dw-todo-list.open { animation:dw-fade .2s ease-out; }   /* 펼 때만 — 30초 다시 그리기 때는 깜빡이지 않게 */
+  #dw #pip-foot { margin-top:auto; }   /* 할 일 묶음이 숨어도 입력칸은 아래에 */
   #dw-todos .pip-todo { background:#fffdf8; border:1px solid #efe7d6; border-radius:10px; padding:var(--space-1) var(--space-2); margin-bottom:var(--space-2); }
   #dw-todos .pip-todo.over { border-color:#f1cfc8; background:#fff8f6; }
   #dw-todos .pip-todo-t { overflow-wrap:anywhere; }
@@ -3225,10 +3226,13 @@ function deskTodoHtml_(list) {
   if (!list.length) return '';
   const overN = list.filter(t => t.over).length;
   const head = `<button type="button" class="dw-todo-h" aria-expanded="${!deskTodoFold}" title="${deskTodoFold ? '펼치기' : '접기'}">`
-    + `<span class="dw-fold" aria-hidden="true">▾</span>오늘 할 일 ${list.length - overN}`
+    + `<span class="dw-fold" aria-hidden="true">▾</span>${list.length > overN ? `오늘 할 일 ${list.length - overN}` : '할 일'}`
     + (overN ? `<span class="dw-over-n">⚠ 마감 지남 ${overN}</span>` : '') + '</button>';
-  return deskTodoFold ? head : head + `<div class="dw-todo-list">${list.map(deskTodoRow_).join('')}</div>`;
+  const open = deskTodoJustOpened; deskTodoJustOpened = false;
+  return deskTodoFold ? head : head + `<div class="dw-todo-list${open ? ' open' : ''}">${list.map(deskTodoRow_).join('')}</div>`;
 }
+let deskTodoJustOpened = false;
+let deskTodoLastHtml = null;
 
 let deskCardKey = null;
 function renderDeskWidget_() {
@@ -3305,10 +3309,14 @@ function renderDeskWidget_() {
 
   // 오늘 할 일 묶음 — 할 일이 없으면(마감 지남도 없으면) 묶음째 숨긴다. 스크롤 자리는 다시 그려도 그대로
   const todoList = planner?.isLoaded?.() ? (planner.widgetItems?.() || []) : [];
-  const scrollTop = todoEl.scrollTop;
-  todoEl.innerHTML = deskTodoHtml_(todoList);
+  const todoHtml = deskTodoHtml_(todoList);
+  if (todoHtml !== deskTodoLastHtml) {   // 같으면 그대로 둔다(30초마다 줄을 새로 만들지 않게)
+    const scrollTop = todoEl.scrollTop;
+    todoEl.innerHTML = todoHtml;
+    todoEl.scrollTop = scrollTop;
+    deskTodoLastHtml = todoHtml.replace(' open"', '"');
+  }
   todoEl.hidden = !todoList.length;
-  todoEl.scrollTop = scrollTop;
 
   // 바탕화면 펫에 같은 기준(지금·다음 교시, 오늘 할 일)으로 알린다 — 바뀌었을 때만 바로 보냄
   // 로그인이 풀렸거나 할 일이 아직 안 떴으면 보내지 않는다(펫이 «할 일 다 했어요»로 잘못 말하지 않게)
@@ -3364,6 +3372,7 @@ function mountDeskWidget_(host) {
   document.getElementById('dw-todos').addEventListener('click', e => {
     if (e.target.closest('.dw-todo-h')) {
       deskTodoFold = !deskTodoFold;
+      deskTodoJustOpened = !deskTodoFold;
       try { localStorage.setItem('widgetTodoFold', deskTodoFold ? '1' : '0'); } catch { /* 저장 못 해도 이번 창에선 접힘 */ }
       renderDeskWidget_();
       return;
