@@ -628,7 +628,7 @@ export function createPlanner({ uid, demo = false, getSchoolData = () => null, g
   function weekItemHtml(it) {
     const chk = it.state === 'done'
       ? `<button type="button" class="pw-chk on" data-act="undo" aria-label="완료함, 누르면 되돌리기" title="완료했어요 · 누르면 되돌리기">✓</button>`
-      : it.state === 'daily-done'
+      : it.state === 'daily-done' || it.doneToday
       ? `<button type="button" class="pw-chk on" data-act="daily-undo" aria-label="오늘 몫 끝냄, 누르면 되돌리기" title="오늘 몫 끝냈어요 · 누르면 되돌리기">✓</button>`
       : it.state === 'rec'
       ? `<span class="pw-dot" aria-hidden="true"></span>`

@@ -576,6 +576,8 @@ export function weekBoard(tasks, today, weekStart = weekStartOf(today)) {
       start: t.slot?.date === day ? t.slot.start : '',
       // «오늘 몫 끝» ✓는 오늘 칸에서만 — 마감이 지난 매일 일은 마지막 날 몫을 끝냈어도 목록처럼 «마감 지남»
       state: over ? 'over' : daily && t.dailyDone === day ? 'daily-done' : 'open',
+      // 마감 지난 매일 일도 오늘 몫을 끝냈으면 동그라미는 목록처럼 ✓(누르면 되돌리기) — 칸·⚠는 그대로
+      ...(daily && over && t.dailyDone === today ? { doneToday: true } : {}),
     });
   }
   const rank = { over: 0, open: 1, 'daily-done': 2, done: 3, rec: 4 };

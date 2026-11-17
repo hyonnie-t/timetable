@@ -105,6 +105,13 @@ test('weekBoard: 목록 «마감 지남»인 일은 어느 조합이든 지난 �
     const o = T.weekBoard(ts, TODAY, wk);
     assert.ok(!o.rows.flatMap(x => x.cells.flat()).some(i => i.state === 'open' && ['p', 'q', 'r', 's'].includes(i.id)));
   }
+  // 마감 지난 매일 일의 오늘 몫 끝 → ⚠ 칸 그대로, 동그라미만 ✓(doneToday) → 되돌리면 처음 판
+  let p = plannerOf(ts);
+  p = applyPatch(p, T.planDailyDone(T.listTasks(p).find(t => t.id === 's'), TODAY, { now: 'n0' }));
+  const sItem = rowOf(T.weekBoard(T.listTasks(p), TODAY), '학교').cells[0].find(i => i.id === 's');
+  assert.equal(sItem.state, 'over'); assert.equal(sItem.doneToday, true);
+  p = applyPatch(p, T.planDailyUndo(T.listTasks(p).find(t => t.id === 's'), TODAY, { now: 'n0' }));
+  assert.equal(rowOf(T.weekBoard(T.listTasks(p), TODAY), '학교').cells[0].find(i => i.id === 's').doneToday, undefined);
   assert.equal(rowOf(b, '연수').stale, false);   // 기다림뿐인 영역은 «오래 손 안 댐»으로 재촉하지 않는다
   assert.equal(rowOf(T.weekBoard(ts.filter(t => t.id !== 's'), TODAY), '학교').stale, true);   // 내 차례 일이 있고 기록이 없으면 재촉
 });
