@@ -1544,7 +1544,7 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-  if (e.isComposing) return;
+  if (e.isComposing || e.repeat) return;   // 칸에서 Enter를 누른 채면 창이 열리자마자 저장되지 않게
   const cellEl = e.target.closest?.('#tab-weekly td.wk-editable');
   if (cellEl && (e.key === 'Enter' || e.key === ' ')) {
     e.preventDefault();
