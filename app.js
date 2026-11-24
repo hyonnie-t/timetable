@@ -320,7 +320,7 @@ function lessonCellInfo(dateStr, p, cell) {
 // 저장 — patch(v2 뿌리 기준 경로 → 값)를 DB에 쓰고 메모리에도 같은 patch를 반영한다.
 // log를 주면 변경 이력(log/)도 같은 patch에 얹는다 (설정 > 데이터 진단에서 확인).
 // ============================================================
-const APP_BUILD = '2026-11-15-connect';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
+const APP_BUILD = '2026-11-24-weekedit';   // 낡은 app.js가 캐시된 기기를 가려내는 용도 — 배포할 때 바꾼다
 const LOG_MAX = 80;
 let lastDeviceBeatAt = 0;
 
@@ -1327,11 +1327,14 @@ window.unmarkSpecialToday = async function(p) {
 // ============================================================
 // 주차별 탭
 // ============================================================
+// 보고 있던 주(0 이번 주·1 다음 주·2 다다음 주). 칸을 고친 뒤 다시 그려도 그 주에 머문다 (2026-11-24)
+let weeklyActive = 0;
+
 function renderWeekly() {
   const el = document.getElementById('tab-weekly');
   if (!el) return;
 
-  let activeWeek = 0;
+  let activeWeek = weeklyActive;
 
   function renderWeekGrid(offsetWeeks) {
     const dates      = getWeekDates(offsetWeeks);
@@ -1365,7 +1368,8 @@ function renderWeekly() {
           </td>`;
         } else if (cell?.class) {
           const { special, step, topic } = lessonCellInfo(dateStr, p, cell);
-          html += `<td class="has-class${special ? ' special-cell' : ''}${isToday ? ' today-col' : ''}">
+          // 누르면 이 수업의 차시·주제·메모를 고치는 창 (쪽지 2026-11-23 «주차별 탭에서 바꿀 수 있으면»)
+          html += `<td class="has-class wk-editable${special ? ' special-cell' : ''}${isToday ? ' today-col' : ''}" data-wk-date="${dateStr}" data-wk-p="${p}" tabindex="0" role="button" title="눌러서 이 수업 주제 고치기">
             <span class="cell-class">${escapeHtml(cell.class)}</span>
             <span class="cell-subject">${escapeHtml(cell.subject)}</span>
             ${cell.extra ? '<span class="extra-badge">보강</span>' : ''}
@@ -1399,11 +1403,159 @@ function renderWeekly() {
   el.innerHTML = fullHTML();
 
   window.weekSwitch = function(idx) {
-    activeWeek = idx;
+    activeWeek = weeklyActive = idx;
     document.querySelectorAll('.week-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
     document.getElementById('week-content').innerHTML = renderWeekGrid(idx);
   };
 }
+
+// 주차별 칸 → 그 수업 고치기 창 (2026-11-24)
+// 오늘 탭 ✏️와 같은 칸(차시·주제·메모·특별 수업)을 날짜·교시를 골라 고친다. 저장은 같은 saveLessonEdit_·setSpecialLesson_.
+let weekEdit = null;   // { date, p, key, cls, subject, extra }
+
+function weekEditLessonAt_(date, p) {
+  const cell = daySchedule(date)[p];
+  const key  = PE.cellKey(cell);
+  if (!key || getCalendarEvent(date, String(p)) || !getPeriods(date)[p]) return null;
+  return { date, p, key, cls: cell.class, subject: cell.subject, extra: !!cell.extra };
+}
+
+window.openWeekLesson = function(date, p) {
+  const at = weekEditLessonAt_(date, p);
+  if (!at) return;
+  weekEdit = at;
+  document.getElementById('modal-week-lesson')?.remove();
+  const { special, step } = lessonCellInfo(date, p, daySchedule(date)[p]);
+  const head = `${escapeHtml(lessonLabel({ date, p }))} · <b>${escapeHtml(at.cls)}</b> ${escapeHtml(at.subject)}${at.extra ? ' <span class="extra-badge">보강</span>' : ''}`;
+
+  let body, footer;
+  if (special) {
+    body = `<div class="wk-edit-row"><span class="special-badge">특별 · ${escapeHtml(special.label)}</span>
+        <span class="wk-edit-hint">진도에 안 들어가는 수업으로 표시돼 있어요</span></div>`;
+    footer = `<button class="btn-primary" data-wk-unmark="1">정규 수업으로 되돌리기</button>`;
+  } else if (step == null) {
+    body = '<p class="modal-hint">학기 기간 밖이라 차시·주제를 정할 수 없어요.</p>';
+    footer = '';
+  } else {
+    const topic = userData.curriculum?.[at.key]?.[step] || '';
+    const note  = userData.lessonNotes?.[at.key]?.[step - 1] || '';
+    body = `
+      <div class="wk-edit-row">
+        <span class="step-editor-label">몇 차시?</span>
+        <button class="step-btn" data-wk-step="-1" aria-label="한 차시 앞으로">−</button>
+        <span class="step-display" id="wk-step">${step}</span>
+        <button class="step-btn" data-wk-step="1" aria-label="한 차시 뒤로">+</button>
+      </div>
+      <label class="wk-edit-field"><span class="topic-label" id="wk-topic-label">${step}차시 주제</span>
+        <input class="topic-input" id="wk-topic" value="${escapeHtml(topic)}" placeholder="수업 주제 입력" /></label>
+      <label class="wk-edit-field"><span class="note-label" id="wk-note-label">${step - 1}차시 메모</span>
+        <textarea class="note-input" id="wk-note" placeholder="메모 (선택, 어디까지 나갔는지 등)">${escapeHtml(note)}</textarea></label>
+      <p class="wk-edit-hint">주제는 «${escapeHtml(at.cls)} ${escapeHtml(at.subject)} 몇 차시»에 붙어 있어서 오늘·진도표·수업 주제 탭에도 같이 바뀌어요.</p>
+      <div class="special-row">
+        <span class="special-row-label">진도 대신 다른 걸 하면</span>
+        <input class="special-input" id="wk-special" value="자습" placeholder="자습, 영상 시청 등" />
+        <button class="special-mark-btn" data-wk-mark="1">특별 수업으로</button>
+      </div>`;
+    footer = `<button class="btn-primary" id="wk-save" data-wk-save="1">저장</button>`;
+  }
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay" id="modal-week-lesson">
+      <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="wk-edit-title">
+        <div class="modal-header">
+          <h2 id="wk-edit-title">수업 고치기</h2>
+          <button class="modal-close" data-wk-close="1" aria-label="닫기">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint wk-edit-head">${head}</p>
+          ${body}
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary wk-ledger" data-wk-ledger="1">📒 장부</button>
+          <button class="btn-secondary" data-wk-close="1">닫기</button>
+          ${footer}
+        </div>
+      </div>
+    </div>`);
+  document.getElementById('wk-topic')?.focus();
+};
+
+function closeWeekLesson_(rerender) {
+  weekEdit = null;
+  closeModal('modal-week-lesson');
+  if (rerender) {
+    renderCurrentTab();
+    if (pipWindow) renderPipWidget();
+  }
+}
+
+async function saveWeekLesson_() {
+  const at = weekEdit;
+  const btn = document.getElementById('wk-save');
+  if (!at || !btn || btn.disabled) return;
+  btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    const step  = Math.max(1, parseInt(document.getElementById('wk-step').textContent) || 1);
+    const later = await saveLessonEdit_(at.key, { date: at.date, p: at.p }, step,
+      document.getElementById('wk-topic').value.trim(), document.getElementById('wk-note').value.trim(), '수동(주차탭)');
+    savedToast_(at.key, later);
+    closeWeekLesson_(true);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+    btn.disabled = false; btn.textContent = '저장';
+  }
+}
+
+async function markWeekSpecial_(label) {
+  const at = weekEdit;
+  if (!at) return;
+  try {
+    await setSpecialLesson_(at.key, at.date, at.p, label, label ? '특별수업(주차탭)' : '특별수업해제(주차탭)');
+    showToast(label ? `${lessonLabel(at)} 수업을 특별 수업(${label})으로 표시했어요` : `${lessonLabel(at)} 수업을 정규 수업으로 되돌렸어요`);
+  } catch (e) {
+    showToast('저장 실패: ' + e.message, true);
+  }
+  closeWeekLesson_(true);
+}
+
+document.addEventListener('click', e => {
+  const cellEl = e.target.closest?.('#tab-weekly td.wk-editable');
+  if (cellEl) { window.openWeekLesson(cellEl.dataset.wkDate, Number(cellEl.dataset.wkP)); return; }
+  const m = document.getElementById('modal-week-lesson');
+  if (!m) return;
+  if (e.target === m) { closeWeekLesson_(false); return; }   // 바깥 어두운 곳
+  const t = e.target.closest?.('#modal-week-lesson [data-wk-step], #modal-week-lesson [data-wk-save], #modal-week-lesson [data-wk-mark], #modal-week-lesson [data-wk-unmark], #modal-week-lesson [data-wk-close], #modal-week-lesson [data-wk-ledger]');
+  if (!t || !weekEdit) return;
+  if (t.dataset.wkClose)  return closeWeekLesson_(false);
+  if (t.dataset.wkSave)   return saveWeekLesson_();
+  if (t.dataset.wkMark)   return markWeekSpecial_(document.getElementById('wk-special')?.value.trim() || '자습');
+  if (t.dataset.wkUnmark) return markWeekSpecial_(null);
+  if (t.dataset.wkLedger) { const key = weekEdit.key; closeWeekLesson_(false); return window.openLedger(key); }
+  if (t.dataset.wkStep) {
+    const disp = document.getElementById('wk-step');
+    const step = Math.max(1, (parseInt(disp.textContent) || 1) + Number(t.dataset.wkStep));
+    disp.textContent = step;
+    const key = weekEdit.key;
+    document.getElementById('wk-topic').value = userData.curriculum?.[key]?.[step] || '';
+    document.getElementById('wk-note').value  = userData.lessonNotes?.[key]?.[step - 1] || '';
+    document.getElementById('wk-topic-label').textContent = `${step}차시 주제`;
+    document.getElementById('wk-note-label').textContent  = `${step - 1}차시 메모`;
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.isComposing || e.repeat) return;   // 칸에서 Enter를 누른 채면 창이 열리자마자 저장되지 않게
+  const cellEl = e.target.closest?.('#tab-weekly td.wk-editable');
+  if (cellEl && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    window.openWeekLesson(cellEl.dataset.wkDate, Number(cellEl.dataset.wkP));
+    return;
+  }
+  if (!document.getElementById('modal-week-lesson')) return;
+  if (e.key === 'Escape') closeWeekLesson_(false);
+  else if (e.key === 'Enter' && e.target.id === 'wk-topic') saveWeekLesson_();
+  else if (e.key === 'Enter' && e.target.id === 'wk-special') markWeekSpecial_(e.target.value.trim() || '자습');
+});
 
 // ============================================================
 // 진도표 탭

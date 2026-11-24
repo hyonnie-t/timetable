@@ -62,6 +62,12 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 | 수업 주제·메모 | O(입력칸 값 이스케이프, PR 90) | O(PR 90) | O(PR 90) | O | O | O | O |
 | 교내 행사 반 표시 | O | O | - | O | O | O | O(history26 PR 144) |
 
+### 주차별 칸 «수업 고치기» 창 × 흐름 (2026-11-24, 새 저장 칸 없음)
+주차별 탭의 수업 칸(학사일정 칸·빈칸 제외)을 누르거나 Enter/Space → 창(`openWeekLesson`, `#modal-week-lesson`)에서 그 날짜·교시 수업의 차시 ±·주제·메모 저장, 특별 수업 표시·해제, 📒 장부 열기(출처: 효니 쪽지 2026-11-23 «이번 주에 수업 주제가 바뀐다거나 하면 주차별 탭에서 바꿀 수 있으면»).
+- 저장: 오늘 탭 ✏️·진도표와 같은 `saveLessonEdit_`(차시를 바꾸면 핀, 주제는 `curriculum/{반_과목}/{차시}`, 빈 주제는 안 지움 — 다른 탭과 같음, 변경 이력 src «수동(주차탭)»). 특별 수업은 `setSpecialLesson_`(src «특별수업(주차탭)»·«특별수업해제(주차탭)»). 되돌리기는 기존처럼 다시 고치기·«정규 수업으로 되돌리기»·장부.
+- 저장 뒤 `renderCurrentTab`+작은 창 다시 그림 → 오늘·진도표·수업 주제·작은 창·위젯·펫·history26 대시보드(같은 `curriculum`·엔진)에 그대로 반영. 보던 주(다음 주·다다음 주)는 `weeklyActive`로 유지(전에는 다시 그릴 때 이번 주로 돌아갔음).
+- 창이 열린 동안 `.modal-overlay`라 다시 읽기(`isEditingNow`)는 건너뜀. 학기 밖이면 «정할 수 없어요»만. 데모는 저장 없이 화면만 바뀜.
+
 ### 바탕화면 펫 신호 × 흐름 (2026-11-16, 저장 칸 없음)
 - 지금·다음 교시: 위젯 카드와 같은 `getCurrentPeriod`·`PE.nextPeriodAfter`·같은 busy(공강 아닌 칸)로 계산 → 카드와 펫이 다르게 말하지 않는다. 오늘만 교시 바꾸기·보강·교내 행사·단축 시정은 `daySchedule`·`getPeriods`를 거쳐 그대로 따라온다(시간표 다시 읽기 1·5분 주기도 위젯과 같음).
 - 할 일: `planner.todayItems()`·`overdueCount()` 그대로. 넣기·완료·되돌리기·지우기·칸 옮기기는 planner 구독으로 위젯이 다시 그려지며 값이 바뀌면 바로 보낸다. 매일 일 «오늘 몫 끝»은 todayItems가 이미 뺀다.
