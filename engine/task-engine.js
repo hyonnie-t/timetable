@@ -279,17 +279,35 @@ export function earlyEndSlot(task, now) {
   return min < s.min ? { date: s.date, start: s.start, min } : null;
 }
 
+// 칸을 줄이면 원래 칸을 slotWas 에 남긴다({date, start, min, cut}: cut 은 줄인 길이).
+// 6초 되돌리기 줄이 지나도 «완료 되돌리기»(목록·고치기 창·주간 보기·대시보드)가 원래 길이로 돌린다 (2026-11-25)
 export function planComplete(task, { now }) {
   if (task.status === 'done') return {};
   const fields = { status: 'done', doneAt: now };
   const trimmed = earlyEndSlot(task, now);
-  if (trimmed) fields.slot = trimmed;
+  if (trimmed) {
+    fields.slot = trimmed;
+    fields.slotWas = { ...trimmed, min: task.slot.min, cut: trimmed.min };
+  } else if (task.slotWas) fields.slotWas = null;
   return taskPatch_(task.id, fields, now);
+}
+
+// 줄인 칸이 그대로일 때만(끝낸 뒤 칸을 다른 데로 옮기거나 고쳤으면 그쪽을 따른다) 원래 길이로 돌린다
+function slotBeforeCut_(task) {
+  const w = task.slotWas, s = task.slot;
+  if (!w || !s || s.date !== w.date || s.start !== w.start || s.min !== w.cut) return null;
+  try { return cleanSlot_(w); } catch { return null; }
 }
 
 export function planUndoComplete(task, { now }) {
   if (task.status !== 'done') return {};
-  return taskPatch_(task.id, { status: 'open', doneAt: null }, now);
+  const fields = { status: 'open', doneAt: null };
+  if (task.slotWas) {
+    const back = slotBeforeCut_(task);
+    if (back) fields.slot = back;
+    fields.slotWas = null;
+  }
+  return taskPatch_(task.id, fields, now);
 }
 
 export function planArchive(task, { now }) {
