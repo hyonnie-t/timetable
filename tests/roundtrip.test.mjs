@@ -94,6 +94,23 @@ test('완료(일찍 끝내 칸 줄임 포함) → 되돌리기 = 처음 — 오�
   same(apply(p1, undo), p0);
 });
 
+test('일찍 끝내 줄인 칸 → 6초 뒤 «완료 되돌리기»만 눌러도 원래 길이로', () => {
+  const t = { id: 'tB002', ...T.normalizeTask({ title: '채점', slot: { date: TODAY, start: '13:00', min: 60 } }, { now: 'n0' }) };
+  const p0 = plannerOf(t);
+  const p1 = apply(p0, T.planComplete(get(p0, 'tB002'), { now: `${TODAY} 13:12:00` }));
+  assert.equal(get(p1, 'tB002').slot.min, 15);
+  same(apply(p1, T.planUndoComplete(get(p1, 'tB002'), { now: 'n2' })), p0);
+  // 끝낸 뒤 칸을 고쳤으면 고친 칸을 따른다(원래 길이로 덮지 않음), 기억해 둔 칸은 지운다
+  const moved = { date: TODAY, start: '15:00', min: 15 };
+  const p2 = apply(p1, T.planRestoreFields({ ...get(p1, 'tB002'), slot: moved }, ['slot'], { now: 'n3' }));
+  const p3 = apply(p2, T.planUndoComplete(get(p2, 'tB002'), { now: 'n4' }));
+  assert.deepEqual(get(p3, 'tB002').slot, moved);
+  assert.equal(get(p3, 'tB002').slotWas, undefined);
+  // 다시 끝내면(칸을 안 줄였으면) 옛 기억은 남지 않는다
+  const p4 = apply(p3, T.planComplete(get(p3, 'tB002'), { now: `${TODAY} 16:00:00` }));
+  assert.equal(get(p4, 'tB002').slotWas, undefined);
+});
+
 test('칸 빼기 → 되돌리기 = 처음', () => {
   const t = { id: 'tC001', ...T.normalizeTask({ title: '읽기', slot: { date: TODAY, start: '13:30', min: 60 }, extra: TODAY }, { now: 'n0' }) };
   const p0 = plannerOf(t);
@@ -135,7 +152,8 @@ test('무작위 300건: 지우기·완료·칸 빼기·나누기 왕복', () => 
     const p1 = apply(p0, T.planComplete(cur, { now }));
     const undoDone = { ...T.planUndoComplete(get(p1, id), { now: 'n2' }), ...T.planRestoreFields(cur, ['slot', 'today', 'extra'], { now: 'n2' }) };
     same(apply(p1, undoDone), p0, `완료 ${i}`);
-    if (!T.earlyEndSlot(cur, now)) same(apply(p1, T.planUndoComplete(get(p1, id), { now: 'n2' })), p0, `완료(칸 그대로) ${i}`);
+    // 6초가 지난 뒤의 «완료 되돌리기»(목록·고치기 창·대시보드)도 칸을 원래 길이로 돌린다 (2026-11-25)
+    same(apply(p1, T.planUndoComplete(get(p1, id), { now: 'n2' })), p0, `완료 → 나중에 되돌리기 ${i}`);
     // 칸 빼기
     if (cur.slot) {
       const p2 = apply(p0, T.planSetSlot(cur, null, { now: 'n1' }));
